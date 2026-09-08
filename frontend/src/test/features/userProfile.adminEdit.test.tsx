@@ -64,9 +64,14 @@ vi.mock("../../services/api", () => ({
     logout: vi.fn(),
   },
   userService: {
-    getUser: (id: string) => mockGetUser(id),
     adminEditProfile: (userId: string, updates: any) =>
       mockAdminEditProfile(userId, updates),
+  },
+  adminUsersService: {
+    get: (id: string) => mockGetUser(id),
+  },
+  communityMembersService: {
+    get: (id: string) => mockGetUser(id),
   },
   fileService: {
     uploadAvatarForAdmin: vi.fn(async () => ({
@@ -171,6 +176,8 @@ describe("UserProfile - Admin Edit Mode", () => {
 
     // Should NOT show Edit Profile button
     expect(screen.queryByRole("button", { name: /edit profile/i })).toBeNull();
+    expect(screen.queryByText("target@example.com")).toBeNull();
+    expect(screen.queryByText("1234567890")).toBeNull();
   });
 
   it("does NOT show Edit Profile button when Participant views another user's profile", async () => {

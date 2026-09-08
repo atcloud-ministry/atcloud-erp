@@ -2,6 +2,10 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Program, Purchase } from "../../models";
 import { RoleUtils } from "../../utils/roleUtils";
+import {
+  AssignmentSnapshotError,
+  UserAssignmentSnapshotService,
+} from "../../services/UserAssignmentSnapshotService";
 
 export default class UpdateController {
   static async update(req: Request, res: Response): Promise<void> {
@@ -70,10 +74,25 @@ export default class UpdateController {
         return;
       }
 
-      program.set(req.body);
+      const payload = { ...(req.body || {}) };
+      if (Object.prototype.hasOwnProperty.call(payload, "mentors")) {
+        const existingMentorIds = (program.mentors || []).map(
+          (mentor: { userId: unknown }) => String(mentor.userId),
+        );
+        payload.mentors =
+          await UserAssignmentSnapshotService.resolveProgramMentors(
+            payload.mentors,
+            existingMentorIds,
+          );
+      }
+      program.set(payload);
       const updated = await program.save();
       res.status(200).json({ success: true, data: updated });
     } catch (error) {
+      if (error instanceof AssignmentSnapshotError) {
+        res.status(400).json({ success: false, message: error.message });
+        return;
+      }
       res
         .status(400)
         .json({ success: false, message: (error as Error).message });

@@ -86,6 +86,7 @@ import { EventProgramLinkageService } from "../../services/event/EventProgramLin
 import { RecurringEventGenerationService } from "../../services/event/RecurringEventGenerationService";
 import { EventCreationNotificationService } from "../../services/event/EventCreationNotificationService";
 import { CoOrganizerProgramAccessService } from "../../services/event/CoOrganizerProgramAccessService";
+import { AssignmentSnapshotError } from "../../services/UserAssignmentSnapshotService";
 import { generateUniquePublicSlug } from "../../utils/publicSlug";
 import { toIdString } from "../../utils/idUtils";
 
@@ -309,7 +310,7 @@ export class CreationController {
       // ========================================
       // Process organizer details with placeholder pattern for contact info
       const processedOrganizerDetails =
-        EventOrganizerDataService.processOrganizerDetails(
+        await EventOrganizerDataService.processOrganizerDetails(
           eventData.organizerDetails,
         );
 
@@ -579,6 +580,11 @@ export class CreationController {
         "createEvent failed",
         error as Error,
       );
+
+      if (error instanceof AssignmentSnapshotError) {
+        res.status(400).json({ success: false, message: error.message });
+        return;
+      }
 
       if (
         typeof error === "object" &&

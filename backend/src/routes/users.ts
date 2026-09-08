@@ -3,8 +3,7 @@ import GetProfileController from "../controllers/profile/GetProfileController";
 import UpdateProfileController from "../controllers/profile/UpdateProfileController";
 import UploadAvatarController from "../controllers/profile/UploadAvatarController";
 import ChangePasswordController from "../controllers/profile/ChangePasswordController";
-import UserQueryController from "../controllers/user-admin/UserQueryController";
-import UserListingController from "../controllers/user-admin/UserListingController";
+import UserReadController from "../controllers/UserReadController";
 import UserRoleController from "../controllers/user-admin/UserRoleController";
 import UserDeactivationController from "../controllers/user-admin/UserDeactivationController";
 import UserReactivationController from "../controllers/user-admin/UserReactivationController";
@@ -50,9 +49,17 @@ router.post(
   UploadAvatarController.uploadAvatar,
 );
 
-// Admin routes - Allow all authenticated users to view user list (community feature) (UserAdminController)
-router.get("/", UserListingController.getAllUsers);
-router.get("/search", UserListingController.getAllUsers);
+// Legacy account-management reads. Community reads use /api/community/members.
+router.get(
+  "/",
+  authorizePermission(PERMISSIONS.MANAGE_USERS),
+  UserReadController.listLegacyAdminUsers,
+);
+router.get(
+  "/search",
+  authorizePermission(PERMISSIONS.MANAGE_USERS),
+  UserReadController.listLegacyAdminUsers,
+);
 
 // Community stats - available to all authenticated users who can view the Community page
 router.get(
@@ -75,7 +82,8 @@ router.get(
   "/:id",
   validateObjectId,
   handleValidationErrors,
-  UserQueryController.getUserById,
+  authorizePermission(PERMISSIONS.MANAGE_USERS),
+  UserReadController.getAdminUser,
 );
 
 // Admin user management routes (UserAdminController)

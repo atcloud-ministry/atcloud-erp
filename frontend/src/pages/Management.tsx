@@ -2,6 +2,7 @@ import { useManagement } from "../hooks/useManagement";
 import { useEnhancedManagement } from "../hooks/useEnhancedManagement";
 import ManagementHeader from "../components/management/ManagementHeader";
 import UserTable from "../components/management/UserTable";
+import CommunityMemberTable from "../components/management/CommunityMemberTable";
 import UserPagination from "../components/management/UserPagination";
 import UserSearchAndFilter from "../components/management/UserSearchAndFilter";
 import { Card, CardContent } from "../components/ui";
@@ -12,6 +13,8 @@ export default function Management() {
   // Enhanced management hook provides search/filter functionality
   const {
     users: enhancedUsers,
+    communityMembers,
+    isAdminView,
     currentUserRole: enhancedCurrentUserRole,
     roleStats: enhancedRoleStats,
     roleStatsLoading: enhancedRoleStatsLoading,
@@ -39,7 +42,7 @@ export default function Management() {
     isProcessing,
     handleConfirmAction,
     handleCancelConfirmation,
-  } = useManagement(enhancedUsers);
+  } = useManagement(isAdminView ? enhancedUsers : []);
 
   // Use enhanced data when available, fallback to original
   const users = enhancedUsers;
@@ -49,10 +52,7 @@ export default function Management() {
   const pagination = enhancedPagination;
   const loading = enhancedLoading;
   const error = enhancedError;
-
-  // Determine if user has limited access (Guest Expert or Participant)
-  const hasLimitedAccess =
-    currentUserRole === "Guest Expert" || currentUserRole === "Participant";
+  const canBrowseWithFilters = isAdminView || currentUserRole === "Leader";
 
   return (
     <div className="max-w-[1280px] xl:max-w-[1360px] 2xl:max-w-[1440px] mx-auto px-4 lg:px-6 space-y-6">
@@ -63,13 +63,13 @@ export default function Management() {
         loadingStats={roleStatsLoading}
       />
 
-      {/* Search and Filter Controls - Hidden for Guest Expert and Participant */}
-      {!hasLimitedAccess && (
+      {canBrowseWithFilters && (
         <UserSearchAndFilter
           onFiltersChange={onFiltersChange}
           loading={loading}
           totalResults={pagination.totalUsers}
           currentUserRole={currentUserRole}
+          mode={isAdminView ? "admin" : "community"}
         />
       )}
 
@@ -86,13 +86,20 @@ export default function Management() {
             </div>
           ) : (
             <>
-              <UserTable
-                users={users}
-                getActionsForUser={getActionsForUser}
-                openDropdown={openDropdown}
-                onToggleDropdown={toggleDropdown}
-                currentUserRole={currentUserRole}
-              />
+              {isAdminView ? (
+                <UserTable
+                  users={users}
+                  getActionsForUser={getActionsForUser}
+                  openDropdown={openDropdown}
+                  onToggleDropdown={toggleDropdown}
+                  currentUserRole={currentUserRole}
+                />
+              ) : (
+                <CommunityMemberTable
+                  members={communityMembers}
+                  currentUserRole={currentUserRole}
+                />
+              )}
               <UserPagination
                 currentPage={pagination.currentPage}
                 totalPages={pagination.totalPages}

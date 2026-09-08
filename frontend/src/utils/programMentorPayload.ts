@@ -1,11 +1,5 @@
 export type ProgramMentorPayload = {
   userId: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  gender?: "male" | "female";
-  avatar?: string | null;
-  roleInAtCloud?: string;
 };
 
 type IdCarrier = {
@@ -52,15 +46,7 @@ export const toProgramMentorPayload = (
   const userId = getProgramMentorUserId(mentor);
   if (!userId) return null;
 
-  return {
-    userId,
-    firstName: mentor.firstName,
-    lastName: mentor.lastName,
-    email: mentor.email,
-    gender: mentor.gender,
-    avatar: mentor.avatar,
-    roleInAtCloud: mentor.roleInAtCloud,
-  };
+  return { userId };
 };
 
 export const toProgramMentorPayloads = (

@@ -73,7 +73,7 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
       pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
     });
     vi.mocked(api.apiClient.listPrograms).mockResolvedValue([]);
-    vi.mocked(api.userService.getUsers).mockResolvedValue({
+    vi.mocked(api.adminUsersService.list).mockResolvedValue({
       users: [],
       pagination: {
         currentPage: 1,
@@ -82,9 +82,6 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
         hasNext: false,
         hasPrev: false,
       },
-    });
-    vi.mocked(api.searchService.searchUsers).mockResolvedValue({
-      results: [],
     });
   });
 
@@ -216,16 +213,29 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
       gender: "male" as const,
       avatar: null,
       phone: "+1234567890",
-      isAtCloudLeader: "No" as const,
+      isAtCloudLeader: false,
+      homeAddress: null,
+      occupation: null,
+      company: null,
+      weeklyChurch: null,
+      churchAddress: null,
+      isActive: true,
+      isVerified: true,
+      emailNotifications: true,
+      lastLogin: null,
+      createdAt: null,
+      updatedAt: null,
     };
 
-    vi.mocked(api.searchService.searchUsers).mockResolvedValue({
-      results: [mockUser],
-    });
-
-    // Configure search to return our user
-    vi.mocked(api.searchService.searchUsers).mockResolvedValue({
-      results: [mockUser],
+    vi.mocked(api.adminUsersService.list).mockResolvedValue({
+      users: [mockUser],
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        totalUsers: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
     });
 
     // Mock staff code creation
@@ -302,7 +312,9 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
     // Wait for search to be called
     await waitFor(
       () => {
-        expect(api.searchService.searchUsers).toHaveBeenCalled();
+        expect(api.adminUsersService.list).toHaveBeenCalledWith(
+          expect.objectContaining({ q: "john" }),
+        );
       },
       { timeout: 2000 },
     );
@@ -385,8 +397,15 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
       avatar: null,
     };
 
-    vi.mocked(api.searchService.searchUsers).mockResolvedValue({
-      results: [mockInvalidUser as any], // Cast to bypass type check
+    vi.mocked(api.adminUsersService.list).mockResolvedValue({
+      users: [mockInvalidUser as any], // Cast to exercise defensive filtering
+      pagination: {
+        currentPage: 1,
+        totalPages: 1,
+        totalUsers: 1,
+        hasNext: false,
+        hasPrev: false,
+      },
     });
 
     render(
@@ -439,7 +458,9 @@ describe("AdminPromoCodes - Staff Code Creation (Minimal Test)", () => {
 
     await waitFor(
       () => {
-        expect(api.searchService.searchUsers).toHaveBeenCalled();
+        expect(api.adminUsersService.list).toHaveBeenCalledWith(
+          expect.objectContaining({ q: "broken" }),
+        );
       },
       { timeout: 2000 },
     );

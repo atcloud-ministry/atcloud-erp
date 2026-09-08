@@ -1,6 +1,10 @@
 import { Request, Response } from "express";
 import { Program } from "../../models";
 import { RoleUtils } from "../../utils/roleUtils";
+import {
+  AssignmentSnapshotError,
+  UserAssignmentSnapshotService,
+} from "../../services/UserAssignmentSnapshotService";
 
 export default class CreationController {
   static async create(req: Request, res: Response): Promise<void> {
@@ -20,10 +24,20 @@ export default class CreationController {
         return;
       }
 
-      const payload = req.body || {};
+      const payload = { ...(req.body || {}) };
+      if (Object.prototype.hasOwnProperty.call(payload, "mentors")) {
+        payload.mentors =
+          await UserAssignmentSnapshotService.resolveProgramMentors(
+            payload.mentors,
+          );
+      }
       const doc = await Program.create({ ...payload, createdBy: req.user._id });
       res.status(201).json({ success: true, data: doc });
     } catch (error) {
+      if (error instanceof AssignmentSnapshotError) {
+        res.status(400).json({ success: false, message: error.message });
+        return;
+      }
       res
         .status(400)
         .json({ success: false, message: (error as Error).message });

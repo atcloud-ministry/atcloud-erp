@@ -25,6 +25,9 @@ import promoCodeRoutes from "./promoCodes"; // Promo code system
 import adminPurchaseRoutes from "./admin/purchases"; // Admin payment records
 import donationRoutes from "./donations"; // Donation system
 import refundRequestRoutes from "./refundRequests"; // Refund approval workflow
+import communityRoutes from "./community";
+import adminUserRoutes from "./admin/users";
+import userOptionsRoutes from "./userOptions";
 
 const router = Router();
 
@@ -56,6 +59,9 @@ router.use("/promo-codes", promoCodeRoutes);
 router.use("/admin/purchases", adminPurchaseRoutes);
 router.use("/donations", donationRoutes);
 router.use("/refund-requests", refundRequestRoutes);
+router.use("/community", communityRoutes);
+router.use("/admin/users", adminUserRoutes);
+router.use("/user-options", userOptionsRoutes);
 
 // Health check endpoint
 router.get("/health", (req, res) => {
@@ -76,6 +82,9 @@ router.get(`/`, (req, res) => {
     endpoints: {
       auth: `/auth`,
       users: `/users`,
+      community: `/community/members`,
+      adminUsers: `/admin/users`,
+      userOptions: `/user-options`,
       events: `/events`,
       notifications: `/notifications`,
       emailNotifications: `/email-notifications`,
@@ -97,11 +106,23 @@ router.get(`/`, (req, res) => {
       users: {
         getProfile: "GET /users/profile",
         updateProfile: "PUT /users/profile",
-        getUserById: "GET /users/:id",
-        getAllUsers: "GET /users (requires VIEW_USER_PROFILES)",
+        getUserById: "GET /users/:id (requires MANAGE_USERS; legacy)",
+        getAllUsers: "GET /users (requires MANAGE_USERS; legacy)",
         updateUserRole: "PUT /users/:id/role (admin)",
         deactivateUser: "PUT /users/:id/deactivate (admin)",
         reactivateUser: "PUT /users/:id/reactivate (admin)",
+      },
+      community: {
+        listMembers: "GET /community/members",
+        getMember: "GET /community/members/:id",
+      },
+      adminUsers: {
+        listUsers: "GET /admin/users (requires MANAGE_USERS)",
+        getUser: "GET /admin/users/:id (requires MANAGE_USERS)",
+      },
+      userOptions: {
+        list:
+          "GET /user-options?context=event-organizer|program-mentor|event-role-assignee",
       },
       events: {
         getAllEvents: "GET /events",

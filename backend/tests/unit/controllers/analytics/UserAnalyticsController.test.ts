@@ -14,6 +14,13 @@ vi.mock("../../../../src/utils/roleUtils", () => ({
   PERMISSIONS: {
     VIEW_SYSTEM_ANALYTICS: "view_system_analytics",
   },
+  ROLES: {
+    SUPER_ADMIN: "Super Admin",
+    ADMINISTRATOR: "Administrator",
+    LEADER: "Leader",
+    GUEST_EXPERT: "Guest Expert",
+    PARTICIPANT: "Participant",
+  },
 }));
 
 vi.mock("../../../../src/services/CorrelatedLogger", () => ({
@@ -124,13 +131,37 @@ describe("UserAnalyticsController", () => {
         { _id: { year: 2025, month: 2 }, count: 8 },
       ];
 
+      const mockUsersByOccupation = [
+        { _id: "Engineer", count: 2 },
+        { _id: "Teacher", count: 1 },
+      ];
+
+      const mockDemographicRows = [
+        {
+          role: "Super Admin",
+          isActive: true,
+          isAtCloudLeader: true,
+          weeklyChurch: "First Baptist",
+          churchAddress: "1 Main St",
+          occupation: "Engineer",
+        },
+        {
+          role: "Participant",
+          isActive: false,
+          isAtCloudLeader: false,
+          occupation: "Engineer",
+        },
+      ];
+
       beforeEach(() => {
         vi.mocked(hasPermission).mockReturnValue(true);
         vi.mocked(User.aggregate)
           .mockResolvedValueOnce(mockUsersByRole)
           .mockResolvedValueOnce(mockUsersByAtCloudStatus)
           .mockResolvedValueOnce(mockUsersByChurch)
-          .mockResolvedValueOnce(mockRegistrationTrends);
+          .mockResolvedValueOnce(mockRegistrationTrends)
+          .mockResolvedValueOnce(mockUsersByOccupation)
+          .mockResolvedValueOnce(mockDemographicRows);
       });
 
       it("should return user analytics data", async () => {
@@ -147,17 +178,48 @@ describe("UserAnalyticsController", () => {
             usersByAtCloudStatus: mockUsersByAtCloudStatus,
             usersByChurch: mockUsersByChurch,
             registrationTrends: mockRegistrationTrends,
+            usersByOccupation: mockUsersByOccupation,
+            totalUsers: 2,
+            activeUsers: 1,
+            demographics: {
+              roleStats: {
+                total: 2,
+                superAdmin: 1,
+                administrators: 0,
+                leaders: 0,
+                guestExperts: 0,
+                participants: 1,
+                atCloudLeaders: 1,
+              },
+              churchAnalytics: {
+                weeklyChurchStats: { "First Baptist": 1 },
+                churchAddressStats: { "1 Main St": 1 },
+                usersWithChurchInfo: 1,
+                usersWithoutChurchInfo: 1,
+                totalChurches: 1,
+                totalChurchLocations: 1,
+                churchParticipationRate: 50,
+              },
+              occupationAnalytics: {
+                occupationStats: { Engineer: 2 },
+                usersWithOccupation: 2,
+                usersWithoutOccupation: 0,
+                totalOccupationTypes: 1,
+                topOccupations: [{ occupation: "Engineer", count: 2 }],
+                occupationCompletionRate: 100,
+              },
+            },
           },
         });
       });
 
-      it("should call User.aggregate four times for different analytics", async () => {
+      it("should call User.aggregate six times for different analytics", async () => {
         await UserAnalyticsController.getUserAnalytics(
           mockReq as Request,
           mockRes as Response,
         );
 
-        expect(User.aggregate).toHaveBeenCalledTimes(4);
+        expect(User.aggregate).toHaveBeenCalledTimes(6);
       });
     });
 

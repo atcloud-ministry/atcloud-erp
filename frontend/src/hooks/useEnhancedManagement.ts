@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { SystemAuthorizationLevel, User } from "../types/management";
+import type { CommunityMemberDTO } from "../services/api";
 import { useRoleStats } from "./useRoleStats";
 import { useCommunityStats } from "./useUsersApi";
 import { useAuth } from "./useAuth";
@@ -16,10 +17,13 @@ export function useEnhancedManagement() {
   // Get actual current user role from auth context
   const currentUserRole: SystemAuthorizationLevel =
     currentUser?.role || "Participant";
+  const isAdminView =
+    currentUserRole === "Super Admin" || currentUserRole === "Administrator";
 
   // Use the enhanced filtering hook for user data
   const {
-    users: filteredUsers,
+    adminUsers,
+    communityMembers,
     loading: filterLoading,
     error: filterError,
     pagination: filterPagination,
@@ -27,30 +31,27 @@ export function useEnhancedManagement() {
     handleFiltersChange,
     handlePageChange,
     handleRefresh,
-  } = useManagementFilters();
+  } = useManagementFilters(isAdminView ? "admin" : "community");
 
   // Convert filtered users to management User type
   const users: User[] = useMemo(() => {
-    return filteredUsers.map((user) => ({
+    return adminUsers.map((user) => ({
       id: user.id,
       username: user.username,
       email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role as SystemAuthorizationLevel,
-      avatar: user.avatar || null,
-      gender: user.gender || "male",
-      joinDate: user.joinedAt
-        ? new Date(user.joinedAt).toLocaleDateString()
+      firstName: user.firstName ?? "",
+      lastName: user.lastName ?? "",
+      role: user.role,
+      avatar: user.avatar,
+      gender: user.gender ?? "male",
+      joinDate: user.createdAt
+        ? new Date(user.createdAt).toLocaleDateString()
         : "Unknown",
-      lastActive: user.lastActive || null,
-      isActive: user.isActive !== false,
-      emailVerified: user.emailVerified || false,
-      roleInAtCloud: user.roleInAtCloud || undefined,
-      // Include both formats for compatibility
+      roleInAtCloud: user.roleInAtCloud ?? undefined,
       isAtCloudLeader: user.isAtCloudLeader ? "Yes" : "No",
+      isActive: user.isActive,
     }));
-  }, [filteredUsers]);
+  }, [adminUsers]);
 
   // Page-derived stats (fallback)
   const pageRoleStats = useRoleStats(users);
@@ -108,6 +109,8 @@ export function useEnhancedManagement() {
   return {
     // User data
     users,
+    communityMembers: communityMembers as CommunityMemberDTO[],
+    isAdminView,
     currentUserRole,
     roleStats,
     roleStatsLoading: backendStatsLoading,

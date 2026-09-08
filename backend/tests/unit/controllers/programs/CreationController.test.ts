@@ -7,6 +7,20 @@ import { RoleUtils } from "../../../../src/utils/roleUtils";
 // Mock dependencies
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/utils/roleUtils");
+vi.mock("../../../../src/services/UserAssignmentSnapshotService", () => {
+  class AssignmentSnapshotError extends Error {}
+  return {
+    AssignmentSnapshotError,
+    UserAssignmentSnapshotService: {
+      resolveProgramMentors: vi.fn(),
+    },
+  };
+});
+
+import {
+  AssignmentSnapshotError,
+  UserAssignmentSnapshotService,
+} from "../../../../src/services/UserAssignmentSnapshotService";
 
 describe("CreationController", () => {
   let mockReq: any;
@@ -29,6 +43,9 @@ describe("CreationController", () => {
       body: {},
       user: undefined,
     };
+    vi.mocked(
+      UserAssignmentSnapshotService.resolveProgramMentors,
+    ).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -323,6 +340,30 @@ describe("CreationController", () => {
           success: false,
           message: "Title is required",
         });
+      });
+
+      it("should return 400 when a selected mentor is ineligible", async () => {
+        mockReq.body = {
+          title: "Test Program",
+          mentors: [{ userId: "507f191e810c19729de860ea" }],
+        };
+        vi.mocked(
+          UserAssignmentSnapshotService.resolveProgramMentors,
+        ).mockRejectedValue(
+          new AssignmentSnapshotError("Selected user is not eligible."),
+        );
+
+        await CreationController.create(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith({
+          success: false,
+          message: "Selected user is not eligible.",
+        });
+        expect(Program.create).not.toHaveBeenCalled();
       });
 
       it("should return 400 on duplicate key error", async () => {

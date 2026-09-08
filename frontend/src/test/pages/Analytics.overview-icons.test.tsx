@@ -27,6 +27,12 @@ vi.mock("../../services/socketService", () => ({
 }));
 
 vi.mock("../../hooks/useAnalyticsResources", () => ({
+  useUserAnalyticsResource: () => ({
+    data: null,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
   useAnalyticsOverviewResource: () => ({
     data: {
       overview: {

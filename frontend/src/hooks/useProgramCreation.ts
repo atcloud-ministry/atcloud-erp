@@ -28,8 +28,6 @@ interface Mentor {
   roleInAtCloud?: string;
   gender: "male" | "female";
   avatar: string | null;
-  email: string;
-  phone?: string;
 }
 
 type ProgramPayload = {

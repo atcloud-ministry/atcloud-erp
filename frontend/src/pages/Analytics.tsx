@@ -10,8 +10,6 @@ import {
   UsersIcon,
 } from "@heroicons/react/24/solid";
 import { useAuth } from "../hooks/useAuth";
-import { useUserData } from "../hooks/useUserData";
-import { useRoleStats } from "../hooks/useRoleStats";
 import {
   useAnalyticsOverviewResource,
   useAttendanceAnalyticsResource,
@@ -19,6 +17,7 @@ import {
   useEventAnalyticsResource,
   useFinancialSummaryResource,
   useProgramAnalyticsResource,
+  useUserAnalyticsResource,
 } from "../hooks/useAnalyticsResources";
 import {
   AnalyticsOverviewLoadingState,
@@ -27,10 +26,8 @@ import {
 import { TabNav } from "../components/ui";
 import type { EventData } from "../types/event";
 import {
-  calculateChurchAnalytics,
   calculateEventAnalytics,
   calculateGuestAggregates,
-  calculateOccupationAnalytics,
   calculateUserEngagement,
 } from "../utils/analyticsCalculations";
 import { AnalyticsOverviewCards } from "../components/analytics/AnalyticsOverviewCards";
@@ -167,6 +164,9 @@ export default function Analytics() {
   const eventResource = useEventAnalyticsResource(
     hasAnalyticsAccess && (activeTab === "events" || activeTab === "people"),
   );
+  const userResource = useUserAnalyticsResource(
+    hasAnalyticsAccess && activeTab === "people",
+  );
   const attendanceResource = useAttendanceAnalyticsResource(
     hasAnalyticsAccess && activeTab === "attendance",
   );
@@ -179,14 +179,6 @@ export default function Analytics() {
   const donationResource = useDonationAnalyticsResource(
     hasFinancialAccess && activeTab === "finance",
   );
-
-  const { users, loading: usersLoading } = useUserData({
-    fetchAll: true,
-    limit: 100,
-    enabled: hasAnalyticsAccess && activeTab === "people",
-    suppressErrors: !hasAnalyticsAccess,
-  });
-  const roleStats = useRoleStats(users);
 
   const eventPayload = useMemo(
     () => getEventPayload(eventResource.data),
@@ -222,15 +214,6 @@ export default function Analytics() {
         : 0,
     [engagementMetrics.userSignups, engagementMetrics.uniqueParticipants],
   );
-  const churchAnalytics = useMemo(
-    () => calculateChurchAnalytics(users),
-    [users],
-  );
-  const occupationAnalytics = useMemo(
-    () => calculateOccupationAnalytics(users),
-    [users],
-  );
-
   const handleTabChange = (tabId: AnalyticsTab) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("tab", tabId);
@@ -297,6 +280,9 @@ export default function Analytics() {
     ((activeTab === "events" || activeTab === "people") &&
       !eventResource.data &&
       !eventResource.error);
+  const usersAreLoading =
+    userResource.loading ||
+    (activeTab === "people" && !userResource.data && !userResource.error);
   const attendanceIsLoading =
     attendanceResource.loading ||
     (activeTab === "attendance" &&
@@ -422,9 +408,15 @@ export default function Analytics() {
 
           {activeTab === "people" && (
             <>
-              {eventResource.error ? (
-                <SectionError message={eventResource.error} />
-              ) : eventsAreLoading || usersLoading ? (
+              {eventResource.error || userResource.error ? (
+                <SectionError
+                  message={
+                    eventResource.error ||
+                    userResource.error ||
+                    "Failed to load people analytics"
+                  }
+                />
+              ) : eventsAreLoading || usersAreLoading || !userResource.data ? (
                 <AnalyticsCardSectionLoadingState cardCount={2} itemCount={6} />
               ) : (
                 <div className="space-y-6">
@@ -437,10 +429,16 @@ export default function Analytics() {
                     totalEvents={eventAnalytics.totalEvents}
                     avgRolesPerParticipant={avgRolesPerParticipant}
                   />
-                  <SystemAuthorizationDistributionCard roleStats={roleStats} />
+                  <SystemAuthorizationDistributionCard
+                    roleStats={userResource.data.demographics.roleStats}
+                  />
                   <ParticipantDemographics
-                    churchAnalytics={churchAnalytics}
-                    occupationAnalytics={occupationAnalytics}
+                    churchAnalytics={
+                      userResource.data.demographics.churchAnalytics
+                    }
+                    occupationAnalytics={
+                      userResource.data.demographics.occupationAnalytics
+                    }
                   />
                 </div>
               )}

@@ -158,18 +158,15 @@ describe("Users API Integration Tests", () => {
       });
     });
 
-    it("should allow user list request with user token (community access)", async () => {
+    it("should direct non-admin user-list reads to the Community API", async () => {
       const response = await request(app)
         .get("/api/users")
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(403);
 
       expect(response.body).toMatchObject({
-        success: true,
-        data: {
-          users: expect.any(Array),
-          pagination: expect.any(Object),
-        },
+        success: false,
+        message: expect.stringContaining("manage_users"),
       });
     });
 
@@ -200,30 +197,28 @@ describe("Users API Integration Tests", () => {
       });
     });
 
-    it("should enforce maximum page size of 20", async () => {
+    it("should reject a page size above the contract maximum", async () => {
       const response = await request(app)
         .get("/api/users?page=1&limit=50")
         .set("Authorization", `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(400);
 
-      // Should not exceed 20 returned users
-      expect(response.body.data.users.length).toBeLessThanOrEqual(20);
-      expect(response.body.data.pagination).toMatchObject({
-        currentPage: 1,
+      expect(response.body).toMatchObject({
+        success: false,
+        message: "Validation failed",
       });
     });
 
-    it("should default to page 1 and limit 20 on invalid params", async () => {
+    it("should reject invalid pagination parameters", async () => {
       const response = await request(app)
         .get("/api/users?page=-5&limit=abc")
         .set("Authorization", `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(400);
 
-      expect(response.body.data.pagination).toMatchObject({
-        currentPage: 1,
+      expect(response.body).toMatchObject({
+        success: false,
+        message: "Validation failed",
       });
-      // length should be <= 20 due to default limit
-      expect(response.body.data.users.length).toBeLessThanOrEqual(20);
     });
 
     it("should filter users by role", async () => {
@@ -277,13 +272,11 @@ describe("Users API Integration Tests", () => {
       expect(response.body.data.user.password).toBeUndefined();
     });
 
-    it("should allow users to get their own profile", async () => {
-      const response = await request(app)
+    it("should keep self-service profile reads on the profile endpoint", async () => {
+      await request(app)
         .get(`/api/users/${userId}`)
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.data.user.username).toBe("testuser");
+        .expect(403);
     });
 
     it("should reject Participant trying to get another user's profile", async () => {
@@ -439,21 +432,11 @@ describe("Users API Integration Tests", () => {
       expect(response.body.data.users).toHaveLength(0);
     });
 
-    it("should allow participants to search users", async () => {
-      const response = await request(app)
+    it("should restrict compatibility user search to account managers", async () => {
+      await request(app)
         .get("/api/search/users?q=John")
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      // Participants should see limited user information
-      expect(response.body.data.users).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            firstName: "John",
-            lastName: "Developer",
-          }),
-        ])
-      );
+        .expect(403);
     });
   });
 

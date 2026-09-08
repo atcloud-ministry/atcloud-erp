@@ -20,6 +20,7 @@ export * from "./programs.api";
 export * from "./purchases.api";
 export * from "./promoCodes.api";
 export * from "./users.api";
+export * from "./userDirectory.api";
 export * from "./files.api";
 export * from "./notifications.api";
 export * from "./systemMessages.api";

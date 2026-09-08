@@ -21,6 +21,20 @@ vi.mock("../../../../src/utils/roleUtils", () => ({
     isAdmin: vi.fn(),
   },
 }));
+vi.mock("../../../../src/services/UserAssignmentSnapshotService", () => {
+  class AssignmentSnapshotError extends Error {}
+  return {
+    AssignmentSnapshotError,
+    UserAssignmentSnapshotService: {
+      resolveProgramMentors: vi.fn(),
+    },
+  };
+});
+
+import {
+  AssignmentSnapshotError,
+  UserAssignmentSnapshotService,
+} from "../../../../src/services/UserAssignmentSnapshotService";
 
 describe("UpdateController", () => {
   let mockReq: any;
@@ -71,6 +85,9 @@ describe("UpdateController", () => {
       status: statusMock as any,
       json: jsonMock as any,
     };
+    vi.mocked(
+      UserAssignmentSnapshotService.resolveProgramMentors,
+    ).mockResolvedValue([]);
   });
 
   describe("update", () => {
@@ -374,6 +391,29 @@ describe("UpdateController", () => {
           success: false,
           message: "Validation failed",
         });
+      });
+
+      it("should return 400 when a newly selected mentor is ineligible", async () => {
+        mockReq.body = {
+          mentors: [{ userId: new mongoose.Types.ObjectId().toString() }],
+        };
+        vi.mocked(
+          UserAssignmentSnapshotService.resolveProgramMentors,
+        ).mockRejectedValue(
+          new AssignmentSnapshotError("Selected user is not eligible."),
+        );
+
+        await UpdateController.update(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith({
+          success: false,
+          message: "Selected user is not eligible.",
+        });
+        expect(mockProgram.save).not.toHaveBeenCalled();
       });
 
       it("should handle database errors", async () => {

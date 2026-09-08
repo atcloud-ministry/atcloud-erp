@@ -2,40 +2,29 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader, Card, CardContent, Button } from "../components/ui";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { userService } from "../services/api";
+import { useCallback, useEffect, useState } from "react";
+import {
+  adminUsersService,
+  communityMembersService,
+  type AdminUserDTO,
+  type CommunityMemberDTO,
+} from "../services/api";
 import { getAvatarUrlWithCacheBust, getAvatarAlt } from "../utils/avatarUtils";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
 import { safeFormatDate } from "../utils/eventStatsUtils";
 import { useAdminProfileEdit } from "../hooks/useAdminProfileEdit";
 import AvatarUpload from "../components/profile/AvatarUpload";
-type ProfileUser = {
-  id: string;
-  username: string;
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  role: string;
-  avatar?: string | null;
-  gender?: "male" | "female" | null;
-  phone?: string | null;
-  // Extended profile fields used in UI (optional from backend)
-  isAtCloudLeader?: boolean | null;
-  roleInAtCloud?: string | null;
-  homeAddress?: string | null;
-  occupation?: string | null;
-  company?: string | null;
-  weeklyChurch?: string | null;
-  churchAddress?: string | null;
-  createdAt?: string | null;
-};
+
+type ProfileRead =
+  | { scope: "admin"; user: AdminUserDTO }
+  | { scope: "community"; user: CommunityMemberDTO };
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, isLoading: authLoading } = useAuth();
   const notification = useToastReplacement();
-  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [profile, setProfile] = useState<ProfileRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [editFormData, setEditFormData] = useState({
@@ -54,7 +43,8 @@ export default function UserProfile() {
   const isOwnProfile = currentUser?.id === userId;
 
   // Fetch profile data function (to be called on mount and after save)
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
+    if (authLoading) return;
     if (!userId) {
       setNotFound(true);
       setLoading(false);
@@ -69,23 +59,30 @@ export default function UserProfile() {
 
     try {
       setLoading(true);
-      const fetchedUser = (await userService.getUser(
-        userId
-      )) as unknown as ProfileUser;
+      const fetchedUser = canEdit
+        ? await adminUsersService.get(userId)
+        : await communityMembersService.get(userId);
 
       if (!fetchedUser) {
         setNotFound(true);
         return;
       }
 
-      setProfileUser(fetchedUser);
-      // Initialize edit form data
-      setEditFormData({
-        avatar: fetchedUser.avatar || "",
-        phone: fetchedUser.phone || "",
-        isAtCloudLeader: fetchedUser.isAtCloudLeader || false,
-        roleInAtCloud: fetchedUser.roleInAtCloud || "",
-      });
+      if (canEdit) {
+        const adminUser = fetchedUser as AdminUserDTO;
+        setProfile({ scope: "admin", user: adminUser });
+        setEditFormData({
+          avatar: adminUser.avatar || "",
+          phone: adminUser.phone || "",
+          isAtCloudLeader: adminUser.isAtCloudLeader,
+          roleInAtCloud: adminUser.roleInAtCloud || "",
+        });
+      } else {
+        setProfile({
+          scope: "community",
+          user: fetchedUser as CommunityMemberDTO,
+        });
+      }
       setNotFound(false);
     } catch (error: unknown) {
       console.error("UserProfile: Error fetching user", error);
@@ -106,7 +103,7 @@ export default function UserProfile() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authLoading, canEdit, isOwnProfile, navigate, notification, userId]);
 
   // Use the admin profile edit hook
   const {
@@ -121,8 +118,7 @@ export default function UserProfile() {
   // Single useEffect to handle all logic
   useEffect(() => {
     fetchProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [fetchProfile]);
 
   // Loading state
   if (loading) {
@@ -144,7 +140,7 @@ export default function UserProfile() {
   }
 
   // If user is not found, show error
-  if (notFound || !profileUser) {
+  if (notFound || !profile) {
     return (
       <div className="max-w-6xl mx-auto space-y-6">
         <PageHeader title="User Not Found" />
@@ -157,13 +153,68 @@ export default function UserProfile() {
               to="/dashboard/management"
               className="text-blue-600 hover:text-blue-800 mt-4 inline-block"
             >
-              ← Back to Management
+              ← Back to {canEdit ? "Administration" : "Community"}
             </Link>
           </CardContent>
         </Card>
       </div>
     );
   }
+
+  if (profile.scope === "community") {
+    const member = profile.user;
+    const fullName =
+      `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() ||
+      member.username;
+
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto">
+        <PageHeader title={`${fullName}'s Profile`} />
+        <Card>
+          <CardContent>
+            <div className="flex flex-col items-center gap-5 py-4 text-center">
+              <img
+                className="w-32 h-32 rounded-full object-cover"
+                src={getAvatarUrlWithCacheBust(
+                  member.avatar,
+                  member.gender ?? "male",
+                )}
+                alt={getAvatarAlt(
+                  member.firstName ?? "",
+                  member.lastName ?? "",
+                  Boolean(member.avatar),
+                )}
+              />
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {fullName}
+                </h2>
+                <p className="text-sm text-gray-500">@{member.username}</p>
+              </div>
+              {member.roleInAtCloud && (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Role in @Cloud
+                  </p>
+                  <p className="mt-1 text-sm text-gray-900">
+                    {member.roleInAtCloud}
+                  </p>
+                </div>
+              )}
+              <Link
+                to="/dashboard/management"
+                className="text-blue-600 hover:text-blue-800"
+              >
+                ← Back to Community
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const profileUser = profile.user;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">

@@ -4,6 +4,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useForm, type Resolver } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import BasicEventFields from "../components/EditEvent/BasicEventFields";
+import type { Organizer } from "../components/events/OrganizerSelection";
 import FormatSettings from "../components/EditEvent/FormatSettings";
 import RoleManagement from "../components/EditEvent/RoleManagement";
 import PricingSection from "../components/EditEvent/PricingSection";
@@ -27,18 +28,6 @@ import {
 // Roles utilities
 import { useRoleValidation } from "../hooks/useRoleValidation";
 import { useEventDataLoader } from "../hooks/useEventDataLoader";
-
-interface Organizer {
-  id: string;
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string; // Add email field
-  phone?: string; // Add phone field
-}
 
 interface FormRole {
   id: string;
@@ -367,8 +356,6 @@ export default function EditEvent() {
       .map((organizer) => ({
         name: `${organizer.firstName} ${organizer.lastName}`,
         role: organizer.roleInAtCloud || organizer.systemAuthorizationLevel,
-        email: organizer.email || "Email not available",
-        phone: organizer.phone || "Phone not provided",
         avatar: organizer.avatar,
         gender: organizer.gender,
         userId: organizer.id,

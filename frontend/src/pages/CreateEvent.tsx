@@ -7,6 +7,7 @@ import type { FieldValidation } from "../utils/eventValidationUtils";
 import { useRoleValidation } from "../hooks/useRoleValidation";
 import EventPreview from "../components/events/EventPreview";
 import BasicEventFields from "../components/EditEvent/BasicEventFields";
+import type { Organizer } from "../components/events/OrganizerSelection";
 import FormatSettings from "../components/EditEvent/FormatSettings";
 import RoleManagement from "../components/EditEvent/RoleManagement";
 import PricingSection from "../components/EditEvent/PricingSection";
@@ -26,18 +27,6 @@ import {
   buildTimeOverlapConfirmationMessage,
   type TimeOverlapConflict,
 } from "../utils/timeOverlapConflicts";
-
-interface Organizer {
-  id: string; // UUID to match User interface
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string; // Add email field
-  phone?: string; // Add phone field
-}
 
 export default function NewEvent() {
   const { currentUser } = useAuth();
@@ -131,8 +120,6 @@ export default function NewEvent() {
     return selectedOrganizers.map((organizer) => ({
       name: `${organizer.firstName} ${organizer.lastName}`,
       role: organizer.roleInAtCloud || organizer.systemAuthorizationLevel,
-      email: organizer.email || "Email not available",
-      phone: organizer.phone || "Phone not provided",
       avatar: organizer.avatar,
       gender: organizer.gender,
       userId: organizer.id,
@@ -435,8 +422,6 @@ export default function NewEvent() {
       roleInAtCloud: currentUser.roleInAtCloud,
       gender: currentUser.gender,
       avatar: currentUser.avatar || null,
-      email: currentUser.email, // Include real email
-      phone: currentUser.phone, // Include phone from user data
     };
 
     // Update the form's organizer field

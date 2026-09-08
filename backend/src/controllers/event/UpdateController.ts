@@ -35,6 +35,7 @@ import { AutoUnpublishService } from "../../services/event/AutoUnpublishService"
 import { CoOrganizerNotificationService } from "../../services/event/CoOrganizerNotificationService";
 import { ParticipantNotificationService } from "../../services/event/ParticipantNotificationService";
 import { CoOrganizerProgramAccessService } from "../../services/event/CoOrganizerProgramAccessService";
+import { AssignmentSnapshotError } from "../../services/UserAssignmentSnapshotService";
 
 const logger = Logger.getInstance().child("UpdateController");
 
@@ -214,8 +215,9 @@ export class UpdateController {
         Array.isArray(normalizedData.organizerDetails)
       ) {
         normalizedData.organizerDetails =
-          organizerMgmtService.normalizeOrganizerDetails(
+          await organizerMgmtService.normalizeOrganizerDetails(
             normalizedData.organizerDetails,
+            oldOrganizerUserIds,
           );
       }
 
@@ -468,6 +470,11 @@ export class UpdateController {
         undefined,
         { eventId: req.params?.id },
       );
+
+      if (error instanceof AssignmentSnapshotError) {
+        res.status(400).json({ success: false, message: error.message });
+        return;
+      }
 
       // Handle validation errors
       if (

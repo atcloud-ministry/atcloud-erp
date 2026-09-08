@@ -18,12 +18,19 @@ interface UserSearchAndFilterProps {
   loading: boolean;
   totalResults?: number;
   currentUserRole: SystemAuthorizationLevel;
+  mode?: "admin" | "community";
 }
 
-const ALL_SORT_OPTIONS = [
+const ADMIN_SORT_OPTIONS = [
   { value: "role", label: "System Authorization Level" },
   { value: "createdAt", label: "Join Date" },
   { value: "gender", label: "Gender" },
+];
+
+const COMMUNITY_SORT_OPTIONS = [
+  { value: "firstName", label: "First Name" },
+  { value: "lastName", label: "Last Name" },
+  { value: "username", label: "Username" },
 ];
 
 const ROLE_OPTIONS = [
@@ -46,32 +53,43 @@ export default function UserSearchAndFilter({
   loading,
   totalResults,
   currentUserRole,
+  mode = "admin",
 }: UserSearchAndFilterProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
   const [selectedGender, setSelectedGender] = useState("");
   // Default sort: Join Date (newest first)
-  const [sortBy, setSortBy] = useState("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [sortBy, setSortBy] = useState(
+    mode === "admin" ? "createdAt" : "firstName",
+  );
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">(
+    mode === "admin" ? "desc" : "asc",
+  );
   const [showFilters, setShowFilters] = useState(false);
 
   // Filter sort options based on user role - only Super Admin and Administrator can see System Authorization Level
   const SORT_OPTIONS = useMemo(() => {
     const canViewRoleSort =
       currentUserRole === "Super Admin" || currentUserRole === "Administrator";
+    if (mode === "community") return COMMUNITY_SORT_OPTIONS;
     return canViewRoleSort
-      ? ALL_SORT_OPTIONS
-      : ALL_SORT_OPTIONS.filter((option) => option.value !== "role");
-  }, [currentUserRole]);
+      ? ADMIN_SORT_OPTIONS
+      : ADMIN_SORT_OPTIONS.filter((option) => option.value !== "role");
+  }, [currentUserRole, mode]);
 
   // If user can't see role sorting but it's currently selected, switch to default
   useEffect(() => {
     const canViewRoleSort =
       currentUserRole === "Super Admin" || currentUserRole === "Administrator";
-    if (!canViewRoleSort && sortBy === "role") {
+    if (mode === "community") {
+      if (!COMMUNITY_SORT_OPTIONS.some((option) => option.value === sortBy)) {
+        setSortBy("firstName");
+        setSortOrder("asc");
+      }
+    } else if (!canViewRoleSort && sortBy === "role") {
       setSortBy("createdAt"); // Default to Join Date
     }
-  }, [currentUserRole, sortBy]);
+  }, [currentUserRole, mode, sortBy]);
 
   // Debounced search
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
@@ -110,16 +128,20 @@ export default function UserSearchAndFilter({
     setSearchTerm("");
     setSelectedRole("");
     setSelectedGender("");
-    setSortBy("createdAt");
-    setSortOrder("desc");
+    setSortBy(mode === "admin" ? "createdAt" : "firstName");
+    setSortOrder(mode === "admin" ? "desc" : "asc");
   };
 
   const hasActiveFilters =
-    selectedRole || selectedGender || debouncedSearchTerm;
+    (mode === "admin" && (selectedRole || selectedGender)) ||
+    debouncedSearchTerm;
 
-  const hasActiveSorting = sortBy !== "createdAt" || sortOrder !== "desc";
+  const hasActiveSorting =
+    sortBy !== (mode === "admin" ? "createdAt" : "firstName") ||
+    sortOrder !== (mode === "admin" ? "desc" : "asc");
   const hasActiveSearchOrFilters =
-    selectedRole || selectedGender || debouncedSearchTerm;
+    (mode === "admin" && (selectedRole || selectedGender)) ||
+    debouncedSearchTerm;
 
   return (
     <div className="bg-white border-b border-gray-200 p-4 space-y-4">
@@ -131,7 +153,11 @@ export default function UserSearchAndFilter({
           </div>
           <input
             type="text"
-            placeholder="Search users by name, email, or username..."
+            placeholder={
+              mode === "admin"
+                ? "Search users by name, email, or username..."
+                : "Search members by name or username..."
+            }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
@@ -154,7 +180,7 @@ export default function UserSearchAndFilter({
           }`}
         >
           <AdjustmentsHorizontalIcon className="h-4 w-4 mr-2" />
-          Sort & Filter
+          {mode === "admin" ? "Sort & Filter" : "Sort"}
           {hasActiveFilters && (
             <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
               Active
@@ -230,7 +256,8 @@ export default function UserSearchAndFilter({
           </div>
 
           {/* Filter Section */}
-          <div className="bg-blue-50 rounded-lg p-4">
+          {mode === "admin" && (
+            <div className="bg-blue-50 rounded-lg p-4">
             <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
               <svg
                 className="w-4 h-4 mr-2 text-gray-600"
@@ -291,7 +318,8 @@ export default function UserSearchAndFilter({
                 </select>
               </div>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* Results Summary and Reset */}
           <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -302,7 +330,9 @@ export default function UserSearchAndFilter({
                     <span className="font-medium text-gray-900">
                       {totalResults}
                     </span>{" "}
-                    user{totalResults !== 1 ? "s" : ""} found
+                    {mode === "admin"
+                      ? `user${totalResults !== 1 ? "s" : ""}`
+                      : `member${totalResults !== 1 ? "s" : ""}`} found
                     {hasActiveSearchOrFilters && (
                       <span className="ml-1">
                         (filtered by{" "}

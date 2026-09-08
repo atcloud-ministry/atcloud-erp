@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { User, Event } from "../models";
-import { hasPermission, PERMISSIONS } from "../utils/roleUtils";
 import { CachePatterns } from "../services/infrastructure/CacheService";
 import { createLogger } from "../services/LoggerService";
 import {
@@ -8,27 +7,14 @@ import {
   normalizeSearchText,
   toLiteralTextSearch,
 } from "../utils/search";
+import {
+  ADMIN_USER_PROJECTION,
+  COMMUNITY_MEMBER_PROJECTION,
+  serializeAdminUser,
+  serializeCommunityMember,
+} from "../serializers/userReadSerializers";
 
 const log = createLogger("SearchController");
-const PUBLIC_USER_FIELDS =
-  "username firstName lastName avatar role isAtCloudLeader weeklyChurch";
-const SENSITIVE_USER_FIELDS = [
-  PUBLIC_USER_FIELDS,
-  "email",
-  "phone",
-  "gender",
-  "homeAddress",
-  "roleInAtCloud",
-  "occupation",
-  "company",
-  "churchAddress",
-  "isActive",
-  "isVerified",
-  "emailNotifications",
-  "lastLogin",
-  "createdAt",
-  "updatedAt",
-].join(" ");
 const EVENT_SEARCH_FIELDS = [
   "title",
   "description",
@@ -75,8 +61,7 @@ export class SearchController {
       const { page, limit, skip } = getPagination(req, 20);
 
       const normalizedQuery = normalizeSearchText(query);
-      const textSearch = toLiteralTextSearch(normalizedQuery);
-      if (!textSearch) {
+      if (!normalizedQuery) {
         res.status(400).json({
           success: false,
           message: "Search query is required.",
@@ -84,10 +69,9 @@ export class SearchController {
         return;
       }
 
-      // Build search criteria
       const searchCriteria: Record<string, unknown> = {
         isActive: true,
-        $text: { $search: textSearch },
+        $text: { $search: toLiteralTextSearch(normalizedQuery)! },
       };
 
       // Add filters
@@ -105,15 +89,7 @@ export class SearchController {
         };
       }
 
-      // Check if user can view sensitive information
-      const canViewSensitive = hasPermission(
-        req.user.role,
-        PERMISSIONS.VIEW_USER_PROFILES
-      );
-
-      const selectFields = canViewSensitive
-        ? SENSITIVE_USER_FIELDS
-        : PUBLIC_USER_FIELDS;
+      const selectFields = ADMIN_USER_PROJECTION;
 
       // Create cache key based on search parameters
       const cacheKey = `search-users-${JSON.stringify({
@@ -123,7 +99,6 @@ export class SearchController {
         role: req.query.role,
         isAtCloudLeader: req.query.isAtCloudLeader,
         weeklyChurch: req.query.weeklyChurch,
-        canViewSensitive,
       })}`;
 
       // Get cached search results
@@ -141,15 +116,7 @@ export class SearchController {
           ]);
 
           // Transform _id to id for frontend compatibility (lean() bypasses toJSON transform)
-          const transformedUsers = users.map((user) => {
-            const { _id, ...rest } = user as Record<string, unknown> & {
-              _id: unknown;
-            };
-            return {
-              ...rest,
-              id: _id?.toString(),
-            };
-          });
+          const transformedUsers = users.map(serializeAdminUser);
 
           const totalPages = Math.ceil(totalUsers / limit);
 
@@ -372,8 +339,7 @@ export class SearchController {
       const { limit } = getPagination(req, 10);
 
       const normalizedQuery = normalizeSearchText(query);
-      const textSearch = toLiteralTextSearch(normalizedQuery);
-      if (!textSearch) {
+      if (!normalizedQuery) {
         res.status(400).json({
           success: false,
           message: "Search query is required.",
@@ -381,10 +347,19 @@ export class SearchController {
         return;
       }
 
-      // Search users
-      const userSearchCriteria = {
+      const visibleMatch = {
+        $regex: escapeRegex(normalizedQuery),
+        $options: "i",
+      };
+      const userSearchCriteria: Record<string, unknown> = {
         isActive: true,
-        $text: { $search: textSearch },
+        isVerified: true,
+        $or: [
+          { username: visibleMatch },
+          { firstName: visibleMatch },
+          { lastName: visibleMatch },
+          { roleInAtCloud: visibleMatch },
+        ],
       };
 
       // Search events
@@ -402,13 +377,7 @@ export class SearchController {
         ],
       };
 
-      const canViewSensitive = hasPermission(
-        req.user.role,
-        PERMISSIONS.VIEW_USER_PROFILES
-      );
-      const userSelectFields = canViewSensitive
-        ? SENSITIVE_USER_FIELDS
-        : PUBLIC_USER_FIELDS;
+      const userSelectFields = COMMUNITY_MEMBER_PROJECTION;
 
       const [users, events] = await Promise.all([
         User.find(userSearchCriteria)
@@ -424,15 +393,7 @@ export class SearchController {
       ]);
 
       // Transform _id to id for frontend compatibility (lean() bypasses toJSON transform)
-      const transformedUsers = users.map((user) => {
-        const { _id, ...rest } = user as Record<string, unknown> & {
-          _id: unknown;
-        };
-        return {
-          ...rest,
-          id: _id?.toString(),
-        };
-      });
+      const transformedUsers = users.map(serializeCommunityMember);
 
       const transformedEvents = events.map((event) => {
         const { _id, ...rest } = event as Record<string, unknown> & {

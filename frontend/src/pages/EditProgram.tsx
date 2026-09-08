@@ -8,6 +8,7 @@ import ValidationIndicator from "../components/events/ValidationIndicator";
 import PricingSection from "../components/EditProgram/PricingSection";
 import PricingConfirmationModal from "../components/EditProgram/PricingConfirmationModal";
 import ProgramFormFields from "../components/EditProgram/ProgramFormFields";
+import type { Organizer as Mentor } from "../components/events/OrganizerSelection";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { programService, purchaseService } from "../services/api";
 import { type ProgramType } from "../constants/programTypes";
@@ -26,18 +27,6 @@ import {
   DEFAULT_TEACHER_ROLE_NAME,
   rolesToFormRoles,
 } from "../utils/programRoles";
-
-interface Mentor {
-  id: string;
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string;
-  phone?: string;
-}
 
 interface ProgramFormData {
   programType: string;
@@ -229,15 +218,11 @@ export default function EditProgram() {
   // Helper function to compare mentor arrays
   const compareMentorArrays = (arr1: Mentor[], arr2: Mentor[]): boolean => {
     if (arr1.length !== arr2.length) return false;
-    return arr1.every((mentor1, index) => {
-      const mentor2 = arr2[index];
-      return (
-        mentor1.id === mentor2.id &&
-        mentor1.firstName === mentor2.firstName &&
-        mentor1.lastName === mentor2.lastName &&
-        mentor1.email === mentor2.email
-      );
-    });
+    return arr1.every(
+      (mentor, index) =>
+        getProgramMentorUserId(mentor) ===
+        getProgramMentorUserId(arr2[index]),
+    );
   };
 
   // Check if mentors have changed - unified for all program types
@@ -492,8 +477,6 @@ export default function EditProgram() {
             roleInAtCloud: m.roleInAtCloud,
             gender: (m.gender as "male" | "female") || "male",
             avatar: m.avatar || null,
-            email: m.email || "",
-            phone: "", // Not stored in program mentors
           };
         };
 
@@ -702,6 +685,7 @@ export default function EditProgram() {
             originalFlyerUrl={originalFlyerUrl}
             YEARS={YEARS}
             MONTHS={MONTHS}
+            programId={id}
           />
 
           {/* Tuition (Phase 3) */}

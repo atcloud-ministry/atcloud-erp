@@ -27,6 +27,41 @@ vi.mock("../../hooks/useRoleStats", () => ({
 // Here, one role contains BOTH currentSignups and registrations.
 // Our logic should prefer currentSignups when present.
 vi.mock("../../hooks/useAnalyticsResources", () => ({
+  useUserAnalyticsResource: () => ({
+    data: {
+      demographics: {
+        roleStats: {
+          total: 0,
+          superAdmin: 0,
+          administrators: 0,
+          leaders: 0,
+          guestExperts: 0,
+          participants: 0,
+          atCloudLeaders: 0,
+        },
+        churchAnalytics: {
+          weeklyChurchStats: {},
+          churchAddressStats: {},
+          usersWithChurchInfo: 0,
+          usersWithoutChurchInfo: 0,
+          totalChurches: 0,
+          totalChurchLocations: 0,
+          churchParticipationRate: 0,
+        },
+        occupationAnalytics: {
+          occupationStats: {},
+          usersWithOccupation: 0,
+          usersWithoutOccupation: 0,
+          totalOccupationTypes: 0,
+          topOccupations: [],
+          occupationCompletionRate: 0,
+        },
+      },
+    },
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
   useAnalyticsOverviewResource: () => ({
     data: null,
     loading: false,

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { User } from "../../models";
 import { hasPermission, PERMISSIONS } from "../../utils/roleUtils";
 import { CorrelatedLogger } from "../../services/CorrelatedLogger";
+import { buildUserDemographics } from "../../contracts/userAnalyticsContracts";
 
 export default class UserAnalyticsController {
   static async getUserAnalytics(req: Request, res: Response): Promise<void> {
@@ -38,7 +39,11 @@ export default class UserAnalyticsController {
       // User statistics by church
       const usersByChurch = await User.aggregate([
         {
-          $match: { isActive: true, weeklyChurch: { $exists: true, $ne: "" } },
+          $match: {
+            isActive: true,
+            weeklyChurch: { $type: "string" },
+            $expr: { $ne: [{ $trim: { input: "$weeklyChurch" } }, ""] },
+          },
         },
         { $group: { _id: "$weeklyChurch", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
@@ -66,6 +71,39 @@ export default class UserAnalyticsController {
         { $sort: { "_id.year": 1, "_id.month": 1 } },
       ]);
 
+      // Compatibility distribution used by existing analytics consumers.
+      const usersByOccupation = await User.aggregate([
+        {
+          $match: {
+            isActive: true,
+            occupation: { $type: "string" },
+            $expr: { $ne: [{ $trim: { input: "$occupation" } }, ""] },
+          },
+        },
+        { $group: { _id: "$occupation", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]);
+
+      // These rows never leave the server. They preserve the exact all-account
+      // population previously loaded by the People tab without exposing users.
+      const demographicRows = await User.aggregate([
+        {
+          $project: {
+            _id: 0,
+            role: 1,
+            isActive: 1,
+            isAtCloudLeader: 1,
+            weeklyChurch: 1,
+            churchAddress: 1,
+            occupation: 1,
+          },
+        },
+      ]);
+      const demographics = buildUserDemographics(demographicRows);
+      const activeUsers = demographicRows.filter(
+        (row: { isActive?: unknown }) => row.isActive === true,
+      ).length;
+
       res.status(200).json({
         success: true,
         data: {
@@ -73,6 +111,10 @@ export default class UserAnalyticsController {
           usersByAtCloudStatus,
           usersByChurch,
           registrationTrends,
+          usersByOccupation,
+          totalUsers: demographicRows.length,
+          activeUsers,
+          demographics,
         },
       });
     } catch (error: unknown) {

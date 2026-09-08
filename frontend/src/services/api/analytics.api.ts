@@ -226,6 +226,229 @@ export interface AttendanceAnalytics {
   byEvent: AttendanceEventAnalytics[];
 }
 
+export interface UserAnalyticsDemographics {
+  roleStats: {
+    total: number;
+    superAdmin: number;
+    administrators: number;
+    leaders: number;
+    guestExperts: number;
+    participants: number;
+    atCloudLeaders: number;
+  };
+  churchAnalytics: {
+    weeklyChurchStats: Record<string, number>;
+    churchAddressStats: Record<string, number>;
+    usersWithChurchInfo: number;
+    usersWithoutChurchInfo: number;
+    totalChurches: number;
+    totalChurchLocations: number;
+    churchParticipationRate: number;
+  };
+  occupationAnalytics: {
+    occupationStats: Record<string, number>;
+    usersWithOccupation: number;
+    usersWithoutOccupation: number;
+    totalOccupationTypes: number;
+    topOccupations: Array<{ occupation: string; count: number }>;
+    occupationCompletionRate: number;
+  };
+}
+
+export interface UserAnalytics {
+  usersByRole: Array<{ _id: string; count: number }>;
+  usersByAtCloudStatus: Array<{ _id: boolean | null; count: number }>;
+  usersByChurch: Array<{ _id: string; count: number }>;
+  registrationTrends: Array<{
+    _id: { year: number; month: number };
+    count: number;
+  }>;
+  usersByOccupation: Array<{ _id: string; count: number }>;
+  totalUsers: number;
+  activeUsers: number;
+  demographics: UserAnalyticsDemographics;
+}
+
+type JsonObject = Record<string, unknown>;
+
+const analyticsContractError = (path: string, expected: string): never => {
+  throw new Error(`Invalid API response at ${path}: expected ${expected}`);
+};
+
+const analyticsObject = (value: unknown, path: string): JsonObject => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return analyticsContractError(path, "object");
+  }
+  return value as JsonObject;
+};
+
+const exactAnalyticsObject = (
+  value: unknown,
+  path: string,
+  keys: readonly string[],
+): JsonObject => {
+  const object = analyticsObject(value, path);
+  const allowed = new Set(keys);
+  if (Object.keys(object).some((key) => !allowed.has(key))) {
+    return analyticsContractError(path, `only keys ${keys.join(", ")}`);
+  }
+  return object;
+};
+
+const analyticsNumber = (value: unknown, path: string): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return analyticsContractError(path, "finite number");
+  }
+  return value;
+};
+
+const analyticsString = (value: unknown, path: string): string => {
+  if (typeof value !== "string") return analyticsContractError(path, "string");
+  return value;
+};
+
+const countRecord = (value: unknown, path: string): Record<string, number> => {
+  const object = analyticsObject(value, path);
+  return Object.fromEntries(
+    Object.entries(object).map(([key, count]) => [
+      key,
+      analyticsNumber(count, `${path}.${key}`),
+    ]),
+  );
+};
+
+const countBuckets = <T>(
+  value: unknown,
+  path: string,
+  decodeId: (id: unknown, path: string) => T,
+): Array<{ _id: T; count: number }> => {
+  if (!Array.isArray(value)) return analyticsContractError(path, "array");
+  return value.map((item, index) => {
+    const itemPath = `${path}[${index}]`;
+    const bucket = exactAnalyticsObject(item, itemPath, ["_id", "count"]);
+    return {
+      _id: decodeId(bucket._id, `${itemPath}._id`),
+      count: analyticsNumber(bucket.count, `${itemPath}.count`),
+    };
+  });
+};
+
+export function decodeUserAnalytics(value: unknown): UserAnalytics {
+  const data = exactAnalyticsObject(value, "data", [
+    "usersByRole",
+    "usersByAtCloudStatus",
+    "usersByChurch",
+    "registrationTrends",
+    "usersByOccupation",
+    "totalUsers",
+    "activeUsers",
+    "demographics",
+  ]);
+  const demographics = exactAnalyticsObject(data.demographics, "data.demographics", [
+    "roleStats",
+    "churchAnalytics",
+    "occupationAnalytics",
+  ]);
+  const roleStats = exactAnalyticsObject(demographics.roleStats, "data.demographics.roleStats", [
+    "total",
+    "superAdmin",
+    "administrators",
+    "leaders",
+    "guestExperts",
+    "participants",
+    "atCloudLeaders",
+  ]);
+  const church = exactAnalyticsObject(demographics.churchAnalytics, "data.demographics.churchAnalytics", [
+    "weeklyChurchStats",
+    "churchAddressStats",
+    "usersWithChurchInfo",
+    "usersWithoutChurchInfo",
+    "totalChurches",
+    "totalChurchLocations",
+    "churchParticipationRate",
+  ]);
+  const occupation = exactAnalyticsObject(demographics.occupationAnalytics, "data.demographics.occupationAnalytics", [
+    "occupationStats",
+    "usersWithOccupation",
+    "usersWithoutOccupation",
+    "totalOccupationTypes",
+    "topOccupations",
+    "occupationCompletionRate",
+  ]);
+  if (!Array.isArray(occupation.topOccupations)) {
+    return analyticsContractError("data.demographics.occupationAnalytics.topOccupations", "array");
+  }
+
+  return {
+    usersByRole: countBuckets(data.usersByRole, "data.usersByRole", analyticsString),
+    usersByAtCloudStatus: countBuckets(
+      data.usersByAtCloudStatus,
+      "data.usersByAtCloudStatus",
+      (id, path) => {
+        if (id === null || typeof id === "boolean") return id;
+        return analyticsContractError(path, "boolean or null");
+      },
+    ),
+    usersByChurch: countBuckets(data.usersByChurch, "data.usersByChurch", analyticsString),
+    registrationTrends: data.registrationTrends instanceof Array
+      ? data.registrationTrends.map((item, index) => {
+          const itemPath = `data.registrationTrends[${index}]`;
+          const row = exactAnalyticsObject(item, itemPath, ["_id", "count"]);
+          const id = exactAnalyticsObject(row._id, `${itemPath}._id`, ["year", "month"]);
+          return {
+            _id: {
+              year: analyticsNumber(id.year, `${itemPath}._id.year`),
+              month: analyticsNumber(id.month, `${itemPath}._id.month`),
+            },
+            count: analyticsNumber(row.count, `${itemPath}.count`),
+          };
+        })
+      : analyticsContractError("data.registrationTrends", "array"),
+    usersByOccupation: countBuckets(
+      data.usersByOccupation,
+      "data.usersByOccupation",
+      analyticsString,
+    ),
+    totalUsers: analyticsNumber(data.totalUsers, "data.totalUsers"),
+    activeUsers: analyticsNumber(data.activeUsers, "data.activeUsers"),
+    demographics: {
+      roleStats: {
+        total: analyticsNumber(roleStats.total, "data.demographics.roleStats.total"),
+        superAdmin: analyticsNumber(roleStats.superAdmin, "data.demographics.roleStats.superAdmin"),
+        administrators: analyticsNumber(roleStats.administrators, "data.demographics.roleStats.administrators"),
+        leaders: analyticsNumber(roleStats.leaders, "data.demographics.roleStats.leaders"),
+        guestExperts: analyticsNumber(roleStats.guestExperts, "data.demographics.roleStats.guestExperts"),
+        participants: analyticsNumber(roleStats.participants, "data.demographics.roleStats.participants"),
+        atCloudLeaders: analyticsNumber(roleStats.atCloudLeaders, "data.demographics.roleStats.atCloudLeaders"),
+      },
+      churchAnalytics: {
+        weeklyChurchStats: countRecord(church.weeklyChurchStats, "data.demographics.churchAnalytics.weeklyChurchStats"),
+        churchAddressStats: countRecord(church.churchAddressStats, "data.demographics.churchAnalytics.churchAddressStats"),
+        usersWithChurchInfo: analyticsNumber(church.usersWithChurchInfo, "data.demographics.churchAnalytics.usersWithChurchInfo"),
+        usersWithoutChurchInfo: analyticsNumber(church.usersWithoutChurchInfo, "data.demographics.churchAnalytics.usersWithoutChurchInfo"),
+        totalChurches: analyticsNumber(church.totalChurches, "data.demographics.churchAnalytics.totalChurches"),
+        totalChurchLocations: analyticsNumber(church.totalChurchLocations, "data.demographics.churchAnalytics.totalChurchLocations"),
+        churchParticipationRate: analyticsNumber(church.churchParticipationRate, "data.demographics.churchAnalytics.churchParticipationRate"),
+      },
+      occupationAnalytics: {
+        occupationStats: countRecord(occupation.occupationStats, "data.demographics.occupationAnalytics.occupationStats"),
+        usersWithOccupation: analyticsNumber(occupation.usersWithOccupation, "data.demographics.occupationAnalytics.usersWithOccupation"),
+        usersWithoutOccupation: analyticsNumber(occupation.usersWithoutOccupation, "data.demographics.occupationAnalytics.usersWithoutOccupation"),
+        totalOccupationTypes: analyticsNumber(occupation.totalOccupationTypes, "data.demographics.occupationAnalytics.totalOccupationTypes"),
+        topOccupations: occupation.topOccupations.map((item, index) => {
+          const itemPath = `data.demographics.occupationAnalytics.topOccupations[${index}]`;
+          const row = exactAnalyticsObject(item, itemPath, ["occupation", "count"]);
+          return {
+            occupation: analyticsString(row.occupation, `${itemPath}.occupation`),
+            count: analyticsNumber(row.count, `${itemPath}.count`),
+          };
+        }),
+        occupationCompletionRate: analyticsNumber(occupation.occupationCompletionRate, "data.demographics.occupationAnalytics.occupationCompletionRate"),
+      },
+    },
+  };
+}
+
 /**
  * Analytics API Service
  * Handles analytics data retrieval and export
@@ -249,11 +472,11 @@ class AnalyticsApiClient extends BaseApiClient {
    * Get user-specific analytics
    * @returns User analytics object
    */
-  async getUserAnalytics(): Promise<unknown> {
+  async getUserAnalytics(): Promise<UserAnalytics> {
     const response = await this.request<unknown>("/analytics/users");
 
     if (response.data) {
-      return response.data;
+      return decodeUserAnalytics(response.data);
     }
 
     throw new Error(response.message || "Failed to get user analytics");
