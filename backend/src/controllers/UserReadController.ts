@@ -135,7 +135,11 @@ export default class UserReadController {
         return;
       }
       const query = userOptionsQuerySchema.parse(req.query);
-      await UserOptionsAccessService.assertCanRead(query, req.user);
+      await UserOptionsAccessService.assertCanRead(
+        query,
+        req.user,
+        req.correlationId,
+      );
       const data = await UserReadService.listUserOptions(query);
       res.status(200).json({ success: true, data });
     } catch (error) {

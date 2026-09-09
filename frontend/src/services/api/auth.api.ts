@@ -4,6 +4,7 @@ import {
   type AuthResponse,
   type AuthTokens,
 } from "./common";
+import { socketService } from "../socketService";
 
 /**
  * Authentication API Service
@@ -49,6 +50,7 @@ class AuthApiClient extends BaseApiClient {
       if (response.ok && data.data) {
         // Store token in localStorage
         localStorage.setItem("authToken", data.data.accessToken);
+        socketService.updateAuthenticationToken(data.data.accessToken);
         return data.data;
       }
 
@@ -105,6 +107,7 @@ class AuthApiClient extends BaseApiClient {
       });
     } finally {
       localStorage.removeItem("authToken");
+      socketService.updateAuthenticationToken(null);
     }
   }
 
@@ -145,6 +148,7 @@ class AuthApiClient extends BaseApiClient {
     const token = data.accessToken || data?.data?.accessToken;
     if (token) {
       localStorage.setItem("authToken", token);
+      socketService.updateAuthenticationToken(token);
       const expiresAt =
         data.expiresAt ||
         data?.data?.expiresAt ||

@@ -98,7 +98,11 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
     vi.clearAllMocks();
     // Ensure production so default dev-enabling does not apply
     process.env.NODE_ENV = "production";
-    process.env.SCHEDULER_ENABLED = "false";
+    delete process.env.SCHEDULER_ENABLED;
+    process.env.JWT_ACCESS_SECRET =
+      "scheduler-test-access-secret-at-least-thirty-two-characters";
+    process.env.JWT_REFRESH_SECRET =
+      "scheduler-test-refresh-secret-at-least-thirty-two-characters";
   });
 
   it("does not start scheduler when SCHEDULER_ENABLED is not true", async () => {
@@ -115,5 +119,16 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
 
     // Critical assertion: scheduler start was NOT called
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it("starts scheduler when explicitly enabled in production", async () => {
+    process.env.SCHEDULER_ENABLED = "true";
+
+    await import("../../../src/index");
+
+    await vi.waitFor(() => expect(mockListen).toHaveBeenCalled(), {
+      timeout: 1000,
+    });
+    expect(mockStart).toHaveBeenCalledOnce();
   });
 });

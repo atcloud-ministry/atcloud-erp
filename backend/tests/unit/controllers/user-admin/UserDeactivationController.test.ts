@@ -36,6 +36,7 @@ vi.mock("../../../../src/utils/roleUtils", () => ({
 vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
   socketService: {
     emitUserUpdate: vi.fn(),
+    disconnectUser: vi.fn(),
   },
 }));
 
@@ -360,6 +361,30 @@ describe("UserDeactivationController", () => {
             oldValue: "active",
             newValue: "inactive",
           }),
+        );
+      });
+
+      it("should revoke live access immediately after persistence", async () => {
+        vi.mocked(hasPermission).mockReturnValue(true);
+        const targetUser = createMockUser({ role: ROLES.PARTICIPANT });
+        vi.mocked(User.findById).mockResolvedValue(targetUser);
+
+        await UserDeactivationController.deactivateUser(
+          mockReq as unknown as import("express").Request,
+          mockRes as Response,
+        );
+
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          String(targetUser._id),
+        );
+        expect(targetUser.save.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+        );
+        expect(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          vi.mocked(CachePatterns.invalidateUserCache).mock
+            .invocationCallOrder[0],
         );
       });
 

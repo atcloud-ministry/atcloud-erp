@@ -1,17 +1,25 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 
+vi.mock("../../../../src/services/authorization/AuthorizationAuditService", () => ({
+  recordAuthorizationDenial: vi.fn(),
+}));
+
 describe("SocketService payload schema", () => {
   let mockIO: any;
+  const eventId = "507f1f77bcf86cd799439013";
 
   beforeEach(() => {
     // Reset singleton internal state
     (socketService as any).authenticatedSockets = new Map();
     (socketService as any).userSockets = new Map();
+    (socketService as any).resourceAuthorizationRevisions = new Map();
+    (socketService as any).eventJoinGuards = new Map();
 
     mockIO = {
       emit: vi.fn(),
       to: vi.fn().mockReturnThis(),
+      except: vi.fn().mockReturnThis(),
     };
     (socketService as any).io = mockIO;
   });
@@ -45,47 +53,39 @@ describe("SocketService payload schema", () => {
     expect(isISODateString(payload.timestamp)).toBe(true);
   });
 
-  it("emits event_update globally and to the event room with expected shape", () => {
+  it("emits event_update only to the authorized event room", () => {
     const data = { bar: 2 };
-    socketService.emitEventUpdate("evt-1", "guest_updated", data);
+    socketService.emitEventUpdate(eventId, "guest_updated", data);
 
-    // Global emit
-    const [globalEventName, globalPayload] = mockIO.emit.mock.calls[0];
-    expect(globalEventName).toBe("event_update");
-    expect(globalPayload).toMatchObject({
-      eventId: "evt-1",
-      updateType: "guest_updated",
-      data,
-    });
-    expect(typeof globalPayload.timestamp).toBe("string");
-    expect(isISODateString(globalPayload.timestamp)).toBe(true);
-
-    // Room emit
-    expect(mockIO.to).toHaveBeenCalledWith("event:evt-1");
-    const [roomEventName, roomPayload] =
-      mockIO.to.mock.results[0].value.emit.mock.calls[0];
+    // The authorized room receives only an invalidation; caller-specific data
+    // is never placed on the socket transport.
+    const [roomEventName, roomPayload] = mockIO.emit.mock.calls[0];
     expect(roomEventName).toBe("event_update");
     expect(roomPayload).toMatchObject({
-      eventId: "evt-1",
+      eventId,
       updateType: "guest_updated",
-      data,
+      data: null,
     });
     expect(typeof roomPayload.timestamp).toBe("string");
     expect(isISODateString(roomPayload.timestamp)).toBe(true);
+
+    expect(mockIO.to).toHaveBeenCalledWith(`event:${eventId}`);
+    expect(mockIO.except).not.toHaveBeenCalled();
+    expect(mockIO.emit).toHaveBeenCalledTimes(1);
   });
 
   it("emits event_room_update to the event room with expected shape", () => {
     const data = { baz: 3 };
-    socketService.emitEventRoomUpdate("evt-2", "guest_registration", data);
+    socketService.emitEventRoomUpdate(eventId, "guest_registration", data);
 
-    expect(mockIO.to).toHaveBeenCalledWith("event:evt-2");
+    expect(mockIO.to).toHaveBeenCalledWith(`event:${eventId}`);
     const [eventName, payload] =
       mockIO.to.mock.results[0].value.emit.mock.calls[0];
     expect(eventName).toBe("event_room_update");
     expect(payload).toMatchObject({
-      eventId: "evt-2",
+      eventId,
       updateType: "guest_registration",
-      data,
+      data: null,
     });
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
@@ -93,14 +93,14 @@ describe("SocketService payload schema", () => {
 
   it("emits role_full update type with minimal payload", () => {
     const data = { roleId: "r1" };
-    socketService.emitEventUpdate("evt-3", "role_full", data);
+    socketService.emitEventUpdate(eventId, "role_full", data);
 
-    const [eventName, payload] = (mockIO.emit as any).mock.calls.at(-1);
+    const [eventName, payload] = (mockIO.emit as any).mock.calls[0];
     expect(eventName).toBe("event_update");
     expect(payload).toMatchObject({
-      eventId: "evt-3",
+      eventId,
       updateType: "role_full",
-      data,
+      data: null,
     });
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
@@ -108,14 +108,14 @@ describe("SocketService payload schema", () => {
 
   it("emits role_available update type with minimal payload", () => {
     const data = { roleId: "r2" };
-    socketService.emitEventUpdate("evt-3b", "role_available" as any, data);
+    socketService.emitEventUpdate(eventId, "role_available" as any, data);
 
-    const [eventName, payload] = (mockIO.emit as any).mock.calls.at(-1);
+    const [eventName, payload] = (mockIO.emit as any).mock.calls[0];
     expect(eventName).toBe("event_update");
     expect(payload).toMatchObject({
-      eventId: "evt-3b",
+      eventId,
       updateType: "role_available",
-      data,
+      data: null,
     });
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
@@ -123,23 +123,23 @@ describe("SocketService payload schema", () => {
 
   it("emits role_available via emitEventUpdate to the event room with expected shape", () => {
     const data = { roleId: "r9" };
-    socketService.emitEventUpdate("evt-7", "role_available" as any, data);
+    socketService.emitEventUpdate(eventId, "role_available" as any, data);
 
     // Room emit should be invoked for the event
-    expect(mockIO.to).toHaveBeenCalledWith("event:evt-7");
+    expect(mockIO.to).toHaveBeenCalledWith(`event:${eventId}`);
     const [roomEventName, roomPayload] =
       mockIO.to.mock.results[0].value.emit.mock.calls[0];
     expect(roomEventName).toBe("event_update");
     expect(roomPayload).toMatchObject({
-      eventId: "evt-7",
+      eventId,
       updateType: "role_available",
-      data,
+      data: null,
     });
     expect(typeof roomPayload.timestamp).toBe("string");
     expect(isISODateString(roomPayload.timestamp)).toBe(true);
   });
 
-  it("preserves inline event snapshot for user_moved", () => {
+  it("does not expose a user_moved payload or inline event snapshot", () => {
     const eventSnapshot = { id: "evt-4", title: "Event Title" };
     const data = {
       userId: "u1",
@@ -150,26 +150,19 @@ describe("SocketService payload schema", () => {
       event: eventSnapshot,
     };
 
-    socketService.emitEventUpdate("evt-4", "user_moved", data);
+    socketService.emitEventUpdate(eventId, "user_moved", data);
 
-    const [eventName, payload] = (mockIO.emit as any).mock.calls.at(-1);
+    const [eventName, payload] = (mockIO.emit as any).mock.calls[0];
     expect(eventName).toBe("event_update");
     expect(payload.updateType).toBe("user_moved");
-    expect(payload.eventId).toBe("evt-4");
-    // Snapshot should be passed through intact
-    expect((payload.data as any).event).toBe(eventSnapshot);
-    expect(payload.data as any).toMatchObject({
-      userId: "u1",
-      fromRoleId: "r1",
-      toRoleId: "r2",
-      fromRoleName: "Role A",
-      toRoleName: "Role B",
-    });
+    expect(payload.eventId).toBe(eventId);
+    expect(payload.data).toBeNull();
+    expect(JSON.stringify(payload)).not.toContain("Event Title");
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
   });
 
-  it("preserves inline event snapshot for guest_moved", () => {
+  it("does not expose guest contact context or an inline event snapshot", () => {
     const eventSnapshot = { id: "evt-5", title: "Moved Event" };
     const data = {
       fromRoleId: "r1",
@@ -180,25 +173,19 @@ describe("SocketService payload schema", () => {
       event: eventSnapshot,
     };
 
-    socketService.emitEventUpdate("evt-5", "guest_moved" as any, data);
+    socketService.emitEventUpdate(eventId, "guest_moved" as any, data);
 
-    const [eventName, payload] = (mockIO.emit as any).mock.calls.at(-1);
+    const [eventName, payload] = (mockIO.emit as any).mock.calls[0];
     expect(eventName).toBe("event_update");
     expect(payload.updateType).toBe("guest_moved");
-    expect(payload.eventId).toBe("evt-5");
-    expect((payload.data as any).event).toBe(eventSnapshot);
-    expect(payload.data as any).toMatchObject({
-      fromRoleId: "r1",
-      toRoleId: "r2",
-      fromRoleName: "Role A",
-      toRoleName: "Role B",
-      guestName: "Alpha Guest",
-    });
+    expect(payload.eventId).toBe(eventId);
+    expect(payload.data).toBeNull();
+    expect(JSON.stringify(payload)).not.toContain("Alpha Guest");
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
   });
 
-  it("preserves inline event snapshot for user_assigned", () => {
+  it("does not expose a user assignment payload or inline snapshot", () => {
     const eventSnapshot = { id: "evt-6", title: "Assigned Event" };
     const data = {
       operatorId: "admin",
@@ -208,20 +195,33 @@ describe("SocketService payload schema", () => {
       event: eventSnapshot,
     };
 
-    socketService.emitEventUpdate("evt-6", "user_assigned" as any, data);
+    socketService.emitEventUpdate(eventId, "user_assigned" as any, data);
 
-    const [eventName, payload] = (mockIO.emit as any).mock.calls.at(-1);
+    const [eventName, payload] = (mockIO.emit as any).mock.calls[0];
     expect(eventName).toBe("event_update");
     expect(payload.updateType).toBe("user_assigned");
-    expect(payload.eventId).toBe("evt-6");
-    expect((payload.data as any).event).toBe(eventSnapshot);
-    expect(payload.data as any).toMatchObject({
-      operatorId: "admin",
-      userId: "u1",
-      roleId: "r1",
-      roleName: "Role A",
-    });
+    expect(payload.eventId).toBe(eventId);
+    expect(payload.data).toBeNull();
+    expect(JSON.stringify(payload)).not.toContain("admin");
     expect(typeof payload.timestamp).toBe("string");
     expect(isISODateString(payload.timestamp)).toBe(true);
+  });
+
+  it("canonicalizes event ids before selecting a room", () => {
+    socketService.emitEventUpdate(eventId.toUpperCase(), "guest_updated", {});
+
+    expect(mockIO.to).toHaveBeenCalledWith(`event:${eventId}`);
+    expect(mockIO.emit).toHaveBeenCalledWith(
+      "event_update",
+      expect.objectContaining({ eventId }),
+    );
+  });
+
+  it("rejects an invalid event id without emitting", () => {
+    socketService.emitEventUpdate("../admin", "guest_updated", {});
+    socketService.emitEventRoomUpdate("../admin", "guest_updated", {});
+
+    expect(mockIO.to).not.toHaveBeenCalled();
+    expect(mockIO.emit).not.toHaveBeenCalled();
   });
 });

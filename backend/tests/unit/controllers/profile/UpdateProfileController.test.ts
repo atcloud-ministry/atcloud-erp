@@ -199,6 +199,34 @@ describe("UpdateProfileController", () => {
         );
       });
 
+      it("should exclude authorization, account-status, and credential fields", async () => {
+        const mockUser = createMockUser();
+        vi.mocked(User.findById).mockResolvedValue(mockUser);
+        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(
+          createMockUser({ firstName: "Updated" }),
+        );
+
+        mockReq.body = {
+          firstName: "Updated",
+          role: "Super Admin",
+          isActive: false,
+          isVerified: false,
+          password: "AttackerPass123!",
+          passwordResetToken: "attacker-token",
+        };
+
+        await UpdateProfileController.updateProfile(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
+          "user123",
+          { $set: { firstName: "Updated" } },
+          { new: true, runValidators: true, select: "-password" },
+        );
+      });
+
       it("should return 404 if user not found after update", async () => {
         const mockUser = createMockUser();
         vi.mocked(User.findById).mockResolvedValue(mockUser);

@@ -19,10 +19,11 @@ import {
 import { EmailService } from "../services/infrastructure/EmailServiceFacade";
 import { lockService } from "../services/LockService";
 import { TrioNotificationService } from "../services/notifications/TrioNotificationService";
+import { socketService } from "../services/infrastructure/SocketService";
 import {
   applyPurchaseItemSnapshot,
   getPurchaseItemDetails,
-  markProgramPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "../services/PurchaseRefundService";
 import { buildDiscountRoleCountIncrement } from "../utils/programRoles";
 
@@ -626,6 +627,15 @@ export class WebhookController {
       return;
     }
 
+    // Payment-intent failures can arrive late or out of order. Only a pending
+    // checkout may transition to failed; completed access remains unchanged.
+    if (purchase.status !== "pending") {
+      console.log(
+        `Ignoring payment failure for purchase ${purchase.orderNumber} in status ${purchase.status}`,
+      );
+      return;
+    }
+
     // If this was a Class Rep purchase that's now failed, decrement the counter
     if (
       purchase.purchaseType === "program" &&
@@ -707,8 +717,7 @@ export class WebhookController {
         // Update purchase status
         purchase.status = "refunded";
         purchase.refundedAt = new Date();
-        await markProgramPurchaseUnenrolled(purchase, "refund_requested");
-        await purchase.save();
+        await persistPurchaseUnenrollment(purchase, "refund_requested");
 
         // Recover promo code if one was used
         if (purchase.promoCode) {
@@ -887,6 +896,7 @@ export class WebhookController {
         purchase.status = "refund_failed";
         purchase.refundFailureReason = refund.failure_reason || "Refund failed";
         await purchase.save();
+        socketService.disconnectUser(String(purchase.userId));
 
         // Send refund failed email to user
         try {

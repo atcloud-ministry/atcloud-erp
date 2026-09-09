@@ -81,7 +81,7 @@ vi.mock("../../services/guestApi", () => ({
   default: { getEventGuests: vi.fn(async () => ({ guests: [] })) },
 }));
 
-describe("EventDetail realtime user_* typed branches", () => {
+describe("EventDetail realtime user invalidations", () => {
   beforeEach(() => {
     socketTest.reset();
     toasts.info.mockReset();
@@ -94,7 +94,7 @@ describe("EventDetail realtime user_* typed branches", () => {
     localStorage.removeItem("authToken");
   });
 
-  it("emits notifications for user_* updates with typed payloads", async () => {
+  it("uses generic notifications and refetches for user updates with null data", async () => {
     render(
       <MemoryRouter initialEntries={["/dashboard/event/e1"]}>
         <Routes>
@@ -109,100 +109,58 @@ describe("EventDetail realtime user_* typed branches", () => {
       expect(true).toBe(true);
     });
 
-    // 1) user_signed_up (other user) -> info("Someone joined Role A")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_signed_up",
-      data: {
-        userId: "u2",
-        roleId: "r1",
-        roleName: "Role A",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
-    // 2) user_cancelled (other user) -> info("Someone left Role A")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_cancelled",
-      data: {
-        userId: "u3",
-        roleId: "r1",
-        roleName: "Role A",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
-    // 3) user_removed (other user) -> info("Someone was removed from Role A")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_removed",
-      data: {
-        userId: "u4",
-        roleId: "r1",
-        roleName: "Role A",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
-    // 4) user_removed (current user) on matching route -> warning("You were removed from Role A")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_removed",
-      data: {
-        userId: "u1",
-        roleId: "r1",
-        roleName: "Role A",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
-    // 5) user_moved (current user) -> info("You were moved from X to Y")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_moved",
-      data: {
-        userId: "u1",
-        fromRoleId: "r1",
-        toRoleId: "r2",
-        fromRoleName: "Role A",
-        toRoleName: "Role B",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
-    // 6) user_assigned (current user) -> info("You were assigned to Role A")
     socketTest.emit({
       eventId: "e1",
       updateType: "user_assigned",
-      data: {
-        operatorId: "admin",
-        userId: "u1",
-        roleId: "r1",
-        roleName: "Role A",
-        event: baseEvent,
-      },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
     await waitFor(() => {
-      // We expect multiple info calls plus one warning (self removal)
       const infoCalls = toasts.info.mock.calls
         .map((c) => String(c?.[0] ?? ""))
         .join(" | ");
-      expect(infoCalls).toMatch(/joined/i);
-      expect(infoCalls).toMatch(/left/i);
-      expect(infoCalls).toMatch(/moved/i);
-      expect(infoCalls).toMatch(/assigned/i);
-      const warnCalls = toasts.warning.mock.calls
-        .map((c) => String(c?.[0] ?? ""))
-        .join(" | ");
-      expect(warnCalls).toMatch(/removed from/i);
+      expect(toasts.info).toHaveBeenCalledTimes(6);
+      expect(infoCalls).toBe(
+        Array(6).fill("Event information has changed.").join(" | "),
+      );
+      expect(infoCalls).not.toMatch(/Role A|u1|u2|u3|u4/i);
+      expect(toasts.warning).not.toHaveBeenCalled();
     });
   });
 });

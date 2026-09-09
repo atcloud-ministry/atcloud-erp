@@ -12,6 +12,7 @@ import {
 import { EmailService } from "../../../src/services/infrastructure/EmailServiceFacade";
 import { lockService } from "../../../src/services/LockService";
 import { TrioNotificationService } from "../../../src/services/notifications/TrioNotificationService";
+import { socketService } from "../../../src/services/infrastructure/SocketService";
 import Stripe from "stripe";
 import mongoose from "mongoose";
 
@@ -44,6 +45,11 @@ vi.mock("../../../src/models", () => ({
 vi.mock("../../../src/services/infrastructure/EmailServiceFacade");
 vi.mock("../../../src/services/LockService");
 vi.mock("../../../src/services/notifications/TrioNotificationService");
+vi.mock("../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
 vi.mock("../../../src/services/email/domains/PurchaseEmailService", () => ({
   PurchaseEmailService: {
     sendRefundCompletedEmail: vi.fn().mockResolvedValue(undefined),
@@ -1272,6 +1278,15 @@ describe("WebhookController", () => {
       it("should handle refund failed event", async () => {
         mockRefund.status = "failed";
         mockRefund.failure_reason = "insufficient_funds";
+        const effects: string[] = [];
+        mockPurchase.save.mockImplementation(async () => {
+          effects.push("save");
+          return {};
+        });
+        vi.mocked(socketService.disconnectUser).mockImplementation(() => {
+          effects.push("disconnect");
+          return true;
+        });
 
         await WebhookController.handleStripeWebhook(
           mockReq as Request,
@@ -1281,6 +1296,10 @@ describe("WebhookController", () => {
         expect(mockPurchase.status).toBe("refund_failed");
         expect(mockPurchase.refundFailureReason).toBe("insufficient_funds");
         expect(mockPurchase.save).toHaveBeenCalled();
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          mockPurchase.userId.toString(),
+        );
+        expect(effects).toEqual(["save", "disconnect"]);
         expect(statusMock).toHaveBeenCalledWith(200);
       });
 
@@ -1983,6 +2002,36 @@ describe("WebhookController", () => {
 
         // Should not decrement because status is not pending
         expect(Program.findByIdAndUpdate).not.toHaveBeenCalled();
+        expect(mockPurchase.save).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it("does not revoke a completed purchase on a late payment failure", async () => {
+        const mockPaymentIntent = {
+          id: "pi_completed",
+        } as Stripe.PaymentIntent;
+        const mockEvent = {
+          type: "payment_intent.payment_failed",
+          data: { object: mockPaymentIntent },
+        } as Stripe.Event;
+        const mockPurchase = {
+          status: "completed",
+          orderNumber: "ORDER-COMPLETED",
+          isClassRep: false,
+          save: vi.fn().mockResolvedValue({}),
+        };
+        vi.mocked(stripeService.constructWebhookEvent).mockReturnValue(
+          mockEvent,
+        );
+        vi.mocked(Purchase.findOne).mockResolvedValue(mockPurchase as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(mockPurchase.status).toBe("completed");
+        expect(mockPurchase.save).not.toHaveBeenCalled();
         expect(statusMock).toHaveBeenCalledWith(200);
       });
     });

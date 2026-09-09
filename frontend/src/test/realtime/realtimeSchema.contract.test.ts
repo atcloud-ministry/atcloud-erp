@@ -8,14 +8,14 @@ describe("Realtime schema discriminated union", () => {
     const roleFull: EventUpdate = {
       eventId: "e1",
       updateType: "role_full",
-      data: { roleId: "r1", roleName: "Role A" },
+      data: null,
       timestamp: new Date().toISOString(),
     };
 
     const roleAvailable: EventUpdate = {
       eventId: "e1",
       updateType: "role_available",
-      data: { roleId: "r1", roleName: "Role A" },
+      data: null,
       timestamp: new Date().toISOString(),
     };
 
@@ -27,14 +27,14 @@ describe("Realtime schema discriminated union", () => {
     const userSignedUp: EventUpdate = {
       eventId: "e1",
       updateType: "user_signed_up",
-      data: { userId: "u1", roleId: "r1", roleName: "Role A" },
+      data: null,
       timestamp: new Date().toISOString(),
     } as any; // minimal fields are sufficient for type acceptance in test context
 
     const guestMoved: EventUpdate = {
       eventId: "e1",
       updateType: "guest_moved",
-      data: { fromRoleId: "r1", toRoleId: "r2" },
+      data: null,
       timestamp: new Date().toISOString(),
     } as any;
 

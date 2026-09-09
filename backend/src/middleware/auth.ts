@@ -4,13 +4,18 @@ import mongoose from "mongoose";
 import { Request, Response, NextFunction } from "express";
 import { User, IUser } from "../models";
 import {
-  RoleUtils,
   ROLES,
   UserRole,
-  hasPermission,
   Permission,
 } from "../utils/roleUtils";
-import { isAffiliatedProgramEditor } from "../utils/event/eventPermissions";
+import {
+  authorizationService,
+  createUserAuthorizationPrincipal,
+} from "../services/authorization/AuthorizationService";
+import { AUTHORIZATION_ACTIONS } from "../services/authorization/types";
+import type { AuthorizationPrincipal } from "../services/authorization/types";
+import { getRequestUserPrincipal } from "./authorization";
+import { recordAuthorizationDenial } from "../services/authorization/AuthorizationAuditService";
 
 // Narrow JWT payloads used in this module
 type AccessTokenPayload = jwt.JwtPayload & {
@@ -28,19 +33,64 @@ declare global {
       user?: IUser;
       userId?: string;
       userRole?: string;
+      authPrincipal?: AuthorizationPrincipal;
     }
   }
 }
 
 // JWT Token Service
 export class TokenService {
+  private static readonly DEVELOPMENT_ACCESS_SECRET = "your-access-secret-key";
+  private static readonly DEVELOPMENT_REFRESH_SECRET = "your-refresh-secret-key";
+
+  private static readSecret(
+    name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET",
+    developmentFallback: string,
+  ): string {
+    const configured = process.env[name]?.trim();
+    if (process.env.NODE_ENV !== "production") {
+      return configured || developmentFallback;
+    }
+
+    const normalized = configured?.toLowerCase() ?? "";
+    if (
+      !configured ||
+      configured.length < 32 ||
+      configured === developmentFallback ||
+      normalized.includes("change-this") ||
+      normalized.startsWith("your-")
+    ) {
+      throw new Error(
+        `${name} must be configured with a non-placeholder secret of at least 32 characters in production.`,
+      );
+    }
+    return configured;
+  }
+
   // Use dynamic getters instead of static properties to ensure env vars are loaded
   private static get ACCESS_TOKEN_SECRET() {
-    return process.env.JWT_ACCESS_SECRET || "your-access-secret-key";
+    return this.readSecret(
+      "JWT_ACCESS_SECRET",
+      this.DEVELOPMENT_ACCESS_SECRET,
+    );
   }
 
   private static get REFRESH_TOKEN_SECRET() {
-    return process.env.JWT_REFRESH_SECRET || "your-refresh-secret-key";
+    return this.readSecret(
+      "JWT_REFRESH_SECRET",
+      this.DEVELOPMENT_REFRESH_SECRET,
+    );
+  }
+
+  static assertProductionConfiguration(): void {
+    if (process.env.NODE_ENV !== "production") return;
+    const accessSecret = this.ACCESS_TOKEN_SECRET;
+    const refreshSecret = this.REFRESH_TOKEN_SECRET;
+    if (accessSecret === refreshSecret) {
+      throw new Error(
+        "JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different in production.",
+      );
+    }
   }
 
   private static get ACCESS_TOKEN_EXPIRE() {
@@ -202,7 +252,7 @@ export const authenticate = async (
         const userId = token.substring("test-admin-".length);
         // Fetch user document to ensure it exists (and role), fallback to injected admin role
         const userDoc = await User.findById(userId);
-        (req as Request & { user?: unknown }).user =
+        const authenticatedUser =
           userDoc ||
           ({
             _id: userId,
@@ -210,9 +260,19 @@ export const authenticate = async (
             role: ROLES.ADMINISTRATOR,
             isVerified: true,
             isActive: true,
-          } as Record<string, unknown>);
+          } as unknown as IUser);
+        const principal = createUserAuthorizationPrincipal(authenticatedUser);
+        if (!principal || !principal.isActive || !principal.isVerified) {
+          res.status(401).json({
+            success: false,
+            message: "Invalid test token. User not found, inactive, or unverified.",
+          });
+          return;
+        }
+        req.user = authenticatedUser;
         req.userId = userId;
-        req.userRole = ROLES.ADMINISTRATOR;
+        req.userRole = authenticatedUser.role;
+        req.authPrincipal = principal;
         return next();
       }
       if (
@@ -221,7 +281,7 @@ export const authenticate = async (
       ) {
         const userId = token.substring("test-".length);
         const userDoc = await User.findById(userId);
-        (req as Request & { user?: unknown }).user =
+        const authenticatedUser =
           userDoc ||
           ({
             _id: userId,
@@ -229,9 +289,19 @@ export const authenticate = async (
             role: ROLES.PARTICIPANT,
             isVerified: true,
             isActive: true,
-          } as Record<string, unknown>);
+          } as unknown as IUser);
+        const principal = createUserAuthorizationPrincipal(authenticatedUser);
+        if (!principal || !principal.isActive || !principal.isVerified) {
+          res.status(401).json({
+            success: false,
+            message: "Invalid test token. User not found, inactive, or unverified.",
+          });
+          return;
+        }
+        req.user = authenticatedUser;
         req.userId = userId;
-        req.userRole = ROLES.PARTICIPANT;
+        req.userRole = authenticatedUser.role;
+        req.authPrincipal = principal;
         return next();
       }
     }
@@ -240,7 +310,7 @@ export const authenticate = async (
     const decoded = TokenService.verifyAccessToken(token);
 
     // Get user from database
-    const user = await User.findById(decoded.userId).select("+password");
+    const user = await User.findById(decoded.userId).select("-password");
 
     if (!user || !user.isActive) {
       res.status(401).json({
@@ -263,6 +333,15 @@ export const authenticate = async (
     req.user = user;
     req.userId = String(user._id);
     req.userRole = user.role;
+    const principal = createUserAuthorizationPrincipal(user);
+    if (!principal) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication failed.",
+      });
+      return;
+    }
+    req.authPrincipal = principal;
 
     next();
   } catch (error: unknown) {
@@ -310,15 +389,19 @@ export const authenticateOptional = async (
 
     // Verify token; if invalid, fall through and continue unauthenticated
     const decoded = TokenService.verifyAccessToken(token);
-    const user = await User.findById(decoded.userId).select("+password");
+    const user = await User.findById(decoded.userId).select("-password");
     if (!user || !user.isActive || !user.isVerified) {
       return next();
     }
 
-    // Attach user context and proceed
+    const principal = createUserAuthorizationPrincipal(user);
+    if (!principal) return next();
+
+    // Attach user context only after the minimal principal validates.
     req.user = user;
     req.userId = String(user._id);
     req.userRole = user.role;
+    req.authPrincipal = principal;
     return next();
   } catch {
     // Silently ignore errors; proceed as unauthenticated
@@ -328,8 +411,13 @@ export const authenticateOptional = async (
 
 // Advanced role-based authorization using role utilities
 export const authorizeRoles = (...requiredRoles: UserRole[]) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -337,7 +425,19 @@ export const authorizeRoles = (...requiredRoles: UserRole[]) => {
       return;
     }
 
-    if (!RoleUtils.hasAnyRole(req.user.role, requiredRoles)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_ANY_ROLE,
+      context: { roles: requiredRoles },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Required roles: ${requiredRoles.join(" or ")}`,
@@ -352,8 +452,13 @@ export const authorizeRoles = (...requiredRoles: UserRole[]) => {
 
 // Minimum role authorization (user must have this role or higher)
 export const authorizeMinimumRole = (minimumRole: UserRole) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -361,7 +466,19 @@ export const authorizeMinimumRole = (minimumRole: UserRole) => {
       return;
     }
 
-    if (!RoleUtils.hasMinimumRole(req.user.role, minimumRole)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_MINIMUM_ROLE,
+      context: { minimumRole },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Minimum required role: ${minimumRole}`,
@@ -376,8 +493,13 @@ export const authorizeMinimumRole = (minimumRole: UserRole) => {
 
 // Permission-based authorization
 export const authorizePermission = (permission: Permission) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -385,7 +507,19 @@ export const authorizePermission = (permission: Permission) => {
       return;
     }
 
-    if (!hasPermission(req.user.role, permission)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_PERMISSION,
+      context: { permission },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Required permission: ${permission}`,
@@ -520,9 +654,8 @@ export const authorizeEventManagement = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    console.log("DEBUG: authorizeEventManagement called");
-    console.log("DEBUG: req.user exists:", !!req.user);
-    if (!req.user) {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -530,14 +663,9 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    // Admins (Administrator or Super Admin) can manage any event; bypass further checks
-    console.log("DEBUG: req.user.role:", req.user.role);
-    // Note: use direct role comparison here instead of RoleUtils.isAdmin because tests mock RoleUtils
-    // without stubbing isAdmin for this path.
     const isAdminByRole =
-      req.user.role === ROLES.ADMINISTRATOR ||
-      req.user.role === ROLES.SUPER_ADMIN;
-    console.log("DEBUG: isAdminByRole:", isAdminByRole);
+      principal.role === ROLES.ADMINISTRATOR ||
+      principal.role === ROLES.SUPER_ADMIN;
     if (isAdminByRole) {
       next();
       return;
@@ -553,11 +681,26 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    // Import Event model here to avoid circular dependency
-    const { Event } = await import("../models");
-    const event = await Event.findById(eventId);
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.EVENT_MANAGE,
+      resource: { type: "event", id: eventId },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
 
-    if (!event) {
+    if (decision.allowed) {
+      next();
+      return;
+    }
+
+    recordAuthorizationDenial(
+      authorizationRequest,
+      decision,
+      req.correlationId,
+    );
+
+    if (decision.reasonCode === "resource_not_found") {
       res.status(404).json({
         success: false,
         message: "Event not found.",
@@ -565,34 +708,15 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    const currentUserId = String(req.user._id);
-    const eventCreatorId = String(event.createdBy);
-
-    // Check if user created the event
-    if (currentUserId === eventCreatorId) {
-      next();
-      return;
-    }
-
-    // Check if user is listed as an organizer
-    const isOrganizer = event.organizerDetails?.some(
-      (organizer: { userId?: { toString(): string } }) =>
-        organizer.userId?.toString() === currentUserId
-    );
-
-    if (isOrganizer) {
-      next();
-      return;
-    }
-
-    const isProgramEditor = await isAffiliatedProgramEditor(
-      event,
-      currentUserId,
-      req.user.role
-    );
-
-    if (isProgramEditor) {
-      next();
+    if (decision.reasonCode === "authorization_error") {
+      console.error(
+        "Event management authorization error:",
+        new Error("Shared authorization policy failed."),
+      );
+      res.status(500).json({
+        success: false,
+        message: "Authorization check failed.",
+      });
       return;
     }
 

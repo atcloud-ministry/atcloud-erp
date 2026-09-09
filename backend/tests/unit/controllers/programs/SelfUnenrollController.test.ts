@@ -34,10 +34,17 @@ vi.mock("../../../../src/services/RefundRequestService", () => ({
   },
 }));
 
+vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
+
 import { AuditLog, Program, Purchase } from "../../../../src/models";
 import { processRefund } from "../../../../src/services/stripeService";
 import { PurchaseEmailService } from "../../../../src/services/email/domains/PurchaseEmailService";
 import { RefundRequestService } from "../../../../src/services/RefundRequestService";
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
 
 describe("SelfUnenrollController", () => {
   const programId = new mongoose.Types.ObjectId();
@@ -126,6 +133,12 @@ describe("SelfUnenrollController", () => {
     expect(response.data.refundStatus).toBe("processing");
     expect(purchase.unenrolledAt).toBeInstanceOf(Date);
     expect(purchase.unenrollReason).toBe("self_unenroll_refund");
+    expect(socketService.disconnectUser).toHaveBeenCalledWith(
+      userId.toString(),
+    );
+    expect(purchase.save.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+    );
     expect(processRefund).toHaveBeenCalledWith(
       expect.objectContaining({
         paymentIntentId: "pi_program_123",

@@ -78,8 +78,8 @@ vi.mock("../../services/api", () => ({
   },
 }));
 
-describe("No refetch on guest_cancellation", () => {
-  it("does not call getEventGuests on guest_cancellation and removes guest optimistically", async () => {
+describe("Guest cancellation invalidation", () => {
+  it("refetches authorized guest data when the socket payload contains no details", async () => {
     // Initial guest list contains one guest
     getEventGuestsMock.mockResolvedValueOnce({
       guests: [
@@ -113,22 +113,23 @@ describe("No refetch on guest_cancellation", () => {
 
     // Clear mock call count before triggering cancellation
     getEventGuestsMock.mockClear();
+    getEventGuestsMock.mockResolvedValueOnce({ guests: [] });
 
     await act(async () => {
       capturedHandler?.({
         eventId: "e1",
         updateType: "guest_cancellation",
-        data: { roleId: "r1", guestName: "Alpha Guest" },
+        data: null,
         timestamp: new Date().toISOString(),
       });
     });
 
-    // Guest should be removed optimistically
+    // Guest should be removed using the refreshed authorized response.
     await waitFor(() => {
       expect(screen.queryByTestId("admin-guests-r1")).toBeNull();
     });
 
-    // No API refetch should have occurred on cancellation
-    expect(getEventGuestsMock).not.toHaveBeenCalled();
+    expect(getEventGuestsMock).toHaveBeenCalledOnce();
+    expect(getEventGuestsMock).toHaveBeenCalledWith("e1");
   });
 });

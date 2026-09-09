@@ -34,7 +34,10 @@ describe.sequential("Search API integration", () => {
       acceptTerms: true,
     };
     await request(app).post("/api/auth/register").send(u).expect(201);
-    await User.findOneAndUpdate({ email: u.email }, { isVerified: true });
+    await User.findOneAndUpdate(
+      { email: u.email },
+      { isVerified: true, role: "Administrator" },
+    );
     const login = await request(app)
       .post("/api/auth/login")
       .send({ emailOrUsername: u.email, password: u.password })
@@ -51,7 +54,7 @@ describe.sequential("Search API integration", () => {
     await request(app).get("/api/search/users?q=sea").expect(401);
   });
 
-  it("users: 200 with token", async () => {
+  it("users: 200 with an account-manager token", async () => {
     const res = await request(app)
       .get("/api/search/users?q=sea")
       .set("Authorization", `Bearer ${token}`)

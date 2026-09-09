@@ -101,6 +101,9 @@ export default class UserDeactivationController {
       targetUser.isActive = false;
       await targetUser.save();
 
+      // Revoke the persisted account's live access before slower side effects.
+      socketService.disconnectUser(String(targetUser._id));
+
       // Audit log for user deactivation
       try {
         await AuditLog.create({

@@ -12,9 +12,10 @@ import { processRefund } from "../../services/stripeService";
 import {
   calculateRefundEligibility,
   getPurchaseItemDetails,
-  markProgramPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "../../services/PurchaseRefundService";
 import { RefundRequestService } from "../../services/RefundRequestService";
+import { socketService } from "../../services/infrastructure/SocketService";
 
 type EnrollmentType = "mentee" | "classRep";
 type ProgramDocument = HydratedDocument<IProgram>;
@@ -104,6 +105,7 @@ export default class SelfUnenrollController {
         );
         if (removedAdminEnrollment) {
           await program.save();
+          socketService.disconnectUser(userId.toString());
         }
 
         await this.writeAuditLog(req, program, adminEnrollmentType || "mentee", {
@@ -174,11 +176,10 @@ export default class SelfUnenrollController {
           await program.save();
         }
 
-        await markProgramPurchaseUnenrolled(
+        await persistPurchaseUnenrollment(
           purchase,
           "self_unenroll_no_refund",
         );
-        await purchase.save();
         await this.writeAuditLog(req, program, enrollmentType, {
           refundStatus: "not_eligible",
           reason: eligibility.reason,
@@ -207,8 +208,7 @@ export default class SelfUnenrollController {
       purchase.status = "refund_processing";
       purchase.refundInitiatedAt = new Date();
       purchase.refundFailureReason = undefined;
-      await markProgramPurchaseUnenrolled(purchase, "self_unenroll_refund");
-      await purchase.save();
+      await persistPurchaseUnenrollment(purchase, "self_unenroll_refund");
 
       try {
         await PurchaseEmailService.sendRefundInitiatedEmail({

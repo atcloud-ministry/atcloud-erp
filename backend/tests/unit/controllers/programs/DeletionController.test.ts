@@ -6,12 +6,22 @@ import { Event, Program } from "../../../../src/models";
 import AuditLog from "../../../../src/models/AuditLog";
 import { EventCascadeService } from "../../../../src/services/EventCascadeService";
 import { RoleUtils } from "../../../../src/utils/roleUtils";
+import { resourceAuthorizationInvalidationService } from "../../../../src/services/authorization/ResourceAuthorizationInvalidationService";
 
 // Mock dependencies
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/models/AuditLog");
 vi.mock("../../../../src/services/EventCascadeService");
 vi.mock("../../../../src/utils/roleUtils");
+vi.mock(
+  "../../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      findEventIdsForPrograms: vi.fn().mockResolvedValue([]),
+      invalidateEventRooms: vi.fn(),
+    },
+  }),
+);
 
 interface MockRequest extends Partial<Request> {
   user?: {
@@ -269,6 +279,12 @@ describe("DeletionController", () => {
       });
 
       it("should unlink events without deleting them", async () => {
+        vi.mocked(
+          resourceAuthorizationInvalidationService.findEventIdsForPrograms,
+        ).mockResolvedValue([
+          "507f1f77bcf86cd799439012",
+          "507f1f77bcf86cd799439013",
+        ]);
         vi.mocked(Event.updateMany).mockResolvedValue({
           modifiedCount: 3,
         } as any);
@@ -282,6 +298,22 @@ describe("DeletionController", () => {
         expect(Event.updateMany).toHaveBeenCalledWith(
           { programLabels: testProgramId },
           { $pull: { programLabels: testProgramId } },
+        );
+        expect(
+          resourceAuthorizationInvalidationService.findEventIdsForPrograms,
+        ).toHaveBeenCalledWith([testProgramId]);
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRooms,
+        ).toHaveBeenCalledWith([
+          "507f1f77bcf86cd799439012",
+          "507f1f77bcf86cd799439013",
+        ]);
+        expect(
+          vi.mocked(Event.updateMany).mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          vi.mocked(
+            resourceAuthorizationInvalidationService.invalidateEventRooms,
+          ).mock.invocationCallOrder[0],
         );
         expect(Program.findByIdAndDelete).toHaveBeenCalledWith(testProgramId);
         expect(statusMock).toHaveBeenCalledWith(200);

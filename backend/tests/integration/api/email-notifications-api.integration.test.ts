@@ -284,9 +284,10 @@ describe("Email Notifications API - Integration Tests", () => {
       expect(response.body.success).toBe(true);
     });
 
-    it("should allow test-event-reminder endpoint without authentication", async () => {
+    it("does not expose the former test-event-reminder endpoint", async () => {
       const response = await request(app)
         .post("/api/email-notifications/test-event-reminder")
+        .set("Authorization", `Bearer ${adminToken}`)
         .send({
           eventId: testEventId,
           eventData: {
@@ -298,8 +299,7 @@ describe("Email Notifications API - Integration Tests", () => {
           reminderType: "24h",
         });
 
-      // Should not return 401 (may return 400 for validation or 200 for success)
-      expect(response.status).not.toBe(401);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -653,6 +653,25 @@ describe("Email Notifications API - Integration Tests", () => {
   // ========================================
 
   describe("POST /api/email-notifications/event-reminder", () => {
+    it("should deny a user without notification-management permission", async () => {
+      const response = await request(app)
+        .post("/api/email-notifications/event-reminder")
+        .set("Authorization", `Bearer ${memberToken}`)
+        .send({
+          eventId: testEventId,
+          eventData: {
+            title: "Test Event",
+            date: "2026-01-15",
+            time: "14:00",
+            location: "Test Location",
+          },
+          reminderType: "1h",
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
+    });
+
     it("should send event reminder notification successfully", async () => {
       const response = await request(app)
         .post("/api/email-notifications/event-reminder")
@@ -742,6 +761,16 @@ describe("Email Notifications API - Integration Tests", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.message).toContain("reminder check triggered");
+    });
+
+    it("should deny a user without notification-management permission", async () => {
+      const response = await request(app)
+        .post("/api/email-notifications/schedule-reminder")
+        .set("Authorization", `Bearer ${memberToken}`)
+        .send({});
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
     });
   });
 

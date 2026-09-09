@@ -3,10 +3,11 @@ services:
     name: atcloud-backend
     env: node
     plan: starter
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=atcloud-signup-system-backend
+    startCommand: npm start --workspace=atcloud-signup-system-backend
     healthCheckPath: /api/health
     autoDeploy: false
+    numInstances: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -18,8 +19,16 @@ services:
         value: 900000
       - key: RATE_LIMIT_MAX_REQUESTS
         value: 100
-      - key: JWT_EXPIRES_IN
-        value: 24h
+      - key: WEB_CONCURRENCY
+        value: 1
+      - key: SINGLE_INSTANCE_ENFORCE
+        value: true
+      - key: SCHEDULER_ENABLED
+        value: true
+      - key: JWT_ACCESS_EXPIRE
+        value: 3h
+      - key: JWT_REFRESH_EXPIRE
+        value: 7d
       # These should be set manually in Render dashboard for security:
       # - MONGODB_URI (production MongoDB connection string)
       # - JWT_ACCESS_SECRET (generate secure random string)
@@ -32,8 +41,8 @@ services:
     name: atcloud-frontend
     env: static
     plan: starter
-    buildCommand: npm ci --include=dev && npm run build
-    staticPublishPath: ./dist
+    buildCommand: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=frontend
+    staticPublishPath: ./frontend/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: false
     routes:
@@ -45,13 +54,6 @@ services:
         fromService:
           type: web
           name: atcloud-backend
-          property: host
+          envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production
-
-databases:
-  - name: atcloud-mongodb
-    databaseName: atcloud_signup_production
-    user: atcloud_user
-    # Note: You'll need to set up MongoDB Atlas or another hosted MongoDB service
-    # and configure the connection string in the backend service's MONGODB_URI

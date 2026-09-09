@@ -204,7 +204,13 @@ describe("AuditLogController", () => {
         );
 
         expect(AuditLog.find).toHaveBeenCalledWith(
-          expect.objectContaining({ eventId: "event123" }),
+          expect.objectContaining({
+            $and: [
+              {
+                $or: [{ targetModel: "Event", targetId: "event123" }],
+              },
+            ],
+          }),
         );
       });
 
@@ -217,7 +223,13 @@ describe("AuditLogController", () => {
         );
 
         expect(AuditLog.find).toHaveBeenCalledWith(
-          expect.objectContaining({ actorId: "user123" }),
+          expect.objectContaining({
+            $and: [
+              {
+                $or: [{ actorKey: "user123" }],
+              },
+            ],
+          }),
         );
       });
 
@@ -249,8 +261,42 @@ describe("AuditLogController", () => {
 
         expect(AuditLog.find).toHaveBeenCalledWith({
           action: "event_created",
-          actorId: "user123",
-          eventId: "event456",
+          $and: [
+            {
+              $or: [{ targetModel: "Event", targetId: "event456" }],
+            },
+            {
+              $or: [{ actorKey: "user123" }],
+            },
+          ],
+        });
+      });
+
+      it("includes legacy ObjectId fields only for cast-safe filters", async () => {
+        const objectId = "507f1f77bcf86cd799439011";
+        mockReq.query = { eventId: objectId, actorId: objectId };
+
+        await AuditLogController.getAuditLogs(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(AuditLog.find).toHaveBeenCalledWith({
+          $and: [
+            {
+              $or: [
+                { eventId: objectId },
+                { targetModel: "Event", targetId: objectId },
+              ],
+            },
+            {
+              $or: [
+                { actorId: objectId },
+                { "actor.id": objectId },
+                { actorKey: objectId },
+              ],
+            },
+          ],
         });
       });
 
@@ -416,6 +462,53 @@ describe("AuditLogController", () => {
         const response = jsonMock.mock.calls[0][0];
         expect(response.data.auditLogs[0].actorId).toBe("user123");
         expect(response.data.auditLogs[0].actorInfo).toBeNull();
+      });
+
+      it("should expose a privacy-safe worker actor and version 2 fields", async () => {
+        const mockLogs = [
+          {
+            _id: { toString: () => "log-worker" },
+            version: 2,
+            action: "event.reminder.send",
+            actorType: "worker",
+            actorKey: "event-reminder",
+            source: "worker",
+            correlationId: "run-123",
+            outcome: "success",
+            reasonCode: "allowed",
+            createdAt: new Date("2025-01-15"),
+          },
+        ];
+        const chain = {
+          sort: vi.fn().mockReturnThis(),
+          skip: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          populate: vi.fn().mockReturnThis(),
+          lean: vi.fn().mockResolvedValue(mockLogs),
+        };
+        vi.mocked(AuditLog.find).mockReturnValue(chain as never);
+        vi.mocked(AuditLog.countDocuments).mockResolvedValue(1);
+
+        await AuditLogController.getAuditLogs(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(jsonMock.mock.calls[0][0].data.auditLogs[0]).toMatchObject({
+          version: 2,
+          actorType: "worker",
+          actorKey: "event-reminder",
+          source: "worker",
+          correlationId: "run-123",
+          outcome: "success",
+          reasonCode: "allowed",
+          actorInfo: {
+            username: "event-reminder",
+            email: "",
+            name: "event-reminder",
+            role: "Worker",
+          },
+        });
       });
 
       it("should format audit logs with new targetModel/targetId format", async () => {

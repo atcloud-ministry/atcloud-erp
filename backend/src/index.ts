@@ -12,6 +12,8 @@ import app from "./app";
 import { lockService } from "./services/LockService";
 import { createLogger } from "./services/LoggerService";
 import { SystemConfig } from "./models"; // Import SystemConfig for initialization
+import { TokenService } from "./middleware/auth";
+import { isSchedulerEnabled } from "./config/scheduler";
 
 const log = createLogger("App");
 
@@ -187,6 +189,9 @@ process.on("SIGINT", gracefulShutdown);
 // Start server
 const startServer = async () => {
   try {
+    // Never start production HTTP/Socket authentication with fallback secrets.
+    TokenService.assertProductionConfiguration();
+
     // Validate runtime concurrency constraints for in-memory locking
     enforceSingleInstanceIfNecessary();
 
@@ -216,11 +221,7 @@ const startServer = async () => {
       });
 
       // Start event reminder scheduler
-      // Enabled by default in all environments except when explicitly disabled.
-      // Disable automatically in test to avoid flakiness unless opted-in.
-      const explicitlyDisabled = process.env.SCHEDULER_ENABLED === "false";
-      const isTestEnv = process.env.NODE_ENV === "test";
-      const schedulerEnabled = !explicitlyDisabled && !isTestEnv;
+      const schedulerEnabled = isSchedulerEnabled();
       if (schedulerEnabled) {
         const scheduler = EventReminderScheduler.getInstance();
         scheduler.start();

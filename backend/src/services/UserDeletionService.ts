@@ -8,6 +8,8 @@ import PromoCode from "../models/PromoCode";
 import Program from "../models/Program";
 import ShortLink from "../models/ShortLink";
 import { CachePatterns } from "./infrastructure/CacheService";
+import { resourceAuthorizationInvalidationService } from "./authorization/ResourceAuthorizationInvalidationService";
+import { socketService } from "./infrastructure/SocketService";
 import fs from "fs/promises";
 import path from "path";
 
@@ -113,6 +115,9 @@ export class UserDeletionService {
       for (const event of eventsCreatedByUser) {
         // Delete events created by user
         await Event.findByIdAndDelete(event._id);
+        resourceAuthorizationInvalidationService.invalidateEventRoom(
+          (event._id as mongoose.Types.ObjectId).toString()
+        );
         // Also delete all registrations for these events
         await Registration.deleteMany({ eventId: event._id });
         report.deletedData.eventsCreated++;
@@ -133,6 +138,7 @@ export class UserDeletionService {
       );
       report.deletedData.eventOrganizations =
         eventsAsOrganizer.modifiedCount || 0;
+      socketService.disconnectUser(userId);
 
       // 7. Clean up message states (only where user key exists)
       const messagesWithUserStates = await Message.updateMany(
@@ -172,6 +178,7 @@ export class UserDeletionService {
       );
       report.deletedData.programMentorships =
         programsAsMentor.modifiedCount || 0;
+      socketService.disconnectUser(userId);
 
       // 11. Remove user from program adminEnrollments.classReps arrays
       const programsAsClassRep = await Program.updateMany(
@@ -187,6 +194,7 @@ export class UserDeletionService {
       );
       report.deletedData.programClassReps =
         programsAsClassRep.modifiedCount || 0;
+      socketService.disconnectUser(userId);
 
       // 12. Remove user from program adminEnrollments.mentees arrays
       const programsAsMentee = await Program.updateMany(
@@ -253,6 +261,7 @@ export class UserDeletionService {
 
       // 16. Finally, delete the user record
       await User.findByIdAndDelete(userId);
+      socketService.disconnectUser(userId);
       report.deletedData.userRecord = true;
 
       // 17. Update statistics for affected events

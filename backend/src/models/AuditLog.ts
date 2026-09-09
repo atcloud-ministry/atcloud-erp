@@ -1,7 +1,24 @@
 import mongoose, { Schema, Document } from "mongoose";
+import {
+  AUDIT_ACTOR_TYPES,
+  AUDIT_OUTCOMES,
+  AUDIT_SOURCES,
+  type AuditActorType,
+  type AuditOutcome,
+  type AuditSource,
+} from "../contracts/auditLog";
 
 export interface IAuditLog extends Document {
   action: string; // e.g., EventPublished, EventUnpublished, admin_profile_edit
+
+  // Versioned format fields. Existing records may not contain these values.
+  version?: number;
+  actorType?: AuditActorType | null;
+  actorKey?: string | null;
+  source?: AuditSource | null;
+  correlationId?: string | null;
+  outcome?: AuditOutcome | null;
+  reasonCode?: string | null;
 
   // Old format fields (for backward compatibility)
   actorId?: mongoose.Types.ObjectId | null; // user performing action
@@ -12,7 +29,7 @@ export interface IAuditLog extends Document {
   actor?: {
     id: mongoose.Types.ObjectId;
     role: string;
-    email: string;
+    email?: string;
   } | null;
   targetModel?: string | null; // e.g., "User", "Event"
   targetId?: string | null; // ID of the target resource
@@ -38,6 +55,19 @@ const auditLogSchema = new Schema<IAuditLog>(
   {
     action: { type: String, required: true, index: true },
 
+    // Version 1 represents legacy writers. AuditLogService writes version 2.
+    version: { type: Number, default: 1, min: 1 },
+    actorType: {
+      type: String,
+      enum: AUDIT_ACTOR_TYPES,
+      default: null,
+    },
+    actorKey: { type: String, default: null, maxlength: 200 },
+    source: { type: String, enum: AUDIT_SOURCES, default: null },
+    correlationId: { type: String, default: null, maxlength: 128 },
+    outcome: { type: String, enum: AUDIT_OUTCOMES, default: null },
+    reasonCode: { type: String, default: null, maxlength: 120 },
+
     // Old format fields (backward compatibility)
     actorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     eventId: {
@@ -52,7 +82,8 @@ const auditLogSchema = new Schema<IAuditLog>(
       type: {
         id: { type: mongoose.Schema.Types.ObjectId, required: true },
         role: { type: String, required: true },
-        email: { type: String, required: true },
+        // Optional for privacy-safe version 2 records. Legacy records may retain it.
+        email: { type: String, required: false },
       },
       default: null,
     },
@@ -70,6 +101,8 @@ const auditLogSchema = new Schema<IAuditLog>(
 );
 
 auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ actorType: 1, actorKey: 1, createdAt: -1 });
+auditLogSchema.index({ targetModel: 1, targetId: 1, createdAt: -1 });
 
 // Optional TTL index as fallback safety mechanism (24 months = 730 days)
 // This acts as a hard limit to prevent indefinite accumulation

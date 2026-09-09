@@ -20,7 +20,7 @@ export type EventUpdateType =
 export interface EventUpdate {
   eventId: string;
   updateType: EventUpdateType;
-  data: unknown;
+  data: null;
   timestamp: string;
 }
 
@@ -52,8 +52,27 @@ export interface ConnectedPayload {
   userId: string;
 }
 
+export interface AuthExpiredPayload {
+  expiredAt: string;
+}
+
+export type SocketRoomErrorCode =
+  | "INVALID_EVENT_ID"
+  | "ACCOUNT_UNAVAILABLE"
+  | "EVENT_NOT_FOUND"
+  | "AUTHORIZATION_FAILED"
+  | "RATE_LIMITED"
+  | "REQUEST_IN_PROGRESS";
+
+export type SocketRoomAckResult =
+  | { ok: true; eventId: string }
+  | { ok: false; code: SocketRoomErrorCode };
+
+export type SocketRoomAck = (result: SocketRoomAckResult) => void;
+
 export type ServerToClientEvents = {
   connected: (payload: ConnectedPayload) => void;
+  auth_expired: (payload: AuthExpiredPayload) => void;
   event_update: (payload: EventUpdate) => void;
   event_room_update: (payload: EventRoomUpdate) => void;
   system_message_update: (payload: SystemMessageUpdate) => void;
@@ -62,7 +81,7 @@ export type ServerToClientEvents = {
 };
 
 export type ClientToServerEvents = {
-  join_event_room: (eventId: string) => void;
-  leave_event_room: (eventId: string) => void;
+  join_event_room: (eventId: string, ack: SocketRoomAck) => void;
+  leave_event_room: (eventId: string, ack?: SocketRoomAck) => void;
   update_status: (status: "online" | "away" | "busy") => void;
 };

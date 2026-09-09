@@ -2,9 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
-// Mock authenticate to no-op
+const authMocks = vi.hoisted(() => ({
+  permissionCheck: vi.fn(),
+}));
+
+// Mock authentication/authorization adapters to no-op for route wiring tests.
 vi.mock("../../../src/middleware/auth", () => ({
   authenticate: (req: any, res: any, next: any) => next(),
+  authorizePermission:
+    (permission: string) => (req: any, res: any, next: any) => {
+      authMocks.permissionCheck(permission);
+      next();
+    },
 }));
 
 // Hoisted controller mocks so they can be referenced inside vi.mock factory
@@ -111,11 +120,23 @@ describe("emailNotifications routes coverage", () => {
     return undefined;
   });
 
-  it("POST /test-event-reminder returns 200 via controller", async () => {
+  it("does not expose the former public test reminder route", async () => {
     const res = await request(makeApp()).post("/test-event-reminder");
-    expect(res.status).toBe(200);
-    expect(controllerMocks.sendEventReminderNotification).toHaveBeenCalled();
+    expect(res.status).toBe(404);
+    expect(controllerMocks.sendEventReminderNotification).not.toHaveBeenCalled();
   });
+
+  it.each(["/event-reminder", "/schedule-reminder"])(
+    "protects %s with notification-management permission",
+    async (path) => {
+      const res = await request(makeApp()).post(path);
+
+      expect(res.status).toBe(200);
+      expect(authMocks.permissionCheck).toHaveBeenCalledWith(
+        "manage_notifications",
+      );
+    },
+  );
 
   it("All implemented endpoints return expected codes with mocks", async () => {
     const app = makeApp();

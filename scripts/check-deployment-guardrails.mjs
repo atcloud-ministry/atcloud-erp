@@ -153,17 +153,75 @@ function checkRenderTemplateContract() {
     "destination: /index.html",
     "key: VITE_API_URL",
     "fromService:",
+    "envVarKey: RENDER_EXTERNAL_URL",
   ]) {
     if (!renderYaml.includes(required)) {
       fail(`render.yaml: expected frontend static-site contract "${required}".`);
     }
   }
 
-  const buildCommand = "buildCommand: npm ci --include=dev && npm run build";
-  const buildCommandCount = renderYaml.split(buildCommand).length - 1;
-  if (buildCommandCount !== 2) {
+  for (const [pattern, message] of [
+    [
+      /name:\s*atcloud-backend[\s\S]*?buildCommand:\s*npm ci --include=dev && npm run build --workspace=@atcloud\/shared-time && npm run build --workspace=atcloud-signup-system-backend/,
+      "backend build must install from the repository root and compile the shared workspace first.",
+    ],
+    [
+      /name:\s*atcloud-backend[\s\S]*?startCommand:\s*npm start --workspace=atcloud-signup-system-backend/,
+      "backend start must target the backend workspace from the repository root.",
+    ],
+    [
+      /name:\s*atcloud-frontend[\s\S]*?buildCommand:\s*npm ci --include=dev && npm run build --workspace=@atcloud\/shared-time && npm run build --workspace=frontend/,
+      "frontend build must install from the repository root and compile the shared workspace first.",
+    ],
+    [
+      /name:\s*atcloud-frontend[\s\S]*?staticPublishPath:\s*\.\/frontend\/dist/,
+      "frontend publish path must resolve from the repository root.",
+    ],
+    [
+      /name:\s*atcloud-backend[\s\S]*?numInstances:\s*1/,
+      "backend Socket.IO delivery must remain on one Render instance until a distributed adapter is configured.",
+    ],
+    [
+      /key:\s*WEB_CONCURRENCY\s*\n\s*value:\s*1/,
+      "backend must use one Node web process for in-memory coordination.",
+    ],
+    [
+      /key:\s*SINGLE_INSTANCE_ENFORCE\s*\n\s*value:\s*true/,
+      "single-instance enforcement must be enabled.",
+    ],
+    [
+      /key:\s*SCHEDULER_ENABLED\s*\n\s*value:\s*true/,
+      "the single Web Service must explicitly run scheduled workers.",
+    ],
+    [
+      /key:\s*JWT_ACCESS_EXPIRE\s*\n\s*value:\s*3h/,
+      "access-token expiry must use the TokenService environment key.",
+    ],
+    [
+      /key:\s*JWT_REFRESH_EXPIRE\s*\n\s*value:\s*7d/,
+      "refresh-token expiry must use the TokenService environment key.",
+    ],
+  ]) {
+    if (!pattern.test(renderYaml)) {
+      fail(`render.yaml: ${message}`);
+    }
+  }
+
+  if (/^\s*rootDir:/m.test(renderYaml)) {
     fail(
-      "render.yaml: backend and frontend builds must explicitly install devDependencies before compiling.",
+      "render.yaml: services must retain repository-root access to the shared workspace.",
+    );
+  }
+
+  if (/property:\s*host/.test(renderYaml)) {
+    fail(
+      "render.yaml: browser API URLs must use the backend's public RENDER_EXTERNAL_URL.",
+    );
+  }
+
+  if (/^databases:/m.test(renderYaml) || renderYaml.includes("atcloud-mongodb")) {
+    fail(
+      "render.yaml: MongoDB Atlas must be supplied through MONGODB_URI, not declared as a Render database.",
     );
   }
 }

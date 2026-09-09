@@ -4,6 +4,7 @@ import { Event, Program } from "../../models";
 import AuditLog from "../../models/AuditLog";
 import { EventCascadeService } from "../../services/EventCascadeService";
 import { RoleUtils } from "../../utils/roleUtils";
+import { resourceAuthorizationInvalidationService } from "../../services/authorization/ResourceAuthorizationInvalidationService";
 
 export default class DeletionController {
   /**
@@ -90,10 +91,17 @@ export default class DeletionController {
         ).toLowerCase() === "true";
 
       if (!deleteLinkedEvents) {
+        const linkedEventIds =
+          await resourceAuthorizationInvalidationService.findEventIdsForPrograms([
+            id,
+          ]);
         // Remove this program from all events' programLabels arrays
         const result = await Event.updateMany(
           { programLabels: id },
           { $pull: { programLabels: id } },
+        );
+        resourceAuthorizationInvalidationService.invalidateEventRooms(
+          linkedEventIds,
         );
         await Program.findByIdAndDelete(id);
 

@@ -1,6 +1,7 @@
 import { handleSessionExpired } from "../../session";
 import type { ApiResponse, AuthTokens } from "./types";
 import { sanitizeBaseURL, API_BASE_URL } from "./config";
+import { socketService } from "../../socketService";
 
 /**
  * Base API client with core request handling, authentication, and error management.
@@ -244,6 +245,7 @@ export class BaseApiClient {
     const token = data.accessToken || data?.data?.accessToken;
     if (token) {
       localStorage.setItem("authToken", token);
+      socketService.updateAuthenticationToken(token);
       const expiresAt =
         data.expiresAt ||
         data?.data?.expiresAt ||

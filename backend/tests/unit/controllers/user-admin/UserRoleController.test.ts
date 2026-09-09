@@ -24,6 +24,7 @@ vi.mock("../../../../src/utils/roleUtils", () => ({
 vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
   socketService: {
     emitUserUpdate: vi.fn(),
+    syncUserAuthorization: vi.fn(),
   },
 }));
 
@@ -321,6 +322,29 @@ describe("UserRoleController", () => {
             oldValue: "Participant",
             newValue: "Leader",
           })
+        );
+      });
+
+      it("should synchronize live authorization immediately after persistence", async () => {
+        await UserRoleController.updateUserRole(
+          mockReq as unknown as Request,
+          mockRes as Response
+        );
+
+        expect(socketService.syncUserAuthorization).toHaveBeenCalledWith(
+          "targetUser123",
+          { role: "Leader", isActive: true },
+        );
+        expect(mockTargetUser.save.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(socketService.syncUserAuthorization).mock
+            .invocationCallOrder[0],
+        );
+        expect(
+          vi.mocked(socketService.syncUserAuthorization).mock
+            .invocationCallOrder[0],
+        ).toBeLessThan(
+          vi.mocked(CachePatterns.invalidateUserCache).mock
+            .invocationCallOrder[0],
         );
       });
 

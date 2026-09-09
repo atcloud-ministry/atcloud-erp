@@ -8,6 +8,7 @@ import { CachePatterns } from "../../services/infrastructure/CacheService";
 import { formatActorDisplay } from "../../utils/systemMessageFormatUtils";
 import { lockService } from "../../services/LockService";
 import { ResponseHelper } from "../../utils/responseHelper";
+import { socketService } from "../../services/infrastructure/SocketService";
 
 /**
  * UserDeletionController
@@ -72,6 +73,9 @@ export default class UserDeletionController {
         },
         10000
       );
+
+      // Revoke the deleted account's live HTTP-adjacent session immediately.
+      socketService.disconnectUser(userId);
 
       // Send targeted admin notifications for user deletion (security best practice)
       try {

@@ -36,6 +36,7 @@ import { CoOrganizerNotificationService } from "../../services/event/CoOrganizer
 import { ParticipantNotificationService } from "../../services/event/ParticipantNotificationService";
 import { CoOrganizerProgramAccessService } from "../../services/event/CoOrganizerProgramAccessService";
 import { AssignmentSnapshotError } from "../../services/UserAssignmentSnapshotService";
+import { resourceAuthorizationInvalidationService } from "../../services/authorization/ResourceAuthorizationInvalidationService";
 
 const logger = Logger.getInstance().child("UpdateController");
 
@@ -138,6 +139,14 @@ export class UpdateController {
       if (!normalizedData) {
         return;
       }
+
+      const realtimeAuthorizationInputsProvided = [
+        "pricing",
+        "programLabels",
+        "organizerDetails",
+      ].some((field) =>
+        Object.prototype.hasOwnProperty.call(normalizedData, field),
+      );
 
       // ============================================================
       // STEP 1.5: Pricing Validation (Paid Events Feature)
@@ -317,6 +326,9 @@ export class UpdateController {
         await AutoUnpublishService.checkAndApplyAutoUnpublish(event);
 
       await event.save();
+      if (realtimeAuthorizationInputsProvided) {
+        resourceAuthorizationInvalidationService.invalidateEventRoom(id);
+      }
 
       // Audit log for event status change to cancelled
       if (

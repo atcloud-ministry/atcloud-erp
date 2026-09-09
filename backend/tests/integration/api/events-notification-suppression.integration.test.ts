@@ -224,10 +224,12 @@ describe("Event creation notification suppression", () => {
     await registerAndLogin({
       username: "coorg_1",
       email: "coorg1@example.com",
+      role: "Leader",
     });
     await registerAndLogin({
       username: "coorg_2",
       email: "coorg2@example.com",
+      role: "Leader",
     });
 
     const co1 = await User.findOne({ email: "coorg1@example.com" }).lean();

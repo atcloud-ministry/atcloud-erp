@@ -15,7 +15,9 @@ describe("Validation middleware integration", () => {
     await User.deleteMany({});
   });
 
-  const registerAndLogin = async () => {
+  const registerAndLogin = async (
+    role: "Participant" | "Administrator" = "Participant",
+  ) => {
     const userData = {
       username: "valtestuser",
       email: "valtest@example.com",
@@ -32,7 +34,7 @@ describe("Validation middleware integration", () => {
     // Mark verified to allow login
     await User.findOneAndUpdate(
       { email: userData.email },
-      { isVerified: true }
+      { isVerified: true, role }
     );
 
     const loginRes = await request(app)
@@ -96,7 +98,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("GET /api/search/users -> 400 when q too short", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .get("/api/search/users?q=a")

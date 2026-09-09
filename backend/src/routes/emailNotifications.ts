@@ -5,16 +5,11 @@ import AtCloudRoleChangeController from "../controllers/emailNotifications/AtClo
 import NewLeaderSignupController from "../controllers/emailNotifications/NewLeaderSignupController";
 import CoOrganizerAssignedController from "../controllers/emailNotifications/CoOrganizerAssignedController";
 import EventReminderController from "../controllers/emailNotifications/EventReminderController";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorizePermission } from "../middleware/auth";
 import EventReminderScheduler from "../services/EventReminderScheduler";
+import { PERMISSIONS } from "../utils/roleUtils";
 
 const router = Router();
-
-// Special test endpoint without authentication for debugging
-router.post(
-  "/test-event-reminder",
-  EventReminderController.sendEventReminderNotification
-);
 
 // Apply authentication to all routes
 router.use(authenticate);
@@ -48,6 +43,7 @@ router.post(
 );
 router.post(
   "/event-reminder",
+  authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS),
   EventReminderController.sendEventReminderNotification
 );
 
@@ -64,25 +60,29 @@ router.post("/security-alert", (req, res) => {
   res.status(501).json({ success: false, message: "Not implemented yet" });
 });
 
-router.post("/schedule-reminder", async (req, res) => {
-  try {
-    const scheduler = EventReminderScheduler.getInstance();
+router.post(
+  "/schedule-reminder",
+  authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS),
+  async (req, res) => {
+    try {
+      const scheduler = EventReminderScheduler.getInstance();
 
-    // Manually trigger 24h reminder check (simplified version)
-    await scheduler.triggerManualCheck();
+      // Manually trigger 24h reminder check (simplified version)
+      await scheduler.triggerManualCheck(req.userId);
 
-    res.status(200).json({
-      success: true,
-      message: "Manual 24h reminder check triggered successfully",
-    });
-  } catch (error) {
-    console.error("Error triggering manual reminder check:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to trigger manual reminder check",
-    });
-  }
-});
+      res.status(200).json({
+        success: true,
+        message: "Manual 24h reminder check triggered successfully",
+      });
+    } catch (error) {
+      console.error("Error triggering manual reminder check:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to trigger manual reminder check",
+      });
+    }
+  },
+);
 
 router.post("/event-role-removal", (req, res) => {
   res.status(501).json({ success: false, message: "Not implemented yet" });

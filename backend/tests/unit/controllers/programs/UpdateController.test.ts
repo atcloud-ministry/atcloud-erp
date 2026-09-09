@@ -30,11 +30,20 @@ vi.mock("../../../../src/services/UserAssignmentSnapshotService", () => {
     },
   };
 });
+vi.mock(
+  "../../../../src/services/infrastructure/SocketService",
+  () => ({
+    socketService: {
+      disconnectUser: vi.fn(),
+    },
+  }),
+);
 
 import {
   AssignmentSnapshotError,
   UserAssignmentSnapshotService,
 } from "../../../../src/services/UserAssignmentSnapshotService";
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
 
 describe("UpdateController", () => {
   let mockReq: any;
@@ -348,7 +357,7 @@ describe("UpdateController", () => {
       it("should update program with provided fields", async () => {
         mockReq.body = {
           title: "New Title",
-          description: "New Description",
+          introduction: "New Description",
         };
 
         await UpdateController.update(mockReq as Request, mockRes as Response);
@@ -362,10 +371,181 @@ describe("UpdateController", () => {
         });
       });
 
+      it("should exclude ownership and server-maintained fields", async () => {
+        const attemptedOwner = new mongoose.Types.ObjectId();
+        mockReq.body = {
+          title: "Allowed Title",
+          createdBy: attemptedOwner,
+          _id: attemptedOwner,
+          id: attemptedOwner.toString(),
+          adminEnrollments: { classReps: [attemptedOwner] },
+          classRepCount: 99,
+          events: [attemptedOwner],
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+          __v: 99,
+        };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(mockProgram.set).toHaveBeenCalledWith({
+          title: "Allowed Title",
+        });
+        expect(mockProgram.save).toHaveBeenCalledTimes(1);
+      });
+
+      it("should preserve existing role counts by id and initialize new roles at zero", async () => {
+        mockProgram = createMockProgram({
+          classRepCount: 2,
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "role-a",
+                name: "Role A",
+                discountEligible: true,
+                discountAmount: 100,
+                limit: 5,
+                count: 2,
+              },
+              {
+                id: "role-b",
+                name: "Role B",
+                discountEligible: true,
+                discountAmount: 200,
+                limit: 5,
+                count: 4,
+              },
+            ],
+          },
+        });
+        vi.mocked(Program.findById).mockResolvedValue(mockProgram as any);
+        mockReq.body = {
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: [
+              {
+                id: "ROLE B",
+                name: "Role B",
+                discountEligible: true,
+                count: 999,
+              },
+              {
+                id: "role-new",
+                name: "New Role",
+                discountEligible: true,
+                count: 999,
+              },
+              {
+                id: "ROLE A",
+                name: "Role A",
+                discountEligible: true,
+                count: 999,
+              },
+              {
+                id: "role a",
+                name: "Duplicate Role A",
+                discountEligible: true,
+                count: 999,
+              },
+            ],
+          },
+        };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(mockProgram.set).toHaveBeenCalledWith({
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: [
+              expect.objectContaining({ id: "role-b", count: 4 }),
+              expect.objectContaining({ id: "role-new", count: 0 }),
+              expect.objectContaining({ id: "role-a", count: 2 }),
+              expect.objectContaining({ id: "role-a-2", count: 0 }),
+            ],
+          },
+        });
+        expect(mockProgram.classRepCount).toBe(4);
+      });
+
+      it("should reject castable discount flags that could clear an occupied role", async () => {
+        mockProgram = createMockProgram({
+          classRepCount: 2,
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "role-a",
+                name: "Role A",
+                discountEligible: true,
+                discountAmount: 100,
+                limit: 5,
+                count: 2,
+              },
+            ],
+          },
+        });
+        vi.mocked(Program.findById).mockResolvedValue(mockProgram as any);
+        mockReq.body = {
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "role-a",
+                name: "Role A",
+                discountEligible: "true",
+                count: 999,
+              },
+            ],
+          },
+        };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith({
+          success: false,
+          message:
+            "Student role at index 0 must use a boolean discountEligible value.",
+        });
+        expect(mockProgram.save).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        null,
+        { teacherRoleName: "Coach", studentRoles: { id: "replacement" } },
+        { teacherRoleName: "Coach", studentRoles: [] },
+      ])("should reject a non-canonical programRoles shape", async (programRoles) => {
+        mockReq.body = { programRoles };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(mockProgram.save).not.toHaveBeenCalled();
+      });
+
       it("should save the document so model validation hooks run", async () => {
         await UpdateController.update(mockReq as Request, mockRes as Response);
 
         expect(mockProgram.save).toHaveBeenCalledTimes(1);
+      });
+
+      it("should disconnect removed mentors after the update persists", async () => {
+        const removedMentorId = new mongoose.Types.ObjectId();
+        mockProgram = createMockProgram({
+          mentors: [{ userId: removedMentorId }],
+        });
+        vi.mocked(Program.findById).mockResolvedValue(mockProgram as any);
+        mockReq.body = { mentors: [] };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          removedMentorId.toString(),
+        );
+        expect(mockProgram.save.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+        );
       });
     });
 

@@ -2,6 +2,7 @@
 // Shows a clear prompt and redirects to login once.
 
 import { getHashRouteUrl } from "../utils/hashRouting";
+import { socketService } from "./socketService";
 
 let sessionPromptShown = false;
 
@@ -25,6 +26,7 @@ export function handleSessionExpired(): void {
 
   try {
     localStorage.removeItem("authToken");
+    socketService.updateAuthenticationToken(null);
   } catch {
     void 0;
   }

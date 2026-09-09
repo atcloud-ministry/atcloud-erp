@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
 import User from "../../../src/models/User";
+import AuditLog from "../../../src/models/AuditLog";
 
 describe("Authorization wiring integration", () => {
   let participantToken: string;
@@ -11,7 +12,7 @@ describe("Authorization wiring integration", () => {
   let participantId: string;
 
   beforeEach(async () => {
-    await User.deleteMany({});
+    await Promise.all([User.deleteMany({}), AuditLog.deleteMany({})]);
 
     // Create participant
     const userData = {
@@ -88,7 +89,7 @@ describe("Authorization wiring integration", () => {
   });
 
   afterEach(async () => {
-    await User.deleteMany({});
+    await Promise.all([User.deleteMany({}), AuditLog.deleteMany({})]);
   });
 
   describe("/api/users/stats (permission-protected)", () => {
@@ -97,11 +98,44 @@ describe("Authorization wiring integration", () => {
     });
 
     it("returns 403 for participant token", async () => {
+      const correlationId = "auth-wiring-denial-001";
       const res = await request(app)
         .get("/api/users/stats")
         .set("Authorization", `Bearer ${participantToken}`)
+        .set("x-correlation-id", correlationId)
         .expect(403);
       expect(res.body).toMatchObject({ success: false });
+
+      await vi.waitFor(
+        async () => {
+          expect(
+            await AuditLog.exists({
+              version: 2,
+              action: "authorization.denied",
+              correlationId,
+            }),
+          ).toBeTruthy();
+        },
+        { timeout: 2_000, interval: 20 },
+      );
+
+      const denial = await AuditLog.findOne({
+        version: 2,
+        action: "authorization.denied",
+        correlationId,
+      }).lean();
+      expect(denial).toMatchObject({
+        actorType: "user",
+        actorKey: participantId,
+        source: "http",
+        outcome: "denied",
+        reasonCode: "insufficient_permission",
+        details: {
+          authorizationAction: "platform.has_permission",
+        },
+      });
+      expect(denial?.actor?.email).toBeUndefined();
+      expect(JSON.stringify(denial)).not.toContain("aw_participant@example.com");
     });
 
     it("returns 200 for admin token", async () => {

@@ -3,6 +3,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { Server as HTTPServer } from "http";
 import jwt from "jsonwebtoken";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { Event, Purchase, User } from "../../../../src/models";
 
 // Mock dependencies
 vi.mock("socket.io", () => ({
@@ -19,7 +20,25 @@ vi.mock("../../../../src/models", () => ({
   User: {
     findById: vi.fn(),
   },
+  Event: {
+    findById: vi.fn(),
+  },
+  Program: {
+    findById: vi.fn(),
+  },
+  Purchase: {
+    findOne: vi.fn(),
+  },
 }));
+
+vi.mock("../../../../src/services/authorization/AuthorizationAuditService", () => ({
+  recordAuthorizationDenial: vi.fn(),
+}));
+
+const USER_ID = "507f1f77bcf86cd799439011";
+const NAMELESS_USER_ID = "507f1f77bcf86cd799439012";
+const EVENT_ID = "507f1f77bcf86cd799439013";
+const ACCESS_TOKEN_EXP = Math.floor(Date.now() / 1000) + 60 * 60;
 
 describe("SocketService", () => {
   let mockIO: any;
@@ -32,6 +51,9 @@ describe("SocketService", () => {
     (socketService as any).io = null;
     (socketService as any).authenticatedSockets = new Map();
     (socketService as any).userSockets = new Map();
+    (socketService as any).userAuthorizationRevisions = new Map();
+    (socketService as any).resourceAuthorizationRevisions = new Map();
+    (socketService as any).eventJoinGuards = new Map();
 
     // Setup mocks
     mockSocket = {
@@ -46,10 +68,14 @@ describe("SocketService", () => {
         id: "user123",
         firstName: "John",
         lastName: "Doe",
-        role: "member",
       },
+      canManageUsers: false,
+      authorizationRevision: 0,
+      tokenExpiresAt: ACCESS_TOKEN_EXP * 1000,
+      disconnected: false,
       join: vi.fn(),
       leave: vi.fn(),
+      disconnect: vi.fn(),
       emit: vi.fn(),
       on: vi.fn(),
       broadcast: {
@@ -61,7 +87,12 @@ describe("SocketService", () => {
       use: vi.fn(),
       on: vi.fn(),
       to: vi.fn().mockReturnThis(),
+      except: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
       emit: vi.fn(),
+      socketsJoin: vi.fn(),
+      socketsLeave: vi.fn(),
+      disconnectSockets: vi.fn(),
       engine: {
         on: vi.fn(),
       },
@@ -69,18 +100,22 @@ describe("SocketService", () => {
 
     mockHttpServer = {} as HTTPServer;
     mockUser = {
-      _id: "user123",
+      _id: USER_ID,
       firstName: "John",
       lastName: "Doe",
-      role: "member",
+      role: "Participant",
       isActive: true,
+      isVerified: true,
     };
 
     vi.mocked(SocketIOServer).mockReturnValue(mockIO);
+    vi.mocked(User.findById).mockResolvedValue(mockUser);
+    vi.mocked(Event.findById).mockResolvedValue({ _id: EVENT_ID } as any);
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.resetAllMocks();
   });
 
@@ -151,24 +186,31 @@ describe("SocketService", () => {
       // Mock User model
       const { User } = await import("../../../../src/models");
       vi.mocked(User.findById).mockResolvedValue(mockUser);
+      const { Event } = await import("../../../../src/models");
+      vi.mocked(Event.findById).mockResolvedValue({ _id: EVENT_ID } as any);
     });
 
     it("should authenticate valid token successfully", async () => {
-      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: "user123" });
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
 
       await authenticateSocketFn(mockSocket, nextFn);
 
       expect(jwt.verify).toHaveBeenCalledWith(
         "valid-jwt-token",
-        process.env.JWT_ACCESS_SECRET || "your-access-secret-key"
+        process.env.JWT_ACCESS_SECRET || "your-access-secret-key",
+        { issuer: "atcloud-system", audience: "atcloud-users" },
       );
-      expect(mockSocket.userId).toBe("user123");
+      expect(mockSocket.userId).toBe(USER_ID);
       expect(mockSocket.user).toEqual({
-        id: "user123",
+        id: USER_ID,
         firstName: "John",
         lastName: "Doe",
-        role: "member",
       });
+      expect(mockSocket.canManageUsers).toBe(false);
+      expect(mockSocket.tokenExpiresAt).toBe(ACCESS_TOKEN_EXP * 1000);
       expect(nextFn).toHaveBeenCalledWith();
     });
 
@@ -192,20 +234,35 @@ describe("SocketService", () => {
       expect(nextFn).toHaveBeenCalledWith(new Error("Authentication failed"));
     });
 
+    it("rejects an access token without a future expiration", async () => {
+      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: USER_ID });
+
+      await authenticateSocketFn(mockSocket, nextFn);
+
+      expect(User.findById).not.toHaveBeenCalled();
+      expect(nextFn).toHaveBeenCalledWith(new Error("Authentication failed"));
+    });
+
     it("should reject connection when user not found", async () => {
-      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: "user123" });
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
       const { User } = await import("../../../../src/models");
       vi.mocked(User.findById).mockResolvedValue(null);
 
       await authenticateSocketFn(mockSocket, nextFn);
 
       expect(nextFn).toHaveBeenCalledWith(
-        new Error("Invalid or inactive user")
+        new Error("Invalid, inactive, or unverified user"),
       );
     });
 
     it("should reject connection when user is inactive", async () => {
-      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: "user123" });
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
       const { User } = await import("../../../../src/models");
       vi.mocked(User.findById).mockResolvedValue({
         ...mockUser,
@@ -215,47 +272,66 @@ describe("SocketService", () => {
       await authenticateSocketFn(mockSocket, nextFn);
 
       expect(nextFn).toHaveBeenCalledWith(
-        new Error("Invalid or inactive user")
+        new Error("Invalid, inactive, or unverified user"),
       );
     });
 
-    it("should use default JWT secret when environment variable not set", async () => {
-      const originalSecret = process.env.JWT_ACCESS_SECRET;
-      delete process.env.JWT_ACCESS_SECRET;
-
-      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: "user123" });
+    it("should reject an unverified user", async () => {
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
+      const { User } = await import("../../../../src/models");
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        isVerified: false,
+      });
 
       await authenticateSocketFn(mockSocket, nextFn);
 
-      expect(jwt.verify).toHaveBeenCalledWith(
-        "valid-jwt-token",
-        "your-access-secret-key"
+      expect(nextFn).toHaveBeenCalledWith(
+        new Error("Invalid, inactive, or unverified user"),
       );
-
-      if (originalSecret) {
-        process.env.JWT_ACCESS_SECRET = originalSecret;
-      }
     });
 
     it("should fallback to empty firstName/lastName when missing on user", async () => {
-      (vi.mocked(jwt.verify) as any).mockReturnValue({ userId: "userNoName" });
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: NAMELESS_USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
 
       const { User } = await import("../../../../src/models");
       vi.mocked(User.findById).mockResolvedValue({
-        _id: "userNoName",
-        role: "member",
+        _id: NAMELESS_USER_ID,
+        role: "Participant",
         isActive: true,
+        isVerified: true,
         // intentionally omit firstName/lastName to hit fallback branches
       } as any);
 
       await authenticateSocketFn(mockSocket, nextFn);
 
       expect(mockSocket.user).toEqual({
-        id: "userNoName",
+        id: NAMELESS_USER_ID,
         firstName: "",
         lastName: "",
-        role: "member",
       });
+      expect(nextFn).toHaveBeenCalledWith();
+    });
+
+    it("derives MANAGE_USERS room access from the shared permission policy", async () => {
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        role: "Administrator",
+      });
+
+      await authenticateSocketFn(mockSocket, nextFn);
+
+      expect(mockSocket.canManageUsers).toBe(true);
       expect(nextFn).toHaveBeenCalledWith();
     });
   });
@@ -296,6 +372,63 @@ describe("SocketService", () => {
         "leave_event_room",
         expect.any(Function)
       );
+    });
+
+    it("joins the MANAGE_USERS room only for an authorized socket", () => {
+      mockSocket.canManageUsers = true;
+      connectionHandler(mockSocket);
+
+      expect(mockSocket.join).toHaveBeenCalledWith("permission:manage_users");
+    });
+
+    it("disconnects the socket when its access token expires", () => {
+      vi.useFakeTimers();
+      const expiredAt = Date.now() + 1_000;
+      mockSocket.tokenExpiresAt = expiredAt;
+      connectionHandler(mockSocket);
+
+      vi.advanceTimersByTime(999);
+      expect(mockSocket.disconnect).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(mockSocket.emit).toHaveBeenCalledWith("auth_expired", {
+        expiredAt: new Date(expiredAt).toISOString(),
+      });
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
+    });
+
+    it("rejects a socket when authorization changes during authentication", async () => {
+      const authenticateSocketFn = vi.mocked(mockIO.use).mock.calls[0][0];
+      let resolveUser!: (user: typeof mockUser) => void;
+      vi.mocked(User.findById).mockReturnValue(
+        new Promise<typeof mockUser>((resolve) => {
+          resolveUser = resolve;
+        }) as any,
+      );
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+      });
+      const nextFn = vi.fn();
+
+      const authentication = authenticateSocketFn(mockSocket, nextFn);
+      await Promise.resolve();
+      socketService.syncUserAuthorization(USER_ID, {
+        role: "Participant",
+        isActive: true,
+      });
+      resolveUser({ ...mockUser, role: "Administrator" });
+      await authentication;
+
+      expect(nextFn).toHaveBeenCalledWith();
+      connectionHandler(mockSocket);
+
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(
+        (socketService as any).authenticatedSockets.has(mockSocket.id),
+      ).toBe(false);
+      expect((socketService as any).userSockets.has(USER_ID)).toBe(false);
     });
 
     it("should handle socket disconnection and cleanup", () => {
@@ -340,6 +473,8 @@ describe("SocketService", () => {
         id: "socket456",
         handshake: { auth: { token: "valid-jwt-token" } },
         userId: "user123",
+        authorizationRevision: 0,
+        tokenExpiresAt: ACCESS_TOKEN_EXP * 1000,
         user: mockSocket.user,
         join: vi.fn(),
         leave: vi.fn(),
@@ -387,12 +522,27 @@ describe("SocketService", () => {
         {
           userId: "user123",
           status: "away",
-          user: mockSocket.user,
+          user: {
+            id: mockSocket.user.id,
+            firstName: mockSocket.user.firstName,
+            lastName: mockSocket.user.lastName,
+          },
         }
       );
     });
 
-    it("should handle join_event_room", () => {
+    it("ignores invalid presence values", () => {
+      connectionHandler(mockSocket);
+      const statusCall = vi
+        .mocked(mockSocket.on)
+        .mock.calls.find((call) => call[0] === "update_status");
+
+      statusCall?.[1]("administrator");
+
+      expect(mockSocket.broadcast.emit).not.toHaveBeenCalled();
+    });
+
+    it("should handle join_event_room", async () => {
       connectionHandler(mockSocket);
 
       // Get the join event room handler
@@ -401,9 +551,9 @@ describe("SocketService", () => {
         .mock.calls.find((call) => call[0] === "join_event_room");
       const joinHandler = joinCall?.[1];
 
-      joinHandler("event456");
+      await joinHandler(EVENT_ID);
 
-      expect(mockSocket.join).toHaveBeenCalledWith("event:event456");
+      expect(mockSocket.join).toHaveBeenCalledWith(`event:${EVENT_ID}`);
     });
 
     it("should handle leave_event_room", () => {
@@ -415,9 +565,9 @@ describe("SocketService", () => {
         .mock.calls.find((call) => call[0] === "leave_event_room");
       const leaveHandler = leaveCall?.[1];
 
-      leaveHandler("event456");
+      leaveHandler(EVENT_ID);
 
-      expect(mockSocket.leave).toHaveBeenCalledWith("event:event456");
+      expect(mockSocket.leave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
     });
   });
 
@@ -522,33 +672,27 @@ describe("SocketService", () => {
       socketService.initialize(mockHttpServer);
     });
 
-    it("should emit event update globally and to event room", () => {
+    it("should emit event update only to the authorized event room", () => {
       const testData = { userId: "user123", role: "vocalist" };
 
-      socketService.emitEventUpdate("event456", "user_signed_up", testData);
+      socketService.emitEventUpdate(EVENT_ID, "user_signed_up", testData);
 
-      // Global broadcast
+      // Event room subscribers receive only an invalidation.
+      expect(mockIO.to).toHaveBeenCalledWith(`event:${EVENT_ID}`);
       expect(mockIO.emit).toHaveBeenCalledWith("event_update", {
-        eventId: "event456",
+        eventId: EVENT_ID,
         updateType: "user_signed_up",
-        data: testData,
+        data: null,
         timestamp: expect.any(String),
       });
-
-      // Event room broadcast
-      expect(mockIO.to).toHaveBeenCalledWith("event:event456");
-      expect(mockIO.emit).toHaveBeenCalledWith("event_update", {
-        eventId: "event456",
-        updateType: "user_signed_up",
-        data: testData,
-        timestamp: expect.any(String),
-      });
+      expect(mockIO.except).not.toHaveBeenCalled();
+      expect(mockIO.emit).toHaveBeenCalledTimes(1);
     });
 
     it("should do nothing when io is not initialized", () => {
       (socketService as any).io = null;
 
-      socketService.emitEventUpdate("event456", "test", {});
+      socketService.emitEventUpdate(EVENT_ID, "test", {});
 
       expect(mockIO.emit).not.toHaveBeenCalled();
     });
@@ -562,13 +706,13 @@ describe("SocketService", () => {
     it("should emit event room update to specific event room", () => {
       const testData = { message: "Role is now full" };
 
-      socketService.emitEventRoomUpdate("event456", "role_full", testData);
+      socketService.emitEventRoomUpdate(EVENT_ID, "role_full", testData);
 
-      expect(mockIO.to).toHaveBeenCalledWith("event:event456");
+      expect(mockIO.to).toHaveBeenCalledWith(`event:${EVENT_ID}`);
       expect(mockIO.emit).toHaveBeenCalledWith("event_room_update", {
-        eventId: "event456",
+        eventId: EVENT_ID,
         updateType: "role_full",
-        data: testData,
+        data: null,
         timestamp: expect.any(String),
       });
     });
@@ -576,7 +720,7 @@ describe("SocketService", () => {
     it("should do nothing when io is not initialized", () => {
       (socketService as any).io = null;
 
-      socketService.emitEventRoomUpdate("event456", "test", {});
+      socketService.emitEventRoomUpdate(EVENT_ID, "test", {});
 
       expect(mockIO.to).not.toHaveBeenCalled();
     });
@@ -615,18 +759,465 @@ describe("SocketService", () => {
   describe("event room management", () => {
     beforeEach(() => {
       socketService.initialize(mockHttpServer);
+      mockSocket.userId = USER_ID;
     });
 
-    it("should handle join event room", () => {
-      socketService.handleJoinEventRoom(mockSocket as any, "event456");
+    it("authorizes a valid event room and returns an optional ack", async () => {
+      const { User, Event } = await import("../../../../src/models");
+      vi.mocked(User.findById).mockResolvedValue(mockUser);
+      vi.mocked(Event.findById).mockResolvedValue({ _id: EVENT_ID } as any);
+      const ack = vi.fn();
 
-      expect(mockSocket.join).toHaveBeenCalledWith("event:event456");
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(Event.findById).toHaveBeenCalledWith(EVENT_ID);
+      expect(mockSocket.join).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(ack).toHaveBeenCalledWith({ ok: true, eventId: EVENT_ID });
+    });
+
+    it("rejects a malformed event ID before querying or joining", async () => {
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        "event:forged",
+        ack,
+      );
+
+      expect(User.findById).not.toHaveBeenCalled();
+      expect(Event.findById).not.toHaveBeenCalled();
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "INVALID_EVENT_ID",
+      });
+    });
+
+    it("ignores a hostile non-function acknowledgement payload", async () => {
+      await expect(
+        socketService.handleJoinEventRoom(
+          mockSocket as any,
+          "event:forged",
+          "not-a-callback" as any,
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(User.findById).not.toHaveBeenCalled();
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(() =>
+        socketService.handleLeaveEventRoom(
+          mockSocket as any,
+          "event:forged",
+          { hostile: true } as any,
+        ),
+      ).not.toThrow();
+    });
+
+    it("fails closed when the event does not exist", async () => {
+      vi.mocked(Event.findById).mockResolvedValue(null);
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "EVENT_NOT_FOUND",
+      });
+    });
+
+    it("conceals a paid event from a user without a purchase", async () => {
+      vi.mocked(Event.findById).mockResolvedValue({
+        _id: EVENT_ID,
+        pricing: { isFree: false },
+        createdBy: "507f1f77bcf86cd799439099",
+        organizerDetails: [],
+        programLabels: [],
+      } as any);
+      vi.mocked(Purchase.findOne).mockReturnValue({
+        select: vi.fn().mockResolvedValue(null),
+      } as any);
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "EVENT_NOT_FOUND",
+      });
+    });
+
+    it("rechecks the account and disconnects it when no longer verified", async () => {
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        isVerified: false,
+      });
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(mockSocket.disconnect).toHaveBeenCalledWith(true);
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "ACCOUNT_UNAVAILABLE",
+      });
+    });
+
+    it("fails closed when the authorization query errors", async () => {
+      vi.mocked(Event.findById).mockRejectedValue(new Error("database down"));
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("rate-limits repeated valid join attempts before further database work", async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await socketService.handleJoinEventRoom(
+          mockSocket as any,
+          EVENT_ID,
+          vi.fn(),
+        );
+      }
+      const ack = vi.fn();
+
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+
+      expect(User.findById).toHaveBeenCalledTimes(20);
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "RATE_LIMITED",
+      });
+    });
+
+    it("rejects a duplicate in-flight join without duplicate database work", async () => {
+      let resolveUser!: (user: typeof mockUser) => void;
+      const pendingUser = new Promise<typeof mockUser>((resolve) => {
+        resolveUser = resolve;
+      });
+      vi.mocked(User.findById).mockReturnValue(pendingUser as any);
+      const firstAck = vi.fn();
+      const secondAck = vi.fn();
+
+      const firstJoin = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        firstAck,
+      );
+      await Promise.resolve();
+      await socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        secondAck,
+      );
+
+      expect(User.findById).toHaveBeenCalledOnce();
+      expect(secondAck).toHaveBeenCalledWith({
+        ok: false,
+        code: "REQUEST_IN_PROGRESS",
+      });
+
+      resolveUser(mockUser);
+      await firstJoin;
+      expect(firstAck).toHaveBeenCalledWith({ ok: true, eventId: EVENT_ID });
+    });
+
+    it("rejects a join when authorization changes during its lookup", async () => {
+      let resolveUser!: (user: typeof mockUser) => void;
+      vi.mocked(User.findById).mockReturnValue(
+        new Promise<typeof mockUser>((resolve) => {
+          resolveUser = resolve;
+        }) as any,
+      );
+      const ack = vi.fn();
+
+      const join = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+      await Promise.resolve();
+      socketService.syncUserAuthorization(USER_ID, {
+        role: "Participant",
+        isActive: true,
+      });
+      resolveUser(mockUser);
+      await join;
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("leaves a room when authorization changes while joining it", async () => {
+      let resolveJoin!: () => void;
+      mockSocket.join.mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve;
+        }),
+      );
+      const ack = vi.fn();
+
+      const join = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+      await vi.waitFor(() => expect(mockSocket.join).toHaveBeenCalledOnce());
+      socketService.syncUserAuthorization(USER_ID, {
+        role: "Participant",
+        isActive: true,
+      });
+      resolveJoin();
+      await join;
+
+      expect(mockSocket.leave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("rejects an in-flight join when the user is ejected from the resource", async () => {
+      let resolveUser!: (user: typeof mockUser) => void;
+      vi.mocked(User.findById).mockReturnValue(
+        new Promise<typeof mockUser>((resolve) => {
+          resolveUser = resolve;
+        }) as any,
+      );
+      const ack = vi.fn();
+
+      const join = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+      await Promise.resolve();
+      expect(
+        socketService.ejectUserFromResourceRoom(USER_ID, "event", EVENT_ID),
+      ).toBe(true);
+      resolveUser(mockUser);
+      await join;
+
+      expect(mockIO.socketsLeave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("rejects an in-flight join when the resource authorization changes", async () => {
+      let resolveUser!: (user: typeof mockUser) => void;
+      vi.mocked(User.findById).mockReturnValue(
+        new Promise<typeof mockUser>((resolve) => {
+          resolveUser = resolve;
+        }) as any,
+      );
+      const ack = vi.fn();
+
+      const join = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+      await Promise.resolve();
+      expect(socketService.invalidateResourceRoom("event", EVENT_ID)).toBe(
+        true,
+      );
+      resolveUser(mockUser);
+      await join;
+
+      expect(mockIO.in).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(mockIO.disconnectSockets).toHaveBeenCalledWith(true);
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("leaves a room when the resource changes while joining it", async () => {
+      let resolveJoin!: () => void;
+      mockSocket.join.mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveJoin = resolve;
+        }),
+      );
+      const ack = vi.fn();
+
+      const join = socketService.handleJoinEventRoom(
+        mockSocket as any,
+        EVENT_ID,
+        ack,
+      );
+      await vi.waitFor(() => expect(mockSocket.join).toHaveBeenCalledOnce());
+      socketService.invalidateResourceRoom("event", EVENT_ID);
+      resolveJoin();
+      await join;
+
+      expect(mockSocket.leave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("cleans up per-socket join guard state on disconnect", () => {
+      (socketService as any).eventJoinGuards.set(mockSocket.id, {
+        attempts: [Date.now()],
+        inFlight: new Set([EVENT_ID]),
+      });
+      const connectionHandler = vi
+        .mocked(mockIO.on)
+        .mock.calls.find((call) => call[0] === "connection")?.[1];
+
+      connectionHandler(mockSocket);
+      const disconnectHandler = vi
+        .mocked(mockSocket.on)
+        .mock.calls.find((call) => call[0] === "disconnect")?.[1];
+      disconnectHandler();
+
+      expect((socketService as any).eventJoinGuards.has(mockSocket.id)).toBe(
+        false,
+      );
     });
 
     it("should handle leave event room", () => {
-      socketService.handleLeaveEventRoom(mockSocket as any, "event456");
+      socketService.handleLeaveEventRoom(mockSocket as any, EVENT_ID);
 
-      expect(mockSocket.leave).toHaveBeenCalledWith("event:event456");
+      expect(mockSocket.leave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+    });
+
+    it("rejects a malformed leave request", () => {
+      const ack = vi.fn();
+
+      socketService.handleLeaveEventRoom(mockSocket as any, "../admin", ack);
+
+      expect(mockSocket.leave).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "INVALID_EVENT_ID",
+      });
+    });
+  });
+
+  describe("safe socket revocation helpers", () => {
+    beforeEach(() => {
+      socketService.initialize(mockHttpServer);
+    });
+
+    it("disconnects every socket in a canonical user's private room", () => {
+      expect(socketService.disconnectUser(USER_ID)).toBe(true);
+
+      expect(mockIO.in).toHaveBeenCalledWith(`user:${USER_ID}`);
+      expect(mockIO.disconnectSockets).toHaveBeenCalledWith(true);
+    });
+
+    it("bumps authorization revisions before Socket.IO is available", () => {
+      (socketService as any).io = null;
+
+      expect(socketService.disconnectUser(USER_ID)).toBe(false);
+      expect(
+        (socketService as any).userAuthorizationRevisions.get(USER_ID),
+      ).toBe(1);
+
+      expect(
+        socketService.syncUserAuthorization(USER_ID, {
+          role: "Participant",
+          isActive: true,
+        }),
+      ).toBe(false);
+      expect(
+        (socketService as any).userAuthorizationRevisions.get(USER_ID),
+      ).toBe(2);
+    });
+
+    it("ejects every user socket from a server-defined resource room", () => {
+      expect(
+        socketService.ejectUserFromResourceRoom(USER_ID, "event", EVENT_ID),
+      ).toBe(true);
+
+      expect(mockIO.in).toHaveBeenCalledWith(`user:${USER_ID}`);
+      expect(mockIO.socketsLeave).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+    });
+
+    it("disconnects a resource room and bumps its authorization revision", () => {
+      expect(socketService.invalidateResourceRoom("event", EVENT_ID)).toBe(
+        true,
+      );
+
+      expect(mockIO.in).toHaveBeenCalledWith(`event:${EVENT_ID}`);
+      expect(mockIO.disconnectSockets).toHaveBeenCalledWith(true);
+      expect(
+        (socketService as any).resourceAuthorizationRevisions.get(
+          `event:${EVENT_ID}`,
+        ),
+      ).toBe(1);
+    });
+
+    it("rejects malformed identifiers without touching Socket.IO rooms", () => {
+      expect(socketService.disconnectUser("not-an-id")).toBe(false);
+      expect(
+        socketService.ejectUserFromResourceRoom(
+          USER_ID,
+          "conversation",
+          "not-an-id",
+        ),
+      ).toBe(false);
+      expect(
+        socketService.invalidateResourceRoom(
+          "../permission" as any,
+          EVENT_ID,
+        ),
+      ).toBe(false);
+      expect(
+        socketService.invalidateResourceRoom("event", "not-an-id"),
+      ).toBe(false);
+      expect(
+        socketService.ejectUserFromResourceRoom(
+          USER_ID,
+          "../permission" as any,
+          EVENT_ID,
+        ),
+      ).toBe(false);
+
+      expect(mockIO.in).not.toHaveBeenCalled();
+      expect(mockIO.disconnectSockets).not.toHaveBeenCalled();
+      expect(mockIO.socketsLeave).not.toHaveBeenCalled();
     });
   });
 

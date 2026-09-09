@@ -1,11 +1,18 @@
 import { io, type Socket } from "socket.io-client";
-import type { EventUpdate, ConnectedPayload } from "../types/realtime";
+import type {
+  EventUpdate,
+  ConnectedPayload,
+  AuthExpiredPayload,
+  SocketRoomAck,
+  SocketRoomErrorCode,
+} from "../types/realtime";
 import { resolveSocketURL } from "../config/apiUrl";
 
 const DEFAULT_SOCKET_URL = resolveSocketURL(
   import.meta.env.VITE_API_URL,
   import.meta.env.VITE_SOCKET_URL,
 );
+const ROOM_JOIN_TIMEOUT_MS = 10_000;
 
 export interface UserUpdateData {
   userId: string;
@@ -26,9 +33,25 @@ export interface UserUpdateData {
 export interface SocketEventHandlers {
   event_update: (data: EventUpdate) => void;
   connected: (data: ConnectedPayload) => void;
+  auth_expired: (data: AuthExpiredPayload) => void;
   user_update: (data: UserUpdateData) => void;
   connect: () => void;
   disconnect: (reason: string) => void;
+}
+
+export class SocketRoomJoinError extends Error {
+  readonly eventId: string;
+  readonly code: SocketRoomErrorCode;
+
+  constructor(
+    eventId: string,
+    code: SocketRoomErrorCode,
+  ) {
+    super(`Unable to join event room (${code})`);
+    this.name = "SocketRoomJoinError";
+    this.eventId = eventId;
+    this.code = code;
+  }
 }
 
 type StoredSocketHandler = (data: never) => void;
@@ -58,7 +81,10 @@ export class SocketServiceFrontend {
   >();
   private readonly roomSubscribers = new Map<string, number>();
   private readonly joinedRooms = new Set<string>();
-  private readonly recentEventUpdates = new Map<string, number>();
+  private readonly roomJoinRequests = new Map<
+    string,
+    { promise: Promise<void>; cancel: () => void }
+  >();
 
   /** Create or reuse the shared connection without claiming ownership. */
   connect(token: string, url = DEFAULT_SOCKET_URL): Socket {
@@ -98,6 +124,20 @@ export class SocketServiceFrontend {
     });
 
     return socket;
+  }
+
+  /** Replace an existing socket after HTTP refreshes its access token. */
+  updateAuthenticationToken(token: string | null): void {
+    if (!token) {
+      if (this.socketInstance) this.disconnect();
+      return;
+    }
+    if (
+      this.socketInstance &&
+      token !== this.currentToken
+    ) {
+      this.connect(token, this.currentUrl ?? DEFAULT_SOCKET_URL);
+    }
   }
 
   /**
@@ -144,7 +184,7 @@ export class SocketServiceFrontend {
     this.consumerCount = 0;
     this.roomSubscribers.clear();
     this.joinedRooms.clear();
-    this.recentEventUpdates.clear();
+    this.cancelRoomJoinRequests();
   }
 
   private destroySocket(): void {
@@ -160,9 +200,18 @@ export class SocketServiceFrontend {
     this.socketInstance = null;
     this.socketDispatchers.clear();
     this.joinedRooms.clear();
+    this.cancelRoomJoinRequests();
   }
 
   private attachCoreListeners(socket: Socket): void {
+    let accessTokenExpired = false;
+
+    socket.on("auth_expired", () => {
+      if (socket !== this.socketInstance) return;
+      accessTokenExpired = true;
+      this.isConnecting = false;
+    });
+
     socket.on("connect", () => {
       if (socket !== this.socketInstance) return;
       this.isConnecting = false;
@@ -170,15 +219,24 @@ export class SocketServiceFrontend {
 
       this.roomSubscribers.forEach((count, eventId) => {
         if (count <= 0) return;
-        socket.emit("join_event_room", eventId);
-        this.joinedRooms.add(eventId);
+        void this.requestRoomJoin(socket, eventId).catch((error: unknown) => {
+          if (import.meta.env.DEV) {
+            console.warn("Socket event room join failed:", error);
+          }
+        });
       });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason: string) => {
       if (socket !== this.socketInstance) return;
       this.joinedRooms.clear();
-      this.isConnecting = socket.active;
+      this.cancelRoomJoinRequests();
+      const shouldReauthenticate =
+        reason === "io server disconnect" &&
+        !accessTokenExpired &&
+        (this.consumerCount > 0 || this.roomSubscribers.size > 0);
+      this.isConnecting = socket.active || shouldReauthenticate;
+      if (shouldReauthenticate) socket.connect();
     });
 
     socket.on("connect_error", (error) => {
@@ -203,10 +261,6 @@ export class SocketServiceFrontend {
     if (!socket || !handlers?.size || this.socketDispatchers.has(event)) return;
 
     const dispatcher = (data: unknown) => {
-      if (event === "event_update" && this.isDuplicateEventUpdate(data)) {
-        return;
-      }
-
       Array.from(this.eventHandlers.get(event) ?? []).forEach((handler) => {
         handler(data as never);
       });
@@ -224,40 +278,107 @@ export class SocketServiceFrontend {
     this.socketDispatchers.delete(event);
   }
 
-  /**
-   * The backend currently broadcasts an event update globally and to its room.
-   * Both copies have the same event id, update type, and timestamp. Collapse
-   * that identical pair without suppressing separately timestamped updates.
-   */
-  private isDuplicateEventUpdate(data: unknown): boolean {
-    if (!data || typeof data !== "object") return false;
-    const update = data as Partial<EventUpdate>;
-    if (!update.eventId || !update.updateType || !update.timestamp) return false;
-
-    const key = `${update.eventId}:${update.updateType}:${update.timestamp}`;
-    const now = Date.now();
-    const previous = this.recentEventUpdates.get(key);
-    this.recentEventUpdates.set(key, now);
-
-    if (this.recentEventUpdates.size > 200) {
-      this.recentEventUpdates.forEach((seenAt, seenKey) => {
-        if (now - seenAt > 5000) this.recentEventUpdates.delete(seenKey);
-      });
-    }
-
-    return previous !== undefined && now - previous <= 5000;
-  }
-
   /** Join once for the first consumer and retain the room for later consumers. */
   async joinEventRoom(eventId: string): Promise<void> {
     const currentCount = this.roomSubscribers.get(eventId) ?? 0;
     this.roomSubscribers.set(eventId, currentCount + 1);
-    if (currentCount > 0) return;
+    if (this.joinedRooms.has(eventId)) return;
 
     if (this.socketInstance?.connected) {
-      this.socketInstance.emit("join_event_room", eventId);
-      this.joinedRooms.add(eventId);
+      const socket = this.socketInstance;
+      try {
+        await this.requestRoomJoin(socket, eventId);
+      } catch (error) {
+        // A connection loss or token-driven socket replacement is transient;
+        // retain the mounted consumer's ownership so the connect handler can
+        // re-authorize the room. A live-server denial/timeout releases this
+        // failed acquisition and lets the caller retry explicitly.
+        if (socket === this.socketInstance && socket.connected) {
+          const nextCount = (this.roomSubscribers.get(eventId) ?? 1) - 1;
+          if (nextCount > 0) this.roomSubscribers.set(eventId, nextCount);
+          else this.roomSubscribers.delete(eventId);
+        }
+        throw error;
+      }
     }
+  }
+
+  private requestRoomJoin(socket: Socket, eventId: string): Promise<void> {
+    const existing = this.roomJoinRequests.get(eventId);
+    if (existing) return existing.promise;
+
+    let cancelRequest: () => void = () => undefined;
+    const request = new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const rejectOnce = (code: SocketRoomErrorCode) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(new SocketRoomJoinError(eventId, code));
+      };
+      const timeout = setTimeout(() => {
+        rejectOnce("AUTHORIZATION_FAILED");
+      }, ROOM_JOIN_TIMEOUT_MS);
+      cancelRequest = () => rejectOnce("AUTHORIZATION_FAILED");
+
+      socket.emit("join_event_room", eventId, (result: SocketRoomAck) => {
+        if (settled) {
+          // A late successful ACK can arrive after the caller left or the
+          // request timed out. Compensate for the server-side join so a room
+          // with no browser subscribers never remains attached.
+          if (
+            result?.ok === true &&
+            socket === this.socketInstance &&
+            socket.connected
+          ) {
+            if ((this.roomSubscribers.get(eventId) ?? 0) > 0) {
+              this.joinedRooms.add(eventId);
+            } else {
+              socket.emit("leave_event_room", eventId);
+              this.joinedRooms.delete(eventId);
+            }
+          }
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        if (socket !== this.socketInstance || !socket.connected) {
+          reject(new SocketRoomJoinError(eventId, "AUTHORIZATION_FAILED"));
+          return;
+        }
+
+        if (result?.ok === true) {
+          if ((this.roomSubscribers.get(eventId) ?? 0) <= 0) {
+            socket.emit("leave_event_room", eventId);
+            this.joinedRooms.delete(eventId);
+            resolve();
+            return;
+          }
+          this.joinedRooms.add(eventId);
+          resolve();
+          return;
+        }
+
+        const code = result?.code ?? "AUTHORIZATION_FAILED";
+        reject(new SocketRoomJoinError(eventId, code));
+      });
+    }).finally(() => {
+      if (this.roomJoinRequests.get(eventId)?.promise === request) {
+        this.roomJoinRequests.delete(eventId);
+      }
+    });
+
+    this.roomJoinRequests.set(eventId, {
+      promise: request,
+      cancel: () => cancelRequest(),
+    });
+    return request;
+  }
+
+  private cancelRoomJoinRequests(): void {
+    const requests = Array.from(this.roomJoinRequests.values());
+    this.roomJoinRequests.clear();
+    requests.forEach(({ cancel }) => cancel());
   }
 
   /** Leave only when the final consumer of this room releases it. */
@@ -336,4 +457,4 @@ export class SocketServiceFrontend {
 }
 
 export const socketService = new SocketServiceFrontend();
-export type { EventUpdate };
+export type { EventUpdate, SocketRoomAck, SocketRoomErrorCode };

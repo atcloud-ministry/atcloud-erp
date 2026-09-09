@@ -465,6 +465,37 @@ describe("Users API Integration Tests", () => {
       });
     });
 
+    it("should preserve protected account fields during profile updates", async () => {
+      const userBefore = await User.findById(userId).select("+password");
+      expect(userBefore).not.toBeNull();
+      const passwordBefore = userBefore!.password;
+
+      await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({
+          firstName: "Still Participant",
+          role: "Super Admin",
+          isActive: false,
+          isVerified: false,
+          password: "AttackerPass123!",
+          passwordResetToken: "attacker-token",
+        })
+        .expect(200);
+
+      const userAfter = await User.findById(userId).select(
+        "+password +passwordResetToken",
+      );
+      expect(userAfter).toMatchObject({
+        firstName: "Still Participant",
+        role: "Participant",
+        isActive: true,
+        isVerified: true,
+      });
+      expect(userAfter!.password).toBe(passwordBefore);
+      expect(userAfter!.passwordResetToken).toBeUndefined();
+    });
+
     it("should validate email format", async () => {
       const updateData = {
         email: "invalid-email",

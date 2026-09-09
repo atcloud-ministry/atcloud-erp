@@ -47,6 +47,12 @@ vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
   },
 }));
 
+vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
+
 vi.mock("../../../../src/utils/systemMessageFormatUtils", () => ({
   formatActorDisplay: vi.fn().mockReturnValue("Admin User"),
 }));
@@ -84,6 +90,7 @@ import AuditLog from "../../../../src/models/AuditLog";
 import { lockService } from "../../../../src/services/LockService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import { ResponseHelper } from "../../../../src/utils/responseHelper";
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
 
 interface MockRequest {
   params: Record<string, string>;
@@ -304,6 +311,19 @@ describe("UserDeletionController", () => {
         );
 
         expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
+          "targetUser123"
+        );
+      });
+
+      it("should disconnect every live socket for the deleted user", async () => {
+        vi.mocked(lockService.withLock).mockResolvedValue(mockDeletionReport);
+
+        await UserDeletionController.deleteUser(
+          mockReq as unknown as Request,
+          mockRes as Response
+        );
+
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
           "targetUser123"
         );
       });

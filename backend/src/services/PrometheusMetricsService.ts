@@ -85,6 +85,13 @@ export const registrationFailureCounter = new client.Counter({
   registers: [register],
 });
 
+export const auditLogWriteFailureCounter = new client.Counter({
+  name: "audit_log_write_failures_total",
+  help: "Total best-effort audit log writes that failed",
+  labelNames: ["source"],
+  registers: [register],
+});
+
 // Short link creation attempt/failure counters
 export const shortLinkCreateAttemptCounter = new client.Counter({
   name: "shortlink_create_attempts_total",

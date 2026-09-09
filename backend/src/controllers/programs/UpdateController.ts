@@ -6,6 +6,11 @@ import {
   AssignmentSnapshotError,
   UserAssignmentSnapshotService,
 } from "../../services/UserAssignmentSnapshotService";
+import {
+  preserveProgramRoleCounts,
+  selectMutableProgramFields,
+} from "../../services/ProgramPayloadService";
+import { socketService } from "../../services/infrastructure/SocketService";
 
 export default class UpdateController {
   static async update(req: Request, res: Response): Promise<void> {
@@ -74,19 +79,38 @@ export default class UpdateController {
         return;
       }
 
-      const payload = { ...(req.body || {}) };
+      const payload = selectMutableProgramFields(req.body);
+      let removedMentorIds: string[] = [];
       if (Object.prototype.hasOwnProperty.call(payload, "mentors")) {
-        const existingMentorIds = (program.mentors || []).map(
+        const existingMentorIds: string[] = (program.mentors || []).map(
           (mentor: { userId: unknown }) => String(mentor.userId),
         );
-        payload.mentors =
+        const resolvedMentors =
           await UserAssignmentSnapshotService.resolveProgramMentors(
             payload.mentors,
             existingMentorIds,
           );
+        const nextMentorIds = new Set(
+          resolvedMentors.map((mentor: { userId: unknown }) =>
+            String(mentor.userId),
+          ),
+        );
+        removedMentorIds = existingMentorIds.filter(
+          (mentorId) => !nextMentorIds.has(mentorId),
+        );
+        payload.mentors = resolvedMentors;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "programRoles")) {
+        payload.programRoles = preserveProgramRoleCounts(
+          program,
+          payload.programRoles,
+        );
       }
       program.set(payload);
       const updated = await program.save();
+      removedMentorIds.forEach((mentorId) => {
+        socketService.disconnectUser(mentorId);
+      });
       res.status(200).json({ success: true, data: updated });
     } catch (error) {
       if (error instanceof AssignmentSnapshotError) {

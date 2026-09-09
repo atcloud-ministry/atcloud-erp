@@ -131,7 +131,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
 
     const memberUser = await User.findOneAndUpdate(
       { email: "audit.member@test.com" },
-      { isVerified: true, role: "Member", isActive: true },
+      { isVerified: true, role: "Participant", isActive: true },
       { new: true }
     );
 
@@ -216,7 +216,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
       expect(response.body.success).toBe(false);
     });
 
-    it("should reject request from non-admin user (Member)", async () => {
+    it("should reject request from non-admin user (Participant)", async () => {
       const response = await request(app)
         .get("/api/audit-logs")
         .set("Authorization", `Bearer ${memberToken}`);

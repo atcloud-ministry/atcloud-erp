@@ -55,6 +55,21 @@ vi.mock("../../../src/models/ShortLink", () => ({
   },
 }));
 
+vi.mock(
+  "../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      invalidateEventRoom: vi.fn(),
+    },
+  })
+);
+
+vi.mock("../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
+
 // Mock filesystem operations
 vi.mock("fs/promises", () => ({
   default: {
@@ -72,6 +87,8 @@ import Program from "../../../src/models/Program";
 import ShortLink from "../../../src/models/ShortLink";
 import fs from "fs/promises";
 import { UserDeletionService } from "../../../src/services/UserDeletionService";
+import { resourceAuthorizationInvalidationService } from "../../../src/services/authorization/ResourceAuthorizationInvalidationService";
+import { socketService } from "../../../src/services/infrastructure/SocketService";
 
 describe("UserDeletionService", () => {
   const mockUserId = "507f1f77bcf86cd799439011";
@@ -173,6 +190,43 @@ describe("UserDeletionService", () => {
         expect(Program.updateMany).toHaveBeenCalled();
         expect(ShortLink.deleteMany).toHaveBeenCalled();
         expect(User.findByIdAndDelete).toHaveBeenCalledWith(mockUserId);
+        expect(socketService.disconnectUser).toHaveBeenCalledTimes(4);
+        expect(socketService.disconnectUser).toHaveBeenNthCalledWith(
+          1,
+          mockUserId
+        );
+        expect(socketService.disconnectUser).toHaveBeenNthCalledWith(
+          2,
+          mockUserId
+        );
+        expect(socketService.disconnectUser).toHaveBeenNthCalledWith(
+          3,
+          mockUserId
+        );
+        expect(socketService.disconnectUser).toHaveBeenNthCalledWith(
+          4,
+          mockUserId
+        );
+        expect(
+          vi.mocked(Event.updateMany).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0]
+        );
+        expect(
+          vi.mocked(Program.updateMany).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[1]
+        );
+        expect(
+          vi.mocked(Program.updateMany).mock.invocationCallOrder[1]
+        ).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[2]
+        );
+        expect(
+          vi.mocked(User.findByIdAndDelete).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[3]
+        );
       });
 
       it("should delete user with created events and handle statistics update", async () => {
@@ -232,6 +286,19 @@ describe("UserDeletionService", () => {
         expect(result.deletedData.eventOrganizations).toBe(1);
         expect(result.updatedStatistics.events).toHaveLength(2);
         expect(Event.findByIdAndDelete).toHaveBeenCalledTimes(2);
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRoom
+        ).toHaveBeenNthCalledWith(1, mockEvents[0]._id.toString());
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRoom
+        ).toHaveBeenNthCalledWith(2, mockEvents[1]._id.toString());
+        expect(
+          vi.mocked(Event.findByIdAndDelete).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(
+            resourceAuthorizationInvalidationService.invalidateEventRoom
+          ).mock.invocationCallOrder[0]
+        );
         expect(mockEvents[0].save).toHaveBeenCalled();
         expect(mockEvents[1].save).toHaveBeenCalled();
       });

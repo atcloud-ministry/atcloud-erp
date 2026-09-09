@@ -84,8 +84,8 @@ vi.mock("../../services/guestApi", () => ({
   },
 }));
 
-describe("EventDetail realtime guest_moved notification", () => {
-  it("shows an info notification when guest_moved is received", async () => {
+describe("EventDetail realtime guest_moved invalidation", () => {
+  it("shows a generic notification when guest_moved data is null", async () => {
     socketTest.reset();
     render(
       <MemoryRouter initialEntries={["/events/e1"]}>
@@ -100,49 +100,19 @@ describe("EventDetail realtime guest_moved notification", () => {
       expect(screen.getByText(/Realtime DnD Event/)).toBeInTheDocument()
     );
 
-    // Simulate server pushing a guest_moved update (must include eventId)
+    // Simulate the backend's invalidation-only payload.
     await waitFor(() => {
       socketTest.emit({
         eventId: "e1",
         updateType: "guest_moved",
-        data: {
-          fromRoleId: "r1",
-          toRoleId: "r2",
-          fromRoleName: "Role A",
-          toRoleName: "Role B",
-          // Include event to trigger notification branch in EventDetail
-          event: {
-            id: "e1",
-            title: "Realtime DnD Event",
-            type: "Meeting",
-            date: "2025-12-01",
-            time: "10:00",
-            endTime: "12:00",
-            timeZone: "America/New_York",
-            roles: [
-              {
-                id: "r1",
-                name: "Role A",
-                maxParticipants: 2,
-                currentSignups: [],
-              },
-              {
-                id: "r2",
-                name: "Role B",
-                maxParticipants: 2,
-                currentSignups: [],
-              },
-            ],
-            status: "upcoming",
-            attendees: [],
-          },
-        },
+        data: null,
+        timestamp: new Date().toISOString(),
       });
     });
 
     await waitFor(() => expect(hoisted.infoSpy).toHaveBeenCalled());
-    // Basic shape; full string includes role names or ids
     const messageArg = hoisted.infoSpy.mock.calls.at(-1)?.[0];
-    expect(String(messageArg)).toMatch(/guest was moved/i);
+    expect(String(messageArg)).toBe("Event information has changed.");
+    expect(String(messageArg)).not.toMatch(/guest|Role A|Role B/i);
   });
 });

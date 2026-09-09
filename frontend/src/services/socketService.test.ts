@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventUpdate } from "../types/realtime";
-import { SocketServiceFrontend } from "./socketService";
+import {
+  SocketRoomJoinError,
+  SocketServiceFrontend,
+  type SocketRoomAck,
+} from "./socketService";
 
 const fakeIo = vi.hoisted(() => {
   type Listener = (...args: unknown[]) => void;
@@ -11,6 +15,12 @@ const fakeIo = vi.hoisted(() => {
     connectCalls = 0;
     disconnectCalls = 0;
     emitted: Array<{ event: string; args: unknown[] }> = [];
+    joinAcks: SocketRoomAck[] = [];
+    deferJoinAcks = false;
+    pendingJoinAcks: Array<{
+      eventId: string;
+      ack: (result: SocketRoomAck) => void;
+    }> = [];
     private listeners = new Map<string, Set<Listener>>();
 
     on(event: string, listener: Listener) {
@@ -28,6 +38,15 @@ const fakeIo = vi.hoisted(() => {
 
     emit(event: string, ...args: unknown[]) {
       this.emitted.push({ event, args });
+      if (event === "join_event_room") {
+        const eventId = args[0] as string;
+        const ack = args[1] as ((result: SocketRoomAck) => void) | undefined;
+        if (ack && this.deferJoinAcks) {
+          this.pendingJoinAcks.push({ eventId, ack });
+        } else {
+          ack?.(this.joinAcks.shift() ?? { ok: true, eventId });
+        }
+      }
       return this;
     }
 
@@ -64,6 +83,12 @@ const fakeIo = vi.hoisted(() => {
 
     emittedCount(event: string) {
       return this.emitted.filter((entry) => entry.event === event).length;
+    }
+
+    respondToNextJoin(result?: SocketRoomAck) {
+      const pending = this.pendingJoinAcks.shift();
+      if (!pending) throw new Error("No pending join ack");
+      pending.ack(result ?? { ok: true, eventId: pending.eventId });
     }
   }
 
@@ -119,15 +144,15 @@ describe("SocketServiceFrontend", () => {
     const update: EventUpdate = {
       eventId: "event-1",
       updateType: "guest_updated",
-      data: { roleId: "role-1", guestName: "Guest User" },
+      data: null,
       timestamp: "2026-07-09T12:00:00.000Z",
     };
 
     socket.serverEmit("event_update", update);
     socket.serverEmit("event_update", update);
 
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(2);
 
     stopFirst();
     socket.serverEmit("event_update", {
@@ -135,8 +160,8 @@ describe("SocketServiceFrontend", () => {
       timestamp: "2026-07-09T12:00:01.000Z",
     });
 
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).toHaveBeenCalledTimes(2);
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(3);
   });
 
   it("reference-counts rooms and rejoins them after Socket.IO reconnects", async () => {
@@ -162,6 +187,161 @@ describe("SocketServiceFrontend", () => {
     service.leaveEventRoom("event-1");
     expect(socket.emittedCount("leave_event_room")).toBe(1);
     expect(service.connectionStatus.joinedRooms).toEqual([]);
+  });
+
+  it("re-authenticates after the server disconnects sockets for an authorization change", async () => {
+    const service = new SocketServiceFrontend();
+    const release = service.acquire("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+
+    await service.joinEventRoom("event-1");
+    socket.serverEmit("disconnect", "io server disconnect");
+
+    expect(socket.connectCalls).toBe(1);
+    expect(service.connectionStatus.connecting).toBe(true);
+    expect(service.connectionStatus.pendingRooms).toEqual(["event-1"]);
+    service.leaveEventRoom("event-1");
+    release();
+  });
+
+  it("waits for a refreshed token after token-expiry disconnect", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("expired-token", "https://socket.test");
+    const firstSocket = fakeIo.sockets[0];
+    firstSocket.serverEmit("connect");
+    await service.joinEventRoom("event-1");
+
+    firstSocket.serverEmit("auth_expired", {
+      expiredAt: "2026-09-08T18:00:00.000Z",
+    });
+    firstSocket.serverEmit("disconnect", "io server disconnect");
+    expect(firstSocket.connectCalls).toBe(0);
+    expect(service.connectionStatus.pendingRooms).toEqual(["event-1"]);
+
+    service.updateAuthenticationToken("fresh-token");
+    expect(fakeIo.sockets).toHaveLength(2);
+    expect(firstSocket.disconnectCalls).toBe(1);
+    const secondSocket = fakeIo.sockets[1];
+    secondSocket.serverEmit("connect");
+    expect(secondSocket.emittedCount("join_event_room")).toBe(1);
+    service.disconnect();
+  });
+
+  it("replaces an existing socket when HTTP refreshes its access token", () => {
+    const service = new SocketServiceFrontend();
+    service.connect("first-token", "https://socket.test");
+    const firstSocket = fakeIo.sockets[0];
+
+    service.updateAuthenticationToken("second-token");
+
+    expect(firstSocket.disconnectCalls).toBe(1);
+    expect(fakeIo.sockets).toHaveLength(2);
+    expect(fakeIo.io).toHaveBeenLastCalledWith(
+      "https://socket.test",
+      expect.objectContaining({ auth: { token: "second-token" } }),
+    );
+  });
+
+  it("retains room ownership when a pending join is interrupted by disconnect", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.deferJoinAcks = true;
+
+    const join = service.joinEventRoom("event-1");
+    socket.serverEmit("disconnect", "transport close");
+
+    await expect(join).rejects.toMatchObject({
+      name: "SocketRoomJoinError",
+      code: "AUTHORIZATION_FAILED",
+    });
+    expect(service.connectionStatus.pendingRooms).toEqual(["event-1"]);
+
+    socket.serverEmit("connect");
+    expect(socket.emittedCount("join_event_room")).toBe(2);
+    socket.respondToNextJoin();
+    socket.respondToNextJoin();
+    await Promise.resolve();
+    service.disconnect();
+  });
+
+  it("records a room only after an accepted ack and allows retry after denial", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.joinAcks.push({ ok: false, code: "RATE_LIMITED" });
+
+    await expect(service.joinEventRoom("event-1")).rejects.toMatchObject({
+      name: "SocketRoomJoinError",
+      eventId: "event-1",
+      code: "RATE_LIMITED",
+    });
+    expect(service.connectionStatus.joinedRooms).toEqual([]);
+    expect(service.connectionStatus.pendingRooms).toEqual([]);
+
+    socket.joinAcks.push({ ok: true, eventId: "event-1" });
+    await expect(service.joinEventRoom("event-1")).resolves.toBeUndefined();
+    expect(service.connectionStatus.joinedRooms).toEqual(["event-1"]);
+    expect(SocketRoomJoinError).toBeDefined();
+  });
+
+  it("keeps a room pending until the server acknowledges it", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.deferJoinAcks = true;
+
+    const join = service.joinEventRoom("event-1");
+    expect(service.connectionStatus.joinedRooms).toEqual([]);
+    expect(service.connectionStatus.pendingRooms).toEqual(["event-1"]);
+
+    socket.respondToNextJoin();
+    await join;
+    expect(service.connectionStatus.joinedRooms).toEqual(["event-1"]);
+    expect(service.connectionStatus.pendingRooms).toEqual([]);
+  });
+
+  it("compensates when the final subscriber leaves before a successful ack", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.deferJoinAcks = true;
+
+    const join = service.joinEventRoom("event-1");
+    service.leaveEventRoom("event-1");
+    socket.respondToNextJoin();
+
+    await expect(join).resolves.toBeUndefined();
+    expect(socket.emittedCount("leave_event_room")).toBe(1);
+    expect(service.connectionStatus.joinedRooms).toEqual([]);
+    expect(service.connectionStatus.pendingRooms).toEqual([]);
+  });
+
+  it("compensates for a successful ack that arrives after the join timeout", async () => {
+    vi.useFakeTimers();
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.deferJoinAcks = true;
+
+    const join = service.joinEventRoom("event-1");
+    const rejectedJoin = expect(join).rejects.toMatchObject({
+      name: "SocketRoomJoinError",
+      code: "AUTHORIZATION_FAILED",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejectedJoin;
+
+    socket.respondToNextJoin();
+    expect(socket.emittedCount("leave_event_room")).toBe(1);
+    expect(service.connectionStatus.joinedRooms).toEqual([]);
+    expect(service.connectionStatus.pendingRooms).toEqual([]);
   });
 
   it("reattaches subscribers when authentication replaces the socket", () => {

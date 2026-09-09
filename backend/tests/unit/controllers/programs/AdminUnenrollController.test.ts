@@ -14,6 +14,14 @@ vi.mock("../../../../src/models", () => ({
 
 vi.mock("../../../../src/models/AuditLog");
 
+vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
+
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
+
 describe("AdminUnenrollController", () => {
   let mockReq: any;
   let mockRes: Partial<Response>;
@@ -135,6 +143,12 @@ describe("AdminUnenrollController", () => {
           message: "Successfully unenrolled from program.",
           data: mockProgram,
         });
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          userId.toString(),
+        );
+        expect(mockProgram.save.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+        );
       });
 
       it("should allow Administrator to unenroll", async () => {

@@ -21,6 +21,37 @@ interface UpdateProfileRequest {
   avatar?: string; // Added for gender change avatar updates
 }
 
+const SELF_SERVICE_PROFILE_FIELDS = [
+  "username",
+  "firstName",
+  "lastName",
+  "gender",
+  "email",
+  "phone",
+  "isAtCloudLeader",
+  "roleInAtCloud",
+  "homeAddress",
+  "occupation",
+  "company",
+  "weeklyChurch",
+  "churchAddress",
+] as const;
+
+function selectSelfServiceProfileFields(body: unknown): UpdateProfileRequest {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {};
+  }
+
+  const source = body as Record<string, unknown>;
+  const selected: UpdateProfileRequest = {};
+  for (const field of SELF_SERVICE_PROFILE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      Object.assign(selected, { [field]: source[field] });
+    }
+  }
+  return selected;
+}
+
 export default class UpdateProfileController {
   /**
    * Update profile
@@ -36,7 +67,7 @@ export default class UpdateProfileController {
         return;
       }
 
-      const updateData: UpdateProfileRequest = req.body;
+      const updateData = selectSelfServiceProfileFields(req.body);
 
       // @Cloud co-worker validation: isAtCloudLeader requires roleInAtCloud
       if (updateData.isAtCloudLeader === true && !updateData.roleInAtCloud) {

@@ -33,7 +33,8 @@ SESSION_SECRET=<64-char-random-string>
 NODE_ENV=production
 PORT=10000
 FRONTEND_URL=https://at-cloud-sign-up-system.onrender.com
-JWT_EXPIRES_IN=24h
+JWT_ACCESS_EXPIRE=3h
+JWT_REFRESH_EXPIRE=7d
 BCRYPT_ROUNDS=12
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
@@ -89,9 +90,9 @@ NODE_ENV=production
    Environment: Node
    Region: Choose closest to your users
    Branch: main
-   Root Directory: backend
-   Build Command: npm ci --include=dev && npm run build
-   Start Command: npm start
+   Root Directory: repository root
+   Build Command: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=atcloud-signup-system-backend
+   Start Command: npm start --workspace=atcloud-signup-system-backend
    ```
 
 3. **Set Environment Variables:**
@@ -117,9 +118,9 @@ NODE_ENV=production
 
    ```
    Name: atcloud-frontend
-   Root Directory: frontend
-   Build Command: npm ci --include=dev && npm run build
-   Publish Directory: dist
+   Root Directory: repository root
+   Build Command: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=frontend
+   Publish Directory: frontend/dist
    ```
 
 3. **Set Environment Variables:**
@@ -264,28 +265,25 @@ This section consolidates production deployment notes for the Event Reminder Sch
   - false/unset: Do not start the scheduler on this process
   - Default behavior: enabled in non-production environments; requires explicit true in production.
 - SINGLE_INSTANCE_ENFORCE
-  - true: Fail-fast if multiple backend workers are detected while using in-memory lock
+  - true: Fail-fast if multiple backend processes are detected while using in-memory coordination
   - false (default): Warn only
 - WEB_CONCURRENCY / PM2_CLUSTER_MODE / NODE_APP_INSTANCE
   - Used to infer worker concurrency when SINGLE_INSTANCE_ENFORCE is enabled
 
-### Recommended Render setup (Option A — single instance)
+### Render setup (single Web Service)
 
-Use separate services for API and scheduler:
+The backend Web Service serves HTTP and Socket.IO and runs scheduled work:
 
-- Web Service (serves HTTP API)
-  - Environment: production
-  - Env: SCHEDULER_ENABLED=false (or unset)
-  - Instances: 1+ (as needed for traffic)
-- Background Worker (runs scheduler)
-  - Environment: production
-  - Env: SCHEDULER_ENABLED=true
-  - Instances: 1 (single instance)
+- `SCHEDULER_ENABLED=true`
+- `SINGLE_INSTANCE_ENFORCE=true`
+- `WEB_CONCURRENCY=1`
+- Instances: 1
 
 Bootstrap logic summary:
 
-- Enabled when `SCHEDULER_ENABLED === "true"` OR `NODE_ENV !== "production"`.
-- Disabled otherwise. Log sample: "⏸️ Event reminder scheduler disabled by env (SCHEDULER_ENABLED!=true)".
+- Production: enabled only when `SCHEDULER_ENABLED === "true"`.
+- Development: enabled unless `SCHEDULER_ENABLED === "false"`.
+- Test: disabled.
 
 ### Health and Ops endpoints
 
@@ -322,7 +320,7 @@ If you later enable a distributed lock around EventReminderScheduler:
 ### Troubleshooting (scheduler)
 
 - Scheduler didn’t start in production:
-  - Ensure `SCHEDULER_ENABLED=true` on the Background Worker
+  - Ensure `SCHEDULER_ENABLED=true` on the backend Web Service
   - Check logs for disabled message or lock warnings
 - Multiple workers with in-memory lock:
   - Set `SINGLE_INSTANCE_ENFORCE=true` to fail-fast

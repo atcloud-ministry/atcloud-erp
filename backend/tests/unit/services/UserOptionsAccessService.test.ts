@@ -7,18 +7,29 @@ vi.mock("../../../src/models", () => ({
   Purchase: { findOne: vi.fn() },
 }));
 
+vi.mock(
+  "../../../src/services/authorization/AuthorizationAuditService",
+  () => ({ recordAuthorizationDenial: vi.fn() }),
+);
+
 import { Event, Program, Purchase, type IUser } from "../../../src/models";
 import {
   UserOptionsAccessError,
   UserOptionsAccessService,
 } from "../../../src/services/UserOptionsAccessService";
+import { recordAuthorizationDenial } from "../../../src/services/authorization/AuthorizationAuditService";
 
 function selected(value: unknown) {
   return { select: vi.fn().mockResolvedValue(value) };
 }
 
 function user(role: IUser["role"], id = new mongoose.Types.ObjectId()) {
-  return { _id: id, role } as IUser;
+  return {
+    _id: id,
+    role,
+    isActive: true,
+    isVerified: true,
+  } as IUser;
 }
 
 describe("UserOptionsAccessService", () => {
@@ -31,6 +42,17 @@ describe("UserOptionsAccessService", () => {
         user("Participant"),
       ),
     ).rejects.toMatchObject({ status: 403 });
+    expect(recordAuthorizationDenial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "http",
+        action: "platform.has_permission",
+      }),
+      expect.objectContaining({
+        allowed: false,
+        reasonCode: "insufficient_permission",
+      }),
+      undefined,
+    );
 
     await expect(
       UserOptionsAccessService.assertCanRead(
@@ -97,8 +119,20 @@ describe("UserOptionsAccessService", () => {
           limit: 20,
         },
         user("Leader"),
+        "options-request-123",
       ),
     ).rejects.toBeInstanceOf(UserOptionsAccessError);
+    expect(recordAuthorizationDenial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "http",
+        action: "event.manage",
+      }),
+      expect.objectContaining({
+        allowed: false,
+        reasonCode: "resource_not_found",
+      }),
+      "options-request-123",
+    );
     await expect(
       UserOptionsAccessService.assertCanRead(
         {
@@ -110,5 +144,35 @@ describe("UserOptionsAccessService", () => {
         user("Leader"),
       ),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("preserves a server error when a resource authorization lookup fails", async () => {
+    const eventId = new mongoose.Types.ObjectId().toString();
+    vi.mocked(Event.findById).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    const result = UserOptionsAccessService.assertCanRead(
+      {
+        context: "event-organizer",
+        resourceId: eventId,
+        page: 1,
+        limit: 20,
+      },
+      user("Leader"),
+      "options-request-500",
+    );
+
+    await expect(result).rejects.toEqual(
+      new Error("User options authorization check failed."),
+    );
+    expect(recordAuthorizationDenial).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "event.manage" }),
+      expect.objectContaining({
+        allowed: false,
+        reasonCode: "authorization_error",
+      }),
+      "options-request-500",
+    );
   });
 });
