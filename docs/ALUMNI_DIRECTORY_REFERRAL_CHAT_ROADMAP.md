@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：2.6
+- 版本：2.7
 - 更新时间：2026-09-09
 - 状态：Approved
-- 实施进度：M0-01、ADD-001、M0-02、M0-03、ADD-002 与 ADD-003 已完成
-- 下一任务：M0-04（待确认）
+- 实施进度：M0-01、ADD-001、M0-02、M0-03、ADD-002、ADD-003 与 M0-04 已完成
+- 下一任务：M0-05（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -266,7 +266,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
   - 验证：backend unit 5,996、HTTP 329、MongoDB integration 1,726、frontend 1,901；lint、type-check、production build、deployment guards 与独立审查通过。
 - [x] ADD-003 统一保护 System Message 发布、手动通知邮件与消息 cleanup 管理入口，要求 `MANAGE_NOTIFICATIONS` 权限；System Messages 创建入口同步仅向 Administrator 与 Super Admin 显示。
   - 验证：backend unit 5,996、HTTP 379、MongoDB integration 1,733、frontend 1,906；lint、type-check、production build、deployment guards 与独立审查通过。
-- [ ] M0-04 建立 versioned migration runner、dry-run、resume 和 rollback。
+- [x] M0-04 建立 versioned migration runner、dry-run、resume 和 rollback。
+  - 验证：backend unit 6,338、HTTP 379、MongoDB integration 1,759、frontend 1,906；migration unit 342、真实事务 26；lint、type-check、production build、checksum/CLI smoke 与独立审查通过。
 - [ ] M0-05 建立 full-stack integration/E2E environment、feature flags、recovery controls 和 monitoring。
 - [ ] M0-06 向 Travis 提交 retention、field normalization、capacity、RPO/RTO 和 Program mapping 参数并登记批准值。
 

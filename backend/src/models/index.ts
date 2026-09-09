@@ -50,6 +50,16 @@ export {
   NotificationOutboxStatus,
   NOTIFICATION_OUTBOX_STATUSES,
 } from "./NotificationOutbox";
+export {
+  default as SchemaMigration,
+  ISanitizedMigrationError,
+  ISchemaMigration,
+} from "./SchemaMigration";
+export {
+  default as SchemaMigrationLock,
+  ISchemaMigrationLock,
+  SCHEMA_MIGRATION_GLOBAL_LOCK_ID,
+} from "./SchemaMigrationLock";
 export { default as RolesTemplate, IRolesTemplate } from "./RolesTemplate";
 
 // Database connection helper
