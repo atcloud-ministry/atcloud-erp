@@ -9,7 +9,10 @@ type UnreadCounts = {
 };
 
 const MessageModel = Message as unknown as {
-  getUnreadCountsForUser: (userId: string) => Promise<UnreadCounts>;
+  getUnreadCountsForUser: (
+    userId: string,
+    userRole: string
+  ) => Promise<UnreadCounts>;
 };
 
 /**
@@ -23,8 +26,9 @@ export default class UnreadCountsController {
   static async getUnreadCounts(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userRole = req.user?.role;
 
-      if (!userId) {
+      if (!userId || !userRole) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
@@ -32,7 +36,10 @@ export default class UnreadCountsController {
         return;
       }
 
-      const counts = await MessageModel.getUnreadCountsForUser(userId);
+      const counts = await MessageModel.getUnreadCountsForUser(
+        userId,
+        userRole
+      );
 
       res.status(200).json({
         success: true,

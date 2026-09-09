@@ -5,7 +5,7 @@ import BellNotificationsReadController from "../../../../src/controllers/message
 // Mock dependencies
 vi.mock("../../../../src/models/Message", () => ({
   default: {
-    findById: vi.fn(),
+    findOne: vi.fn(),
     getUnreadCountsForUser: vi.fn(),
   },
 }));
@@ -29,7 +29,7 @@ import { socketService } from "../../../../src/services/infrastructure/SocketSer
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 
 interface MockRequest {
-  user?: { id: string };
+  user?: { id: string; role: string };
   params: Record<string, string>;
 }
 
@@ -55,7 +55,7 @@ describe("BellNotificationsReadController", () => {
     };
 
     mockReq = {
-      user: { id: "user123" },
+      user: { id: "user123", role: "Participant" },
       params: { messageId: "507f1f77bcf86cd799439011" },
     };
   });
@@ -82,7 +82,7 @@ describe("BellNotificationsReadController", () => {
       });
 
       it("should return 401 if user.id is undefined", async () => {
-        mockReq.user = {} as { id: string };
+        mockReq.user = {} as { id: string; role: string };
 
         await BellNotificationsReadController.markBellNotificationAsRead(
           mockReq as unknown as Request,
@@ -116,16 +116,23 @@ describe("BellNotificationsReadController", () => {
 
     describe("Not Found", () => {
       it("should return 404 if message not found", async () => {
-        vi.mocked(Message.findById).mockResolvedValue(null);
+        vi.mocked(Message.findOne).mockResolvedValue(null);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
           mockReq as unknown as Request,
           mockRes as Response,
         );
 
-        expect(Message.findById).toHaveBeenCalledWith(
-          "507f1f77bcf86cd799439011",
-        );
+        expect(Message.findOne).toHaveBeenCalledWith({
+          _id: "507f1f77bcf86cd799439011",
+          isActive: true,
+          "userStates.user123": { $exists: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
         expect(statusMock).toHaveBeenCalledWith(404);
         expect(jsonMock).toHaveBeenCalledWith({
           success: false,
@@ -148,7 +155,7 @@ describe("BellNotificationsReadController", () => {
           total: 3,
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
         vi.mocked(Message.getUnreadCountsForUser).mockResolvedValue(mockCounts);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
@@ -163,7 +170,10 @@ describe("BellNotificationsReadController", () => {
         expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
           "user123",
         );
-        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith("user123");
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          "user123",
+          "Participant",
+        );
         expect(socketService.emitBellNotificationUpdate).toHaveBeenCalledWith(
           "user123",
           "notification_read",
@@ -204,7 +214,7 @@ describe("BellNotificationsReadController", () => {
           total: 0,
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
         vi.mocked(Message.getUnreadCountsForUser).mockResolvedValue(mockCounts);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
@@ -224,7 +234,7 @@ describe("BellNotificationsReadController", () => {
 
     describe("Error Handling", () => {
       it("should return 500 on database error", async () => {
-        vi.mocked(Message.findById).mockRejectedValue(
+        vi.mocked(Message.findOne).mockRejectedValue(
           new Error("Database connection failed"),
         );
 
@@ -248,7 +258,7 @@ describe("BellNotificationsReadController", () => {
           save: vi.fn().mockRejectedValue(new Error("Save failed")),
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
           mockReq as unknown as Request,

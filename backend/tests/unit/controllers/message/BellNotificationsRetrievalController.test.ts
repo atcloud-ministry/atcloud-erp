@@ -175,6 +175,82 @@ describe("BellNotificationsRetrievalController", () => {
         });
       });
 
+      it("should omit the creator when creator visibility is disabled", async () => {
+        const mockMessages = [
+          {
+            _id: "msg-hidden",
+            title: "Private sender",
+            content: "Content",
+            type: "announcement",
+            priority: "high",
+            hideCreator: true,
+            creator: {
+              firstName: "Hidden",
+              lastName: "Admin",
+              authLevel: "Administrator",
+              roleInAtCloud: "Mentor",
+            },
+            userStates: new Map([
+              ["user123", { isReadInBell: false, isRemovedFromBell: false }],
+            ]),
+            createdAt: new Date(),
+          },
+        ];
+        vi.mocked(Message.find).mockReturnValue({
+          sort: vi.fn().mockResolvedValue(mockMessages),
+        } as any);
+
+        await BellNotificationsRetrievalController.getBellNotifications(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        const response = jsonMock.mock.calls[0][0];
+        expect(response.data.notifications[0]).not.toHaveProperty("creator");
+      });
+
+      it("returns only the allowed creator display fields", async () => {
+        const mockMessages = [
+          {
+            _id: "msg-visible",
+            title: "Visible sender",
+            content: "Content",
+            type: "announcement",
+            priority: "high",
+            hideCreator: false,
+            creator: {
+              id: "private-id",
+              firstName: "Visible",
+              lastName: "Admin",
+              username: "private-username",
+              email: "private@example.com",
+              authLevel: "Administrator",
+              roleInAtCloud: "Mentor",
+            },
+            userStates: new Map([
+              ["user123", { isReadInBell: false, isRemovedFromBell: false }],
+            ]),
+            createdAt: new Date(),
+          },
+        ];
+        vi.mocked(Message.find).mockReturnValue({
+          sort: vi.fn().mockResolvedValue(mockMessages),
+        } as any);
+
+        await BellNotificationsRetrievalController.getBellNotifications(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        const response = jsonMock.mock.calls[0][0];
+        expect(response.data.notifications[0].creator).toEqual({
+          firstName: "Visible",
+          lastName: "Admin",
+          authLevel: "Administrator",
+          roleInAtCloud: "Mentor",
+        });
+      });
+
       it("should exclude notifications removed from bell", async () => {
         const mockMessages = [
           {
@@ -319,6 +395,40 @@ describe("BellNotificationsRetrievalController", () => {
           },
         });
       });
+
+      it.each([null, [null, "Administrator"]])(
+        "should fail closed for malformed targetRoles %j",
+        async (targetRoles) => {
+          vi.mocked(Message.find).mockReturnValue({
+            sort: vi.fn().mockResolvedValue([
+              {
+                _id: "msg-malformed",
+                title: "Malformed roles",
+                content: "Content",
+                type: "announcement",
+                priority: "high",
+                creator: {},
+                userStates: new Map([[
+                  "user123",
+                  { isReadInBell: false, isRemovedFromBell: false },
+                ]]),
+                targetRoles,
+                createdAt: new Date(),
+              },
+            ]),
+          } as any);
+
+          await BellNotificationsRetrievalController.getBellNotifications(
+            mockReq as unknown as Request,
+            mockRes as Response,
+          );
+
+          expect(jsonMock).toHaveBeenCalledWith({
+            success: true,
+            data: { notifications: [], unreadCount: 0 },
+          });
+        },
+      );
 
       it("should use title when getBellDisplayTitle not available", async () => {
         const mockMessages = [

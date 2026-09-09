@@ -3,7 +3,9 @@ import TargetedSystemMessagesController from "../../../../src/controllers/messag
 
 // Mock dependencies
 const mockSave = vi.fn().mockResolvedValue(true);
-const mockToJSON = vi.fn().mockReturnValue({ _id: "message-id" });
+const mockToJSON = vi.fn(() => {
+  throw new Error("raw document serialization must not be used for realtime");
+});
 const mockGetBellDisplayTitle = vi.fn().mockReturnValue("Test Title");
 const { mockUserFind } = vi.hoisted(() => ({
   mockUserFind: vi.fn(),
@@ -14,6 +16,7 @@ vi.mock("../../../../src/models/Message", () => {
     return {
       ...data,
       _id: "message-id",
+      createdAt: new Date("2026-09-09T12:00:00.000Z"),
       userStates: new Map(),
       save: mockSave,
       toJSON: mockToJSON,
@@ -48,6 +51,35 @@ import Message from "../../../../src/models/Message";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 
+const FORBIDDEN_REALTIME_KEYS = new Set([
+  "_id",
+  "__v",
+  "createdBy",
+  "userStates",
+  "targetRoles",
+  "recipients",
+  "recipientIds",
+  "targetUserIds",
+]);
+
+function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectKeys(entry, keys));
+    return keys;
+  }
+  if (!value || typeof value !== "object") return keys;
+  Object.entries(value).forEach(([key, entry]) => {
+    keys.add(key);
+    collectKeys(entry, keys);
+  });
+  return keys;
+}
+
+function expectRecipientSafe(value: unknown): void {
+  const keys = collectKeys(value);
+  FORBIDDEN_REALTIME_KEYS.forEach((key) => expect(keys.has(key)).toBe(false));
+}
+
 describe("TargetedSystemMessagesController", () => {
   let consoleErrorSpy: any;
   let consoleLogSpy: any;
@@ -57,9 +89,14 @@ describe("TargetedSystemMessagesController", () => {
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockSave.mockResolvedValue(true);
-    mockUserFind.mockReturnValue({
-      select: vi.fn().mockResolvedValue([]),
-    });
+    mockUserFind.mockImplementation((query: { _id?: { $in?: string[] } }) => ({
+      select: vi.fn().mockResolvedValue(
+        (query._id?.$in ?? []).map((_id) => ({
+          _id,
+          role: "Participant",
+        })),
+      ),
+    }));
     (Message as any).getUnreadCountsForUser = vi.fn().mockResolvedValue({
       bellNotifications: 1,
       systemMessages: 1,
@@ -144,6 +181,33 @@ describe("TargetedSystemMessagesController", () => {
           "message_created",
           expect.any(Object)
         );
+        vi.mocked(socketService.emitSystemMessageUpdate).mock.calls.forEach(
+          ([, , payload]) => expectRecipientSafe(payload),
+        );
+        expect(mockToJSON).not.toHaveBeenCalled();
+      });
+
+      it("should emit once for each unique recipient", async () => {
+        await TargetedSystemMessagesController.createTargetedSystemMessage(
+          validMessageData,
+          ["user1", "user1", "user2"],
+          validCreator,
+        );
+
+        expect(socketService.emitSystemMessageUpdate).toHaveBeenCalledTimes(2);
+        expect(CachePatterns.invalidateUserCache).toHaveBeenCalledTimes(2);
+      });
+
+      it("can delegate only message-created delivery while preserving unread updates", async () => {
+        await TargetedSystemMessagesController.createTargetedSystemMessage(
+          validMessageData,
+          validTargetUserIds,
+          validCreator,
+          { emitMessageCreatedEvent: false },
+        );
+
+        expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalled();
+        expect(socketService.emitUnreadCountUpdate).toHaveBeenCalledTimes(2);
       });
 
       it("should emit unread count updates to all target users", async () => {
@@ -154,6 +218,14 @@ describe("TargetedSystemMessagesController", () => {
         );
 
         expect(socketService.emitUnreadCountUpdate).toHaveBeenCalledTimes(2);
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          "user1",
+          "Participant",
+        );
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          "user2",
+          "Participant",
+        );
       });
 
       it("should use system creator when none provided", async () => {
@@ -208,6 +280,10 @@ describe("TargetedSystemMessagesController", () => {
             hideCreator: true,
           })
         );
+        const payload = vi.mocked(socketService.emitSystemMessageUpdate).mock
+          .calls[0][2];
+        expect(payload.message).not.toHaveProperty("creator");
+        expectRecipientSafe(payload);
       });
 
       it("should include metadata when provided", async () => {
@@ -231,7 +307,9 @@ describe("TargetedSystemMessagesController", () => {
 
       it("should restrict targetRole messages to matching user ids", async () => {
         mockUserFind.mockReturnValueOnce({
-          select: vi.fn().mockResolvedValue([{ _id: "user1" }]),
+          select: vi
+            .fn()
+            .mockResolvedValue([{ _id: "user1", role: "Administrator" }]),
         });
 
         const result =
@@ -264,6 +342,11 @@ describe("TargetedSystemMessagesController", () => {
           "user1",
           "message_created",
           expect.any(Object)
+        );
+        expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalledWith(
+          "user2",
+          "message_created",
+          expect.any(Object),
         );
       });
 

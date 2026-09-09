@@ -7,9 +7,12 @@ vi.mock("../../../../src/models/Message", () => {
   const mockMessage = vi.fn().mockImplementation((data) => ({
     ...data,
     _id: "welcome-message-id",
+    createdAt: new Date("2026-09-09T12:00:00.000Z"),
     userStates: new Map(),
     save: vi.fn().mockResolvedValue(true),
-    toJSON: vi.fn().mockReturnValue({ _id: "welcome-message-id", ...data }),
+    toJSON: vi.fn(() => {
+      throw new Error("raw document serialization must not be used for realtime");
+    }),
   }));
   return { default: mockMessage };
 });
@@ -163,6 +166,12 @@ describe("WelcomeNotificationController", () => {
           "user123",
           "message_created",
           expect.any(Object)
+        );
+        const payload = vi.mocked(socketService.emitSystemMessageUpdate).mock
+          .calls[0][2];
+        expect(payload.message).not.toHaveProperty("creator");
+        expect(JSON.stringify(payload)).not.toMatch(
+          /userStates|createdBy|targetRoles|recipientIds|targetUserIds|"_id"|"__v"/,
         );
         expect(statusMock).toHaveBeenCalledWith(201);
         expect(jsonMock).toHaveBeenCalledWith({

@@ -25,6 +25,7 @@ import app from "../../../src/app";
 import User from "../../../src/models/User";
 import Message from "../../../src/models/Message";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { CachePatterns } from "../../../src/services/infrastructure/CacheService";
 
 describe("System Messages Read Integration Tests", () => {
   let authToken: string;
@@ -247,8 +248,10 @@ describe("System Messages Read Integration Tests", () => {
       expect(response.body.success).toBe(false);
     });
 
-    it("should handle message with no user state", async () => {
-      // Create message without userId in userStates
+    it("should conceal a message from a non-recipient without creating state", async () => {
+      const invalidateSpy = vi
+        .spyOn(CachePatterns, "invalidateUserCache")
+        .mockResolvedValue(undefined);
       const noStateMessage = await Message.create({
         type: "announcement",
         title: "No State",
@@ -271,9 +274,19 @@ describe("System Messages Read Integration Tests", () => {
           `/api/notifications/system/${noStateMessage._id.toString()}/read`
         )
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(404);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body).toEqual({
+        success: false,
+        message: "Message not found",
+      });
+      const unchangedMessage = await Message.findById(noStateMessage._id);
+      expect(unchangedMessage?.userStates.has(userId)).toBe(false);
+      expect(invalidateSpy).not.toHaveBeenCalled();
+      expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitBellNotificationUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitUnreadCountUpdate).not.toHaveBeenCalled();
+      invalidateSpy.mockRestore();
     });
 
     it("should not affect other users' message states", async () => {
@@ -312,7 +325,7 @@ describe("System Messages Read Integration Tests", () => {
       );
     });
 
-    it("should handle inactive message", async () => {
+    it("should reject an inactive message without changing recipient state", async () => {
       // Create inactive message
       const inactiveMessage = await Message.create({
         type: "announcement",
@@ -343,9 +356,13 @@ describe("System Messages Read Integration Tests", () => {
           `/api/notifications/system/${inactiveMessage._id.toString()}/read`
         )
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(404);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body.success).toBe(false);
+      const unchangedMessage = await Message.findById(inactiveMessage._id);
+      expect(unchangedMessage?.userStates.get(userId)?.isReadInSystem).toBe(
+        false,
+      );
     });
   });
 

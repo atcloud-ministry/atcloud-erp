@@ -1,5 +1,6 @@
 import { body, param, query, validationResult } from "express-validator";
 import { Request, Response, NextFunction } from "express";
+import { ROLES } from "../utils/roleUtils";
 
 // Middleware to handle validation errors
 export const handleValidationErrors = (
@@ -460,6 +461,24 @@ export const validateSystemMessage = [
     .optional()
     .isIn(["low", "medium", "high"])
     .withMessage("Priority must be low, medium, or high"),
+
+  body("targetRoles")
+    .optional({ values: "undefined" })
+    .isArray({ min: 1, max: Object.values(ROLES).length })
+    .withMessage("targetRoles must be a non-empty array of valid roles"),
+  body("targetRoles.*")
+    .optional({ values: "undefined" })
+    .isIn(Object.values(ROLES))
+    .withMessage("targetRoles contains an invalid role"),
+
+  body("excludeUserIds")
+    .optional({ values: "undefined" })
+    .isArray()
+    .withMessage("excludeUserIds must be an array of valid user IDs"),
+  body("excludeUserIds.*")
+    .optional({ values: "undefined" })
+    .isMongoId()
+    .withMessage("excludeUserIds contains an invalid user ID"),
 
   body("expiresAt")
     .optional()

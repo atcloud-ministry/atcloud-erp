@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import mongoose from "mongoose";
-import Message, { IMessage } from "../../../src/models/Message";
+import Message, {
+  IMessage,
+  MessageRecipientStateNotFoundError,
+} from "../../../src/models/Message";
 
 describe("Message Model", () => {
   console.log("🔧 Setting up Message model test environment...");
@@ -225,12 +228,18 @@ describe("Message Model", () => {
 
     beforeEach(() => {
       message = new Message(createValidMessageData());
+      message.userStates.set(userId, {
+        isReadInBell: false,
+        isRemovedFromBell: false,
+        isReadInSystem: false,
+        isDeletedFromSystem: false,
+      });
       message.markModified = vi.fn();
     });
 
     describe("getUserState", () => {
       it("should return default state for non-existent user", () => {
-        const state = message.getUserState(userId);
+        const state = message.getUserState("non-recipient");
 
         expect(state).toEqual({
           isReadInBell: false,
@@ -288,6 +297,14 @@ describe("Message Model", () => {
         const state = message.getUserState(userId);
         expect(state.isReadInBell).toBe(true);
         expect(state.isReadInSystem).toBe(true);
+      });
+
+      it("should reject updates for a user outside the recipient set", () => {
+        expect(() =>
+          message.updateUserState("non-recipient", { isReadInBell: true })
+        ).toThrow(MessageRecipientStateNotFoundError);
+        expect(message.userStates.has("non-recipient")).toBe(false);
+        expect(message.markModified).not.toHaveBeenCalled();
       });
     });
 
@@ -350,37 +367,85 @@ describe("Message Model", () => {
     describe("shouldShowInBell", () => {
       it("should return true for active message not removed from bell", () => {
         message.isActive = true;
-        expect(message.shouldShowInBell(userId)).toBe(true);
+        expect(message.shouldShowInBell(userId, "Participant")).toBe(true);
       });
 
       it("should return false for inactive message", () => {
         message.isActive = false;
-        expect(message.shouldShowInBell(userId)).toBe(false);
+        expect(message.shouldShowInBell(userId, "Participant")).toBe(false);
       });
 
       it("should return false for message removed from bell", () => {
         message.isActive = true;
         message.removeFromBell(userId);
-        expect(message.shouldShowInBell(userId)).toBe(false);
+        expect(message.shouldShowInBell(userId, "Participant")).toBe(false);
       });
+
+      it("should return false for a user outside the recipient set", () => {
+        message.isActive = true;
+        expect(
+          message.shouldShowInBell("non-recipient", "Participant")
+        ).toBe(false);
+      });
+
+      it("should return false when the recipient no longer matches targetRoles", () => {
+        message.isActive = true;
+        message.targetRoles = ["Administrator"];
+        expect(message.shouldShowInBell(userId, "Participant")).toBe(false);
+      });
+
+      it.each([null, [null, "Administrator"]])(
+        "should fail closed for malformed targetRoles %j",
+        (targetRoles) => {
+          message.isActive = true;
+          (message as unknown as { targetRoles: unknown }).targetRoles =
+            targetRoles;
+
+          expect(message.shouldShowInBell(userId, "Participant")).toBe(false);
+        },
+      );
     });
 
     describe("shouldShowInSystem", () => {
       it("should return true for active message not deleted from system", () => {
         message.isActive = true;
-        expect(message.shouldShowInSystem(userId)).toBe(true);
+        expect(message.shouldShowInSystem(userId, "Participant")).toBe(true);
       });
 
       it("should return false for inactive message", () => {
         message.isActive = false;
-        expect(message.shouldShowInSystem(userId)).toBe(false);
+        expect(message.shouldShowInSystem(userId, "Participant")).toBe(false);
       });
 
       it("should return false for message deleted from system", () => {
         message.isActive = true;
         message.deleteFromSystem(userId);
-        expect(message.shouldShowInSystem(userId)).toBe(false);
+        expect(message.shouldShowInSystem(userId, "Participant")).toBe(false);
       });
+
+      it("should return false for a user outside the recipient set", () => {
+        message.isActive = true;
+        expect(
+          message.shouldShowInSystem("non-recipient", "Participant")
+        ).toBe(false);
+      });
+
+      it("should return false when the recipient no longer matches targetRoles", () => {
+        message.isActive = true;
+        message.targetRoles = ["Administrator"];
+        expect(message.shouldShowInSystem(userId, "Participant")).toBe(false);
+      });
+
+      it.each([null, [null, "Administrator"]])(
+        "should fail closed for malformed targetRoles %j",
+        (targetRoles) => {
+          message.isActive = true;
+          (message as unknown as { targetRoles: unknown }).targetRoles =
+            targetRoles;
+
+          expect(message.shouldShowInSystem(userId, "Participant")).toBe(false);
+        },
+      );
     });
 
     describe("getBellDisplayTitle", () => {
@@ -408,22 +473,39 @@ describe("Message Model", () => {
   });
 
   describe("JSON Transformation", () => {
-    it("should convert userStates Map to Object in JSON", () => {
-      const message = new Message(createValidMessageData());
+    it("should omit recipient and targeting internals from JSON", () => {
+      const message = new Message({
+        ...createValidMessageData(),
+        targetRoles: ["Participant"],
+        targetUserId: "user123",
+      });
       const userId = "user123";
 
+      message.userStates.set(userId, {
+        isReadInBell: false,
+        isRemovedFromBell: false,
+        isReadInSystem: false,
+        isDeletedFromSystem: false,
+      });
       message.markAsReadInBell(userId);
       const json = message.toJSON();
 
-      expect(json.userStates).not.toBeInstanceOf(Map);
-      expect(typeof json.userStates).toBe("object");
-      expect(json.userStates[userId]).toBeDefined();
+      expect(json).not.toHaveProperty("userStates");
+      expect(json).not.toHaveProperty("targetRoles");
+      expect(json).not.toHaveProperty("createdBy");
+      expect(json).not.toHaveProperty("targetUserId");
     });
 
     it("should convert userStates Map to Object in toObject", () => {
       const message = new Message(createValidMessageData());
       const userId = "user123";
 
+      message.userStates.set(userId, {
+        isReadInBell: false,
+        isRemovedFromBell: false,
+        isReadInSystem: false,
+        isDeletedFromSystem: false,
+      });
       message.markAsReadInBell(userId);
       const obj = message.toObject();
 
@@ -478,10 +560,20 @@ describe("Message Model", () => {
         } as any);
 
         const result = await (Message as any).getBellNotificationsForUser(
-          userId
+          userId,
+          "Participant"
         );
 
-        expect(findSpy).toHaveBeenCalled();
+        expect(findSpy).toHaveBeenCalledWith({
+          isActive: true,
+          [`userStates.${userId}`]: { $exists: true },
+          [`userStates.${userId}.isRemovedFromBell`]: { $ne: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
         expect(result).toHaveLength(1);
         expect(result[0]).toEqual(
           expect.objectContaining({
@@ -509,8 +601,20 @@ describe("Message Model", () => {
 
         const { messages, pagination } = await (
           Message as any
-        ).getSystemMessagesForUser(userId, 1, 1);
+        ).getSystemMessagesForUser(userId, "Participant", 1, 1);
 
+        const recipientFilter = {
+          isActive: true,
+          [`userStates.${userId}`]: { $exists: true },
+          [`userStates.${userId}.isDeletedFromSystem`]: { $ne: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        };
+        expect(Message.find).toHaveBeenCalledWith(recipientFilter);
+        expect(Message.countDocuments).toHaveBeenCalledWith(recipientFilter);
         expect(messages).toHaveLength(1);
         expect(pagination).toEqual(
           expect.objectContaining({
@@ -531,8 +635,33 @@ describe("Message Model", () => {
           .mockResolvedValueOnce(2) // bell
           .mockResolvedValueOnce(5); // system
 
-        const res = await (Message as any).getUnreadCountsForUser(userId);
+        const res = await (Message as any).getUnreadCountsForUser(
+          userId,
+          "Participant"
+        );
         expect(countSpy).toHaveBeenCalledTimes(2);
+        expect(countSpy).toHaveBeenNthCalledWith(1, {
+          isActive: true,
+          [`userStates.${userId}`]: { $exists: true },
+          [`userStates.${userId}.isRemovedFromBell`]: { $ne: true },
+          [`userStates.${userId}.isReadInBell`]: { $ne: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
+        expect(countSpy).toHaveBeenNthCalledWith(2, {
+          isActive: true,
+          [`userStates.${userId}`]: { $exists: true },
+          [`userStates.${userId}.isDeletedFromSystem`]: { $ne: true },
+          [`userStates.${userId}.isReadInSystem`]: { $ne: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
         expect(res).toEqual({
           bellNotifications: 2,
           systemMessages: 5,

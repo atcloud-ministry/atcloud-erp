@@ -12,6 +12,32 @@ vi.mock("../../../../src/controllers/unifiedMessageController");
 vi.mock("../../../../src/services/infrastructure/SocketService");
 vi.mock("../../../../src/services/notifications/NotificationErrorHandler");
 
+function createMockMessage(id: string, recipientIds: string[]) {
+  return {
+    _id: { toString: () => id },
+    title: "T",
+    content: "C",
+    type: "announcement",
+    priority: "medium",
+    createdAt: new Date("2026-09-09T12:00:00.000Z"),
+    creator: {
+      id: "system",
+      firstName: "System",
+      lastName: "Administrator",
+      username: "system",
+      gender: "male",
+      authLevel: "Super Admin",
+    },
+    hideCreator: false,
+    userStates: new Map(recipientIds.map((userId) => [userId, {}])),
+    toJSON: vi.fn(() => {
+      throw new Error("raw document serialization must not be used for realtime");
+    }),
+    save: vi.fn().mockResolvedValue(undefined),
+    isActive: true,
+  };
+}
+
 describe("TrioNotificationService - more branches", () => {
   beforeEach(() => {
     TrioNotificationService.resetMetrics();
@@ -44,12 +70,7 @@ describe("TrioNotificationService - more branches", () => {
   it("websocket fails for all recipients -> throws and rolls back message (marks inactive)", async () => {
     vi.useFakeTimers();
 
-    const mockMessage = {
-      _id: { toString: () => "m1" },
-      toJSON: () => ({ id: "m1", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m1", ["u1", "u2"]) as any;
 
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
@@ -83,12 +104,7 @@ describe("TrioNotificationService - more branches", () => {
   it("websocket fails for all recipients but rollback disabled -> no rollback executed", async () => {
     vi.useFakeTimers();
 
-    const mockMessage = {
-      _id: { toString: () => "m2" },
-      toJSON: () => ({ id: "m2", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m2", ["u1"]) as any;
 
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
@@ -147,12 +163,7 @@ describe("TrioNotificationService - more branches", () => {
   });
 
   it("maps remaining templates to correct EmailService methods", async () => {
-    const mockMessage = {
-      _id: { toString: () => "m3" },
-      toJSON: () => ({ id: "m3", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m3", ["u1"]) as any;
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
     ).mockResolvedValue(mockMessage);
@@ -231,12 +242,7 @@ describe("TrioNotificationService - more branches", () => {
   it("handles rollback failure (catch path) when transaction.rollback throws", async () => {
     vi.useFakeTimers();
 
-    const mockMessage = {
-      _id: { toString: () => "m4" },
-      toJSON: () => ({ id: "m4", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m4", ["u1"]) as any;
 
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
@@ -277,12 +283,7 @@ describe("TrioNotificationService - more branches", () => {
     // Ensure a clean metrics baseline for this test (guard against any stray async effects)
     TrioNotificationService.resetMetrics();
 
-    const mockMessage = {
-      _id: { toString: () => "m5" },
-      toJSON: () => ({ id: "m5", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m5", ["u1"]) as any;
 
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
@@ -334,12 +335,7 @@ describe("TrioNotificationService - more branches", () => {
   });
 
   it("event-reminder defaults reminderType and timeUntilEvent when missing", async () => {
-    const mockMessage = {
-      _id: { toString: () => "m6" },
-      toJSON: () => ({ id: "m6", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m6", ["u1"]) as any;
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
     ).mockResolvedValue(mockMessage);
@@ -412,8 +408,7 @@ describe("TrioNotificationService - more branches", () => {
   it("emitWithRetry backs off and succeeds before exhausting retries", async () => {
     vi.useFakeTimers();
 
-    // Arrange a message with toJSON
-    const message = { toJSON: () => ({ id: "m", title: "T" }) } as any;
+    const message = createMockMessage("m", ["u1"]) as any;
 
     // Make first two emit attempts throw, third succeed
     let call = 0;
@@ -504,12 +499,7 @@ describe("TrioNotificationService - more branches", () => {
       });
 
     // Ensure message + websocket steps are smooth
-    const mockMessage = {
-      _id: { toString: () => "m-timeout" },
-      toJSON: () => ({ id: "m-timeout", title: "T", content: "C" }),
-      save: vi.fn().mockResolvedValue(undefined),
-      isActive: true,
-    } as any;
+    const mockMessage = createMockMessage("m-timeout", ["u1"]) as any;
     vi.mocked(
       UnifiedMessageController.createTargetedSystemMessage
     ).mockResolvedValue(mockMessage);

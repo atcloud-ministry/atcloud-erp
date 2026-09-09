@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import Message from "../../models/Message";
-import type { IMessage } from "../../models/Message";
 import User from "../../models/User";
+import { isMessageRoleVisible } from "../../utils/messageAuthorization";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UnreadCounts = {
@@ -137,23 +137,8 @@ export default class SystemMessagesRetrievalController {
           return false;
         }
 
-        // 🔒 ROLE-BASED FILTERING: Check if user's role matches targetRoles
-        // If targetRoles is defined and not empty, only show message if user's role is in the list
-        if (
-          message.targetRoles &&
-          Array.isArray(message.targetRoles) &&
-          message.targetRoles.length > 0
-        ) {
-          const userRole = currentUser.role;
-          const isAuthorized = message.targetRoles.includes(userRole);
-          if (!isAuthorized) {
-            console.log(
-              `User ${userId} (role: ${userRole}) not authorized for message ${
-                message._id
-              } (targetRoles: ${message.targetRoles.join(", ")})`
-            );
-            return false;
-          }
+        if (!isMessageRoleVisible(message.targetRoles, currentUser.role)) {
+          return false;
         }
 
         return true;
@@ -197,6 +182,9 @@ export default class SystemMessagesRetrievalController {
           }
         }
 
+        const visibleTargetUserId =
+          targetUserId === userId ? targetUserId : undefined;
+
         return {
           id: m._id,
           title: m.title,
@@ -207,7 +195,7 @@ export default class SystemMessagesRetrievalController {
           metadata: m.metadata,
           // Hide creator in API response when hideCreator flag is set
           creator: m.hideCreator ? undefined : m.creator,
-          targetUserId, // Include targetUserId for frontend filtering (with legacy inference)
+          targetUserId: visibleTargetUserId,
           createdAt: m.createdAt,
           isRead: Boolean(userState?.isReadInSystem),
           readAt: userState?.readInSystemAt,

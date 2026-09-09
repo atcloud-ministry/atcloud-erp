@@ -25,6 +25,7 @@ import app from "../../../src/app";
 import User from "../../../src/models/User";
 import Message from "../../../src/models/Message";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { CachePatterns } from "../../../src/services/infrastructure/CacheService";
 
 describe("Bell Notifications Read Integration Tests", () => {
   let authToken: string;
@@ -247,8 +248,10 @@ describe("Bell Notifications Read Integration Tests", () => {
       expect(response.body.success).toBe(false);
     });
 
-    it("should handle notification with no user state", async () => {
-      // Create message without userId in userStates
+    it("should conceal a notification from a non-recipient without creating state", async () => {
+      const invalidateSpy = vi
+        .spyOn(CachePatterns, "invalidateUserCache")
+        .mockResolvedValue(undefined);
       const noStateMessage = await Message.create({
         type: "announcement",
         title: "No State",
@@ -269,9 +272,19 @@ describe("Bell Notifications Read Integration Tests", () => {
       const response = await request(app)
         .patch(`/api/notifications/bell/${noStateMessage._id.toString()}/read`)
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(404);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body).toEqual({
+        success: false,
+        message: "Notification not found",
+      });
+      const unchangedMessage = await Message.findById(noStateMessage._id);
+      expect(unchangedMessage?.userStates.has(userId)).toBe(false);
+      expect(invalidateSpy).not.toHaveBeenCalled();
+      expect(socketService.emitBellNotificationUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitUnreadCountUpdate).not.toHaveBeenCalled();
+      invalidateSpy.mockRestore();
     });
 
     it("should not affect other users' notification states", async () => {
@@ -310,7 +323,7 @@ describe("Bell Notifications Read Integration Tests", () => {
       );
     });
 
-    it("should handle inactive notification", async () => {
+    it("should reject an inactive notification without changing recipient state", async () => {
       // Create inactive notification
       const inactiveMessage = await Message.create({
         type: "announcement",
@@ -339,9 +352,11 @@ describe("Bell Notifications Read Integration Tests", () => {
       const response = await request(app)
         .patch(`/api/notifications/bell/${inactiveMessage._id.toString()}/read`)
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(404);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body.success).toBe(false);
+      const unchangedMessage = await Message.findById(inactiveMessage._id);
+      expect(unchangedMessage?.userStates.get(userId)?.isReadInBell).toBe(false);
     });
   });
 
