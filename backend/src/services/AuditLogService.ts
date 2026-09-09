@@ -398,76 +398,104 @@ function safeLogAction(action: unknown): string {
     : "invalid";
 }
 
+function buildAuditLogPayload(
+  input: AuditLogWriteInput,
+): Record<string, unknown> {
+  const action = requireBoundedValue(
+    input.action,
+    "action",
+    120,
+    /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/,
+  );
+  const source = requireKnownValue(input.source, AUDIT_SOURCES, "source");
+  const outcome = requireKnownValue(
+    input.outcome,
+    AUDIT_OUTCOMES,
+    "outcome",
+  );
+  requireKnownValue(input.actor?.type, AUDIT_ACTOR_TYPES, "actor type");
+  const correlationId = optionalIdentifier(
+    input.correlationId,
+    "correlation id",
+    128,
+  );
+  const reasonCode = optionalIdentifier(
+    input.reasonCode,
+    "reason code",
+    120,
+  );
+  const emailHash = optionalSha256(input.hashes?.email, "email hash");
+  const ipHash = optionalSha256(input.hashes?.ip, "IP hash");
+
+  const payload: Record<string, unknown> = {
+    version: AUDIT_LOG_VERSION,
+    action,
+    source,
+    outcome,
+    ...actorFields(input.actor),
+  };
+
+  if (input.target && typeof input.target === "object") {
+    const targetModel = tryBoundedValue(
+      input.target.model,
+      "target model",
+      80,
+      /^[A-Za-z][A-Za-z0-9_-]*$/,
+    );
+    const targetId = optionalIdentifier(input.target.id, "target id", 200);
+
+    if (targetModel && typeof input.target.id === "string") {
+      payload.targetModel = targetModel;
+      payload.targetId = targetId ?? sha256Identifier(input.target.id);
+    }
+  }
+  if (correlationId) payload.correlationId = correlationId;
+  if (reasonCode) payload.reasonCode = reasonCode;
+  if (input.details) payload.details = sanitizeAuditDetails(input.details);
+  if (emailHash) payload.emailHash = emailHash;
+  if (ipHash) payload.ipHash = ipHash;
+  if (typeof input.userAgent === "string" && input.userAgent) {
+    const state: SanitizationState = {
+      seen: new WeakSet<object>(),
+      nodesRemaining: 1,
+      charactersRemaining: 500,
+    };
+    payload.userAgent = sanitizeString(input.userAgent, state);
+  }
+
+  return payload;
+}
+
 export class AuditLogService {
+  /**
+   * Persist an audit record inside the caller-owned MongoDB transaction.
+   * The explicit, non-null session prevents a correctness-critical caller
+   * from accidentally committing its audit record outside the domain write.
+   */
+  static async recordRequiredInTransaction(
+    input: AuditLogWriteInput,
+    session: mongoose.ClientSession,
+  ): Promise<void> {
+    if (!session || !session.inTransaction()) {
+      throw new Error(
+        "An active MongoDB transaction is required for transactional audit writes.",
+      );
+    }
+    const payload = buildAuditLogPayload(input);
+    await AuditLog.create([payload], { session });
+  }
+
+  /** Persist a mandatory audit record without joining a transaction. */
+  static async recordRequiredStandalone(
+    input: AuditLogWriteInput,
+  ): Promise<void> {
+    const payload = buildAuditLogPayload(input);
+    await AuditLog.create(payload);
+  }
+
   static async record(input: AuditLogWriteInput): Promise<boolean> {
     try {
-      const action = requireBoundedValue(
-        input.action,
-        "action",
-        120,
-        /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/,
-      );
-      const source = requireKnownValue(input.source, AUDIT_SOURCES, "source");
-      const outcome = requireKnownValue(
-        input.outcome,
-        AUDIT_OUTCOMES,
-        "outcome",
-      );
-      requireKnownValue(input.actor?.type, AUDIT_ACTOR_TYPES, "actor type");
-      const correlationId = optionalIdentifier(
-        input.correlationId,
-        "correlation id",
-        128,
-      );
-      const reasonCode = optionalIdentifier(
-        input.reasonCode,
-        "reason code",
-        120,
-      );
-      const emailHash = optionalSha256(input.hashes?.email, "email hash");
-      const ipHash = optionalSha256(input.hashes?.ip, "IP hash");
-
-      const payload: Record<string, unknown> = {
-        version: AUDIT_LOG_VERSION,
-        action,
-        source,
-        outcome,
-        ...actorFields(input.actor),
-      };
-
-      if (input.target && typeof input.target === "object") {
-        const targetModel = tryBoundedValue(
-          input.target.model,
-          "target model",
-          80,
-          /^[A-Za-z][A-Za-z0-9_-]*$/,
-        );
-        const targetId = optionalIdentifier(
-          input.target.id,
-          "target id",
-          200,
-        );
-
-        if (targetModel && typeof input.target.id === "string") {
-          payload.targetModel = targetModel;
-          payload.targetId = targetId ?? sha256Identifier(input.target.id);
-        }
-      }
-      if (correlationId) payload.correlationId = correlationId;
-      if (reasonCode) payload.reasonCode = reasonCode;
-      if (input.details) payload.details = sanitizeAuditDetails(input.details);
-      if (emailHash) payload.emailHash = emailHash;
-      if (ipHash) payload.ipHash = ipHash;
-      if (typeof input.userAgent === "string" && input.userAgent) {
-        const state: SanitizationState = {
-          seen: new WeakSet<object>(),
-          nodesRemaining: 1,
-          charactersRemaining: 500,
-        };
-        payload.userAgent = sanitizeString(input.userAgent, state);
-      }
-
-      await AuditLog.create(payload);
+      await this.recordRequiredStandalone(input);
       return true;
     } catch (error) {
       const source = safeMetricSource(input?.source);

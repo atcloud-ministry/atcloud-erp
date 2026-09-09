@@ -38,6 +38,18 @@ export {
   IBundleDiscountConfig,
 } from "./SystemConfig"; // System Configuration
 export { default as AuditLog, IAuditLog } from "./AuditLog";
+export {
+  default as IdempotencyRecord,
+  IIdempotencyRecord,
+  IdempotencyRecordState,
+  IdempotencyResourceReference,
+} from "./IdempotencyRecord";
+export {
+  default as NotificationOutbox,
+  INotificationOutbox,
+  NotificationOutboxStatus,
+  NOTIFICATION_OUTBOX_STATUSES,
+} from "./NotificationOutbox";
 export { default as RolesTemplate, IRolesTemplate } from "./RolesTemplate";
 
 // Database connection helper

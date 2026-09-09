@@ -25,26 +25,29 @@ const allowedDecision = {
 const workerGrants = [
   [
     WORKER_SERVICE_KEYS.EVENT_REMINDER,
-    WORKER_CAPABILITIES.EVENT_REMINDER_SEND,
+    [WORKER_CAPABILITIES.EVENT_REMINDER_SEND],
   ],
   [
     WORKER_SERVICE_KEYS.ALUMNI_OUTCOME,
-    WORKER_CAPABILITIES.ALUMNI_OUTCOME_AUTO_CONFIRM,
+    [WORKER_CAPABILITIES.ALUMNI_OUTCOME_AUTO_CONFIRM],
   ],
   [
     WORKER_SERVICE_KEYS.NOTIFICATION_OUTBOX,
-    WORKER_CAPABILITIES.NOTIFICATION_OUTBOX_DELIVER,
+    [
+      WORKER_CAPABILITIES.NOTIFICATION_OUTBOX_DELIVER,
+      WORKER_CAPABILITIES.NOTIFICATION_OUTBOX_RECONCILE,
+    ],
   ],
   [
     WORKER_SERVICE_KEYS.PROGRAM_MEMBERSHIP_RECONCILER,
-    WORKER_CAPABILITIES.PROGRAM_MEMBERSHIP_RECONCILE,
+    [WORKER_CAPABILITIES.PROGRAM_MEMBERSHIP_RECONCILE],
   ],
 ] as const;
 
 describe("WorkerAuthorizationService", () => {
   it.each(workerGrants)(
-    "creates a fixed worker context and allows %s its registered capability",
-    async (serviceKey, capability) => {
+    "creates a fixed worker context and allows %s its registered capabilities",
+    async (serviceKey, capabilities) => {
       const service = new WorkerAuthorizationService();
       const runContext = service.createRunContext(
         serviceKey,
@@ -57,7 +60,7 @@ describe("WorkerAuthorizationService", () => {
         principal: {
           kind: "service",
           serviceKey,
-          capabilities: [capability],
+          capabilities,
         },
       });
       expect(runContext.runId).toMatch(
@@ -68,9 +71,11 @@ describe("WorkerAuthorizationService", () => {
       expect(Object.isFrozen(runContext.principal)).toBe(true);
       expect(Object.isFrozen(runContext.principal.capabilities)).toBe(true);
 
-      await expect(
-        service.assertCapability(runContext, capability),
-      ).resolves.toBeUndefined();
+      for (const capability of capabilities) {
+        await expect(
+          service.assertCapability(runContext, capability),
+        ).resolves.toBeUndefined();
+      }
     },
   );
 

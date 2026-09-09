@@ -38,6 +38,8 @@ JWT_REFRESH_EXPIRE=7d
 BCRYPT_ROUNDS=12
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
+MONGO_TRANSACTIONS_REQUIRED=true
+NOTIFICATION_OUTBOX_ENABLED=false
 ```
 
 **Email Configuration:**
@@ -64,6 +66,7 @@ NODE_ENV=production
 
    - Go to [MongoDB Atlas](https://cloud.mongodb.com/)
    - Create a new cluster (Free tier is fine for testing)
+   - Use an Atlas replica-set or sharded deployment with transaction support
    - Create database user with read/write permissions
    - Whitelist Render's IP addresses (or use 0.0.0.0/0 for simplicity)
 
@@ -158,6 +161,8 @@ Visit your frontend URL and verify:
 Check backend logs in Render dashboard for:
 
 - ✅ "Connected to MongoDB" message
+- ✅ MongoDB transaction capability verification
+- ✅ Notification outbox worker startup when versioned delivery handlers are enabled
 - ❌ No connection errors
 
 ## Step 7: Configure Custom Domain (Optional)
@@ -269,6 +274,10 @@ This section consolidates production deployment notes for the Event Reminder Sch
   - false (default): Warn only
 - WEB_CONCURRENCY / PM2_CLUSTER_MODE / NODE_APP_INSTANCE
   - Used to infer worker concurrency when SINGLE_INSTANCE_ENFORCE is enabled
+- MONGO_TRANSACTIONS_REQUIRED
+  - true: Verify replica-set/sharded transaction capability during startup
+- NOTIFICATION_OUTBOX_ENABLED
+  - true: Start durable notification delivery when at least one versioned handler is registered
 
 ### Render setup (single Web Service)
 
@@ -277,6 +286,8 @@ The backend Web Service serves HTTP and Socket.IO and runs scheduled work:
 - `SCHEDULER_ENABLED=true`
 - `SINGLE_INSTANCE_ENFORCE=true`
 - `WEB_CONCURRENCY=1`
+- `MONGO_TRANSACTIONS_REQUIRED=true`
+- `NOTIFICATION_OUTBOX_ENABLED=false`
 - Instances: 1
 
 Bootstrap logic summary:

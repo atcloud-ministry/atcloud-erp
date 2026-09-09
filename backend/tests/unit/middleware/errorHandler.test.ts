@@ -435,6 +435,55 @@ describe("ErrorHandlerMiddleware", () => {
       });
     });
 
+    it.each([
+      [
+        "CAS_CONFLICT",
+        409,
+        "The resource changed. Refresh it and try again.",
+      ],
+      [
+        "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+        409,
+        "This idempotency key was already used for a different request.",
+      ],
+      [
+        "IDEMPOTENCY_PAYLOAD_TOO_LARGE",
+        413,
+        "The idempotency payload is too large.",
+      ],
+      [
+        "MONGO_TRANSACTION_COMMIT_UNCERTAIN",
+        503,
+        "The write result is uncertain. Retry with the same idempotency key.",
+      ],
+      [
+        "IDEMPOTENCY_PERSISTENCE_ERROR",
+        503,
+        "The request result could not be saved. Retry with the same idempotency key.",
+      ],
+    ])(
+      "maps reliability error %s to a stable HTTP response",
+      (code, expectedStatus, expectedMessage) => {
+        const error = Object.assign(new Error("internal detail"), { code });
+        const req = createMockRequest() as Request;
+        const res = createMockResponse() as Response;
+
+        ErrorHandlerMiddleware.globalErrorHandler(
+          error,
+          req,
+          res,
+          createMockNext(),
+        );
+
+        expect(res.status).toHaveBeenCalledWith(expectedStatus);
+        expect(res.json).toHaveBeenCalledWith({
+          success: false,
+          message: expectedMessage,
+          code,
+        });
+      },
+    );
+
     it("should include stack trace in development environment", () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "development";
@@ -468,9 +517,12 @@ describe("ErrorHandlerMiddleware", () => {
 
       ErrorHandlerMiddleware.globalErrorHandler(error, req, res, next);
 
+      expect(consoleSpy).toHaveBeenCalledWith("Error:", {
+        name: "Error",
+      });
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: "Production error",
+        message: "Server Error",
       });
 
       process.env.NODE_ENV = originalEnv;
@@ -495,6 +547,27 @@ describe("ErrorHandlerMiddleware", () => {
         message: "Server Error",
       });
     });
+
+    it.each([null, undefined, "string rejection"])(
+      "should safely handle non-object rejection %s",
+      (errorWithoutObjectShape) => {
+        const res = createMockResponse() as Response;
+
+        expect(() =>
+          ErrorHandlerMiddleware.globalErrorHandler(
+            errorWithoutObjectShape,
+            createMockRequest() as Request,
+            res,
+            createMockNext(),
+          ),
+        ).not.toThrow();
+        expect(res.status).toHaveBeenCalledWith(500);
+        expect(res.json).toHaveBeenCalledWith({
+          success: false,
+          message: "Server Error",
+        });
+      },
+    );
   });
 
   describe("Method Existence Tests", () => {

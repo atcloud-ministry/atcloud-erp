@@ -22,6 +22,7 @@
     "test:http:one": "vitest run --config vitest.http.config.ts --testTimeout=60000",
     "test:integration": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration --testTimeout=60000",
     "test:integration:one": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts",
+    "test:m0-foundation": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/reliability --testTimeout=60000",
     "test:critical": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/api/event-purchase-flow.integration.test.ts tests/integration/api/purchases-refund.integration.test.ts tests/integration/api/donations-webhook.integration.test.ts --testTimeout=60000",
     "test:backend:single": "vitest run --config vitest.unit.config.ts --testTimeout=60000",
     "test:perf": "VITEST_SCOPE=integration vitest run --config vitest.perf.config.ts",

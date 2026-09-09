@@ -74,6 +74,38 @@ class SocketService {
   >();
   private log = Logger.getInstance().child("SocketService");
 
+  /** Stop accepting realtime work and disconnect clients during deployment. */
+  async shutdown(timeoutMs: number = 5_000): Promise<void> {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+      throw new Error("Socket shutdown timeout is invalid");
+    }
+
+    const io = this.io;
+    this.io = null;
+    this.authenticatedSockets.clear();
+    this.userSockets.clear();
+    this.userAuthorizationRevisions.clear();
+    this.resourceAuthorizationRevisions.clear();
+    this.eventJoinGuards.clear();
+    if (!io) return;
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        this.log.warn("Socket shutdown exceeded its drain deadline");
+        finish();
+      }, timeoutMs);
+      timeout.unref?.();
+      io.close(finish);
+    });
+  }
+
   /**
    * Initialize the WebSocket server
    */

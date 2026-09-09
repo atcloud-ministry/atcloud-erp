@@ -25,6 +25,10 @@ services:
         value: true
       - key: SCHEDULER_ENABLED
         value: true
+      - key: MONGO_TRANSACTIONS_REQUIRED
+        value: true
+      - key: NOTIFICATION_OUTBOX_ENABLED
+        value: false
       - key: JWT_ACCESS_EXPIRE
         value: 3h
       - key: JWT_REFRESH_EXPIRE

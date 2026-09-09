@@ -23,6 +23,18 @@ function lineNumber(text, index) {
   return text.slice(0, index).split(/\r?\n/).length;
 }
 
+function renderServiceBlock(renderYaml, serviceName) {
+  const nameMarker = `    name: ${serviceName}`;
+  const nameIndex = renderYaml.indexOf(nameMarker);
+  if (nameIndex < 0) return "";
+  const blockStart = renderYaml.lastIndexOf("\n  - type:", nameIndex);
+  const nextBlock = renderYaml.indexOf("\n  - type:", nameIndex + nameMarker.length);
+  return renderYaml.slice(
+    blockStart < 0 ? 0 : blockStart + 1,
+    nextBlock < 0 ? renderYaml.length : nextBlock,
+  );
+}
+
 function listSourceFiles(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files = [];
@@ -147,6 +159,7 @@ function checkAvatarAndUploadContracts() {
 
 function checkRenderTemplateContract() {
   const renderYaml = read("render.yaml");
+  const backendService = renderServiceBlock(renderYaml, "atcloud-backend");
   for (const required of [
     "type: rewrite",
     "source: /*",
@@ -177,8 +190,15 @@ function checkRenderTemplateContract() {
       /name:\s*atcloud-frontend[\s\S]*?staticPublishPath:\s*\.\/frontend\/dist/,
       "frontend publish path must resolve from the repository root.",
     ],
+  ]) {
+    if (!pattern.test(renderYaml)) {
+      fail(`render.yaml: ${message}`);
+    }
+  }
+
+  for (const [pattern, message] of [
     [
-      /name:\s*atcloud-backend[\s\S]*?numInstances:\s*1/,
+      /numInstances:\s*1/,
       "backend Socket.IO delivery must remain on one Render instance until a distributed adapter is configured.",
     ],
     [
@@ -194,6 +214,14 @@ function checkRenderTemplateContract() {
       "the single Web Service must explicitly run scheduled workers.",
     ],
     [
+      /key:\s*MONGO_TRANSACTIONS_REQUIRED\s*\n\s*value:\s*true/,
+      "production must verify MongoDB transaction capability before serving traffic.",
+    ],
+    [
+      /key:\s*NOTIFICATION_OUTBOX_ENABLED\s*\n\s*value:\s*false/,
+      "durable outbox delivery must remain disabled until versioned handlers are registered.",
+    ],
+    [
       /key:\s*JWT_ACCESS_EXPIRE\s*\n\s*value:\s*3h/,
       "access-token expiry must use the TokenService environment key.",
     ],
@@ -202,8 +230,8 @@ function checkRenderTemplateContract() {
       "refresh-token expiry must use the TokenService environment key.",
     ],
   ]) {
-    if (!pattern.test(renderYaml)) {
-      fail(`render.yaml: ${message}`);
+    if (!pattern.test(backendService)) {
+      fail(`render.yaml backend service: ${message}`);
     }
   }
 

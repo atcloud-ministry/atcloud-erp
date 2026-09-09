@@ -314,6 +314,75 @@ describe("AuditLogService", () => {
     );
   });
 
+  it("writes a required audit record through the caller transaction session", async () => {
+    const session = { inTransaction: () => true } as never;
+
+    await expect(
+      AuditLogService.recordRequiredInTransaction(
+        {
+          action: "alumni-help.transition",
+          actor: { type: "system", key: "workflow-engine" },
+          source: "system",
+          outcome: "success",
+          details: { message: "private content", status: "accepted" },
+        },
+        session,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          version: 2,
+          action: "alumni-help.transition",
+          actorKey: "workflow-engine",
+          details: expect.objectContaining({ status: "accepted" }),
+        }),
+      ],
+      { session },
+    );
+    expect(JSON.stringify(mocks.create.mock.calls)).not.toContain(
+      "private content",
+    );
+  });
+
+  it("rejects a transactional required write without an active transaction", async () => {
+    const input = {
+      action: "conversation.created",
+      actor: { type: "system" as const, key: "conversation-engine" },
+      source: "system" as const,
+      outcome: "success" as const,
+    };
+
+    for (const session of [
+      undefined as never,
+      { inTransaction: () => false } as never,
+    ]) {
+      await expect(
+        AuditLogService.recordRequiredInTransaction(input, session),
+      ).rejects.toThrow(
+        "An active MongoDB transaction is required for transactional audit writes.",
+      );
+      expect(mocks.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("propagates standalone required audit persistence failures", async () => {
+    mocks.create.mockRejectedValueOnce(new Error("audit persistence failed"));
+
+    await expect(
+      AuditLogService.recordRequiredStandalone({
+        action: "conversation.created",
+        actor: { type: "system", key: "conversation-engine" },
+        source: "system",
+        outcome: "success",
+      }),
+    ).rejects.toThrow("audit persistence failed");
+
+    expect(mocks.metricIncrement).not.toHaveBeenCalled();
+    expect(mocks.loggerError).not.toHaveBeenCalled();
+  });
+
   it("fails closed on unsafe identifiers without persisting their raw value", async () => {
     const result = await AuditLogService.record({
       action: "conversation.access",
