@@ -22,6 +22,7 @@ import { User, Event, Registration, AuditLog } from "../../../src/models";
 describe("Email Notifications API - Integration Tests", () => {
   let adminToken: string;
   let leaderToken: string;
+  let guestExpertToken: string;
   let memberToken: string;
   let adminUserId: string;
   let leaderUserId: string;
@@ -144,6 +145,31 @@ describe("Email Notifications API - Integration Tests", () => {
 
     leaderToken = leaderLogin.body.data.accessToken;
 
+    const guestExpert = await User.create({
+      username: "emailnotif_guest",
+      email: "emailnotif.guest.expert@test.com",
+      password: "Guest123!@#",
+      firstName: "Guest",
+      lastName: "Expert",
+      gender: "female",
+      role: "Guest Expert",
+      isVerified: true,
+      isActive: true,
+    });
+
+    const guestExpertLogin = await request(app).post("/api/auth/login").send({
+      emailOrUsername: guestExpert.email,
+      password: "Guest123!@#",
+    });
+
+    if (!guestExpertLogin.body.success) {
+      throw new Error(
+        `Guest Expert login failed: ${guestExpertLogin.body.message}`,
+      );
+    }
+
+    guestExpertToken = guestExpertLogin.body.data.accessToken;
+
     // Create regular member
     const memberRegister = await request(app).post("/api/auth/register").send({
       username: "emailnotif_member",
@@ -249,21 +275,50 @@ describe("Email Notifications API - Integration Tests", () => {
   // ========================================
 
   describe("Authentication and Authorization", () => {
-    it("should reject requests without authentication token", async () => {
-      const response = await request(app)
-        .post("/api/email-notifications/event-created")
-        .send({
-          eventData: {
-            title: "Test Event",
-            date: "2026-01-15",
-            time: "14:00",
-            location: "Test Location",
-            organizerName: "Test Organizer",
-          },
-        });
+    const controlPlaneEndpoints = [
+      "/event-created",
+      "/system-authorization-change",
+      "/atcloud-role-change",
+      "/new-leader-signup",
+      "/co-organizer-assigned",
+      "/event-reminder",
+      "/password-reset",
+      "/email-verification",
+      "/security-alert",
+      "/schedule-reminder",
+      "/event-role-removal",
+      "/event-role-move",
+    ] as const;
 
-      expect(response.status).toBe(401);
-      expect(response.body.success).toBe(false);
+    it("requires authentication for every control-plane endpoint", async () => {
+      for (const endpoint of controlPlaneEndpoints) {
+        const response = await request(app).post(
+          `/api/email-notifications${endpoint}`,
+        );
+
+        expect(response.status, endpoint).toBe(401);
+        expect(response.body.success, endpoint).toBe(false);
+      }
+    });
+
+    it("denies every role without notification-management permission", async () => {
+      const deniedPrincipals = [
+        ["Participant", memberToken],
+        ["Guest Expert", guestExpertToken],
+        ["Leader", leaderToken],
+      ] as const;
+
+      for (const [role, token] of deniedPrincipals) {
+        for (const endpoint of controlPlaneEndpoints) {
+          const response = await request(app)
+            .post(`/api/email-notifications${endpoint}`)
+            .set("Authorization", `Bearer ${token}`)
+            .send({});
+
+          expect(response.status, `${role}: ${endpoint}`).toBe(403);
+          expect(response.body.success, `${role}: ${endpoint}`).toBe(false);
+        }
+      }
     });
 
     it("should accept requests with valid authentication token", async () => {

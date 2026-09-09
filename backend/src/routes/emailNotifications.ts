@@ -11,8 +11,9 @@ import { PERMISSIONS } from "../utils/roleUtils";
 
 const router = Router();
 
-// Apply authentication to all routes
+// All routes are manual notification-management triggers.
 router.use(authenticate);
+router.use(authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS));
 
 // Event creation notifications
 router.post(
@@ -43,7 +44,6 @@ router.post(
 );
 router.post(
   "/event-reminder",
-  authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS),
   EventReminderController.sendEventReminderNotification
 );
 
@@ -62,7 +62,6 @@ router.post("/security-alert", (req, res) => {
 
 router.post(
   "/schedule-reminder",
-  authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS),
   async (req, res) => {
     try {
       const scheduler = EventReminderScheduler.getInstance();

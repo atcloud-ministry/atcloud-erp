@@ -35,13 +35,69 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
     });
   });
 
+  describe("Authorization", () => {
+    it.each(["Participant", "Guest Expert", "Leader"] as const)(
+      "should return 403 for %s and leave expired messages unchanged",
+      async (role) => {
+        const roleSlug = role.toLowerCase().replace(/\s+/g, "-");
+        const user = await User.create({
+          username: `cleanup_${roleSlug.replace(/-/g, "_")}`,
+          email: `cleanup-${roleSlug}@example.com`,
+          password: "TestPass123!",
+          role,
+          isVerified: true,
+          isActive: true,
+        } as any);
+
+        const message = await Message.create({
+          title: "Protected Expired Message",
+          content: "Low-permission callers must not clean up this message",
+          type: "announcement",
+          priority: "low",
+          creator: {
+            id: "admin123",
+            firstName: "Admin",
+            lastName: "User",
+            username: "admin",
+            gender: "male",
+            authLevel: "Administrator",
+          },
+          isActive: true,
+          expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          userStates: new Map(),
+        });
+        const originalUpdatedAt = message.updatedAt.getTime();
+        const token = TokenService.generateAccessToken({
+          userId: user._id.toString(),
+          email: user.email,
+          role: user.role,
+        });
+
+        const response = await request(app)
+          .post("/api/notifications/cleanup")
+          .set("Authorization", `Bearer ${token}`);
+
+        expect(response.status).toBe(403);
+        expect(response.body).toMatchObject({
+          success: false,
+          error: "Insufficient permissions.",
+        });
+
+        const unchangedMessage = await Message.findById(message._id);
+        expect(unchangedMessage).not.toBeNull();
+        expect(unchangedMessage?.isActive).toBe(true);
+        expect(unchangedMessage?.updatedAt.getTime()).toBe(originalUpdatedAt);
+      },
+    );
+  });
+
   describe("Success Cases", () => {
     it("should cleanup expired messages successfully", async () => {
       const user = await User.create({
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -89,7 +145,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -134,7 +190,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -182,7 +238,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -228,7 +284,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -269,7 +325,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -316,7 +372,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -406,7 +462,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -431,7 +487,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -476,7 +532,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -525,7 +581,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);
@@ -581,7 +637,7 @@ describe("POST /api/notifications/cleanup - MessageCleanupController", () => {
         username: "testuser",
         email: "test@example.com",
         password: "TestPass123!",
-        role: "Participant",
+        role: "Administrator",
         isVerified: true,
         isActive: true,
       } as any);

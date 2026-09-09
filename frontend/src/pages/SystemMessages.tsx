@@ -216,6 +216,9 @@ export default function SystemMessages() {
     currentUser?.role === "Administrator" ||
     currentUser?.role === "Leader";
 
+  const canCreateSystemMessages =
+    hasRole("Super Admin") || hasRole("Administrator");
+
   // Get the correct profile link (matching EventDetail and Management page logic)
   const getProfileLink = (userId: string) => {
     const currentUserId =
@@ -393,11 +396,7 @@ export default function SystemMessages() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <MessageListHeader
-        hasCreatePermission={
-          hasRole("Super Admin") ||
-          hasRole("Administrator") ||
-          hasRole("Leader")
-        }
+        hasCreatePermission={canCreateSystemMessages}
         onCreateClick={() => setShowCreateForm(true)}
       />
 
@@ -480,7 +479,7 @@ export default function SystemMessages() {
       )}
 
       <CreateMessageModal
-        isOpen={showCreateForm}
+        isOpen={canCreateSystemMessages && showCreateForm}
         currentUser={currentUser}
         onClose={handleCancel}
         onSendMessage={handleSendMessage}

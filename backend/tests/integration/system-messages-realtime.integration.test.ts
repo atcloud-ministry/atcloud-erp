@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../src/app";
 import { socketService } from "../../src/services/infrastructure/SocketService";
+import { CachePatterns } from "../../src/services/infrastructure/CacheService";
 import User from "../../src/models/User";
 import Message from "../../src/models/Message";
 
@@ -31,15 +32,71 @@ function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
 
 describe("System Messages realtime emission", () => {
   const emitSpy = vi.spyOn(socketService, "emitSystemMessageUpdate");
+  const invalidateUserCacheSpy = vi.spyOn(
+    CachePatterns,
+    "invalidateUserCache",
+  );
 
   beforeEach(async () => {
     await Promise.all([User.deleteMany({}), Message.deleteMany({})]);
     emitSpy.mockClear();
+    invalidateUserCacheSpy.mockClear();
   });
 
   afterEach(() => {
     emitSpy.mockClear();
+    invalidateUserCacheSpy.mockClear();
   });
+
+  it.each(["Participant", "Guest Expert", "Leader"] as const)(
+    "denies %s before storing, caching, or emitting a system message",
+    async (role) => {
+      const slug = role.toLowerCase().replace(/\s+/g, "_");
+      const username =
+        role === "Participant"
+          ? "rt_denied_part"
+          : role === "Guest Expert"
+            ? "rt_denied_guest"
+            : "rt_denied_leader";
+      const user = await User.create({
+        email: `rt_denied_${slug}@example.com`,
+        username,
+        firstName: "Denied",
+        lastName: role,
+        password: "Password123!",
+        role,
+        isActive: true,
+        isVerified: true,
+        gender: "male",
+      } as any);
+
+      const loginRes = await request(app)
+        .post("/api/auth/login")
+        .send({ emailOrUsername: user.email, password: "Password123!" });
+      expect(loginRes.status).toBe(200);
+      const token = loginRes.body?.data?.accessToken as string;
+      emitSpy.mockClear();
+      invalidateUserCacheSpy.mockClear();
+
+      const response = await request(app)
+        .post("/api/notifications/system")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          title: `Denied ${role} message`,
+          content: "This message must not create any business side effects.",
+          type: "announcement",
+          priority: "medium",
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
+      expect(
+        await Message.countDocuments({ title: `Denied ${role} message` }),
+      ).toBe(0);
+      expect(invalidateUserCacheSpy).not.toHaveBeenCalled();
+      expect(emitSpy).not.toHaveBeenCalled();
+    },
+  );
 
   it("emits system_message_update when admin creates a broadcast system message", async () => {
     const admin = await User.create({

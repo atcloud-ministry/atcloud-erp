@@ -129,7 +129,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 on missing required fields", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .post("/api/notifications/system")
@@ -145,7 +145,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 when title/content too short", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .post("/api/notifications/system")
@@ -169,7 +169,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 when title/content too long", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const longTitle = "T".repeat(201); // max 200
     const longContent = "C".repeat(3501); // max 3500
