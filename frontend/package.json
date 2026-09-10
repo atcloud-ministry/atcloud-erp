@@ -18,6 +18,7 @@
     "test:verbose": "VITEST_VERBOSE_LOGS=true NODE_OPTIONS=--max-old-space-size=4096 vitest run --reporter=verbose",
     "pretest:e2e": "npm --prefix .. run build --workspace=@atcloud/shared-time",
     "test:e2e": "playwright test",
+    "test:e2e:fullstack:playwright": "playwright test --config=playwright.fullstack.config.ts",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "type-check": "tsc -b --pretty false",

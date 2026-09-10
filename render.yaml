@@ -5,7 +5,7 @@ services:
     plan: starter
     buildCommand: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=atcloud-signup-system-backend
     startCommand: npm start --workspace=atcloud-signup-system-backend
-    healthCheckPath: /api/health
+    healthCheckPath: /api/readiness
     autoDeploy: false
     numInstances: 1
     envVars:
@@ -28,6 +28,8 @@ services:
       - key: MONGO_TRANSACTIONS_REQUIRED
         value: true
       - key: NOTIFICATION_OUTBOX_ENABLED
+        value: false
+      - key: ALUMNI_NETWORK_RELEASE_AVAILABLE
         value: false
       - key: JWT_ACCESS_EXPIRE
         value: 3h

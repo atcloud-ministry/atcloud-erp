@@ -28,6 +28,10 @@ import refundRequestRoutes from "./refundRequests"; // Refund approval workflow
 import communityRoutes from "./community";
 import adminUserRoutes from "./admin/users";
 import userOptionsRoutes from "./userOptions";
+import runtimeConfigRoutes from "./runtimeConfig";
+import featureControlRoutes from "./admin/featureControls";
+import recoveryControlRoutes from "./recoveryControls";
+import readinessRoutes from "./readiness";
 
 const router = Router();
 
@@ -41,6 +45,10 @@ router.use("/email-notifications", emailNotificationRouter);
 router.use("/notifications", notificationRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/search", searchRoutes);
+router.use("/readiness", readinessRoutes);
+router.use("/runtime-config", runtimeConfigRoutes);
+router.use("/system/feature-controls", featureControlRoutes);
+router.use("/system/recovery", recoveryControlRoutes);
 router.use("/system", systemRoutes);
 router.use("/monitor", monitorRoutes);
 router.use("/guest-migration", guestMigrationRoutes);

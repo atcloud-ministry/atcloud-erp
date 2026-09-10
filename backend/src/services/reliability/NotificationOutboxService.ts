@@ -15,6 +15,7 @@ import {
   NotificationOutboxMetrics,
   notificationOutboxMetrics,
 } from "./NotificationOutboxMetrics";
+import { awaitWithAbort } from "../../utils/abortablePromise";
 
 const TOPIC_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -95,6 +96,13 @@ export interface NotificationOutboxReconciliationResult {
 export interface NotificationOutboxUnsupportedReconciliationResult {
   readonly unsupportedPending: number;
   readonly unsupportedDeadLettered: number;
+}
+
+export interface NotificationOutboxReconciliationOptions {
+  readonly session?: ClientSession;
+  readonly recordMetrics?: boolean;
+  readonly maxTimeMS?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface NotificationOutboxServiceConfig {
@@ -266,6 +274,43 @@ function requireDate(value: Date, name: string): Date {
     throw new Error(`Invalid notification outbox ${name}`);
   }
   return new Date(value.getTime());
+}
+
+export function buildExhaustedOutboxRecoveryFilter(
+  nowInput: Date,
+): Readonly<Record<string, unknown>> {
+  const now = requireDate(nowInput, "reconciliation timestamp");
+  return {
+    $and: [
+      {
+        $or: [
+          { status: "pending" },
+          {
+            status: "processing",
+            $or: [
+              { leaseExpiresAt: { $lte: now } },
+              { leaseExpiresAt: null },
+            ],
+          },
+        ],
+      },
+      { $expr: { $gte: ["$attemptCount", "$maxAttempts"] } },
+    ],
+  };
+}
+
+export function buildExpiredLeaseOutboxRecoveryFilter(
+  nowInput: Date,
+): Readonly<Record<string, unknown>> {
+  const now = requireDate(nowInput, "reconciliation timestamp");
+  return {
+    status: "processing",
+    $or: [
+      { leaseExpiresAt: { $lte: now } },
+      { leaseExpiresAt: null },
+    ],
+    $expr: { $lt: ["$attemptCount", "$maxAttempts"] },
+  };
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -654,33 +699,50 @@ export class NotificationOutboxService {
 
   async reconcile(
     limitInput: number = 100,
+    options: NotificationOutboxReconciliationOptions = {},
   ): Promise<NotificationOutboxReconciliationResult> {
     if (!Number.isInteger(limitInput) || limitInput < 1 || limitInput > 1_000) {
       throw new Error("Invalid notification outbox reconciliation limit");
     }
+    const session = options.session
+      ? requireActiveTransactionSession(options.session)
+      : undefined;
+    const recordMetrics = options.recordMetrics !== false;
+    if (
+      options.maxTimeMS !== undefined &&
+      (!Number.isSafeInteger(options.maxTimeMS) ||
+        options.maxTimeMS < 1 ||
+        options.maxTimeMS > 60_000)
+    ) {
+      throw new Error("Invalid notification outbox reconciliation timeout");
+    }
     const now = requireDate(this.now(), "clock");
+    const exhaustedFilter = buildExhaustedOutboxRecoveryFilter(now);
+    const expiredLeaseFilter = buildExpiredLeaseOutboxRecoveryFilter(now);
     let recoveredExpiredLeases = 0;
     let deadLetteredExhausted = 0;
 
+    const executeUpdate = async (
+      filter: Readonly<Record<string, unknown>>,
+      update: Readonly<Record<string, unknown>>,
+      operationOptions: Readonly<Record<string, unknown>>,
+    ): Promise<INotificationOutbox | null> => {
+      const operation = this.model.findOneAndUpdate(
+        filter,
+        update,
+        operationOptions,
+      );
+      return options.signal
+        ? awaitWithAbort(operation, options.signal)
+        : operation;
+    };
+
     for (let processed = 0; processed < limitInput; processed += 1) {
-      const exhausted = await this.model.findOneAndUpdate(
-        {
-          $and: [
-            {
-              $or: [
-                { status: "pending" },
-                {
-                  status: "processing",
-                  $or: [
-                    { leaseExpiresAt: { $lte: now } },
-                    { leaseExpiresAt: null },
-                  ],
-                },
-              ],
-            },
-            { $expr: { $gte: ["$attemptCount", "$maxAttempts"] } },
-          ],
-        },
+      if (options.signal?.aborted) {
+        throw options.signal.reason ?? new Error("Reconciliation aborted");
+      }
+      const exhausted = await executeUpdate(
+        exhaustedFilter,
         {
           $set: {
             status: "dead",
@@ -703,23 +765,21 @@ export class NotificationOutboxService {
           new: true,
           sort: { createdAt: 1, _id: 1 },
           runValidators: true,
+          ...(session ? { session } : {}),
+          ...(options.maxTimeMS === undefined
+            ? {}
+            : { maxTimeMS: options.maxTimeMS }),
+          ...(options.signal ? { signal: options.signal } : {}),
         },
       );
       if (exhausted) {
         deadLetteredExhausted += 1;
-        this.metrics.increment("deadLettered");
+        if (recordMetrics) this.metrics.increment("deadLettered");
         continue;
       }
 
-      const stale = await this.model.findOneAndUpdate(
-        {
-          status: "processing",
-          $or: [
-            { leaseExpiresAt: { $lte: now } },
-            { leaseExpiresAt: null },
-          ],
-          $expr: { $lt: ["$attemptCount", "$maxAttempts"] },
-        },
+      const stale = await executeUpdate(
+        expiredLeaseFilter,
         {
           $set: {
             status: "pending",
@@ -741,11 +801,16 @@ export class NotificationOutboxService {
           new: true,
           sort: { leaseExpiresAt: 1, createdAt: 1, _id: 1 },
           runValidators: true,
+          ...(session ? { session } : {}),
+          ...(options.maxTimeMS === undefined
+            ? {}
+            : { maxTimeMS: options.maxTimeMS }),
+          ...(options.signal ? { signal: options.signal } : {}),
         },
       );
       if (!stale) break;
       recoveredExpiredLeases += 1;
-      this.metrics.increment("expiredLeasesRecovered");
+      if (recordMetrics) this.metrics.increment("expiredLeasesRecovered");
     }
 
     return { recoveredExpiredLeases, deadLetteredExhausted };

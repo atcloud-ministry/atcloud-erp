@@ -27,6 +27,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - name: Verify deployment guardrails
+        run: node scripts/check-deployment-guardrails.mjs
       - run: npm ci
         working-directory: backend
       - run: npm run lint
@@ -102,6 +104,21 @@ jobs:
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
+
+  fullstack-e2e:
+    name: Real full-stack browser journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --include=dev
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:fullstack
 
   full-db:
     name: Full DB integration (main/nightly)

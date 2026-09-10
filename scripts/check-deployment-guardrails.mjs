@@ -160,6 +160,59 @@ function checkAvatarAndUploadContracts() {
 function checkRenderTemplateContract() {
   const renderYaml = read("render.yaml");
   const backendService = renderServiceBlock(renderYaml, "atcloud-backend");
+  const activeHealthCheckKeys =
+    backendService.match(/^[ \t]*healthCheckPath\s*:/gm) || [];
+  if (activeHealthCheckKeys.length !== 1) {
+    fail(
+      "render.yaml backend service: expected exactly one active healthCheckPath key.",
+    );
+  }
+  const activeReadinessPaths =
+    backendService.match(
+      /^[ \t]*healthCheckPath:\s*\/api\/readiness\s*$/gm,
+    ) || [];
+  if (activeReadinessPaths.length !== 1) {
+    fail(
+      "render.yaml backend service: expected exactly one active /api/readiness healthCheckPath.",
+    );
+  }
+  const activeInstanceKeys =
+    backendService.match(/^[ \t]*numInstances\s*:/gm) || [];
+  const singleInstanceValues =
+    backendService.match(/^[ \t]*numInstances:\s*1\s*$/gm) || [];
+  if (activeInstanceKeys.length !== 1 || singleInstanceValues.length !== 1) {
+    fail(
+      "render.yaml backend service: expected exactly one active numInstances: 1 setting.",
+    );
+  }
+  for (const [key, expectedValue] of [
+    ["NODE_ENV", "production"],
+    ["WEB_CONCURRENCY", "1"],
+    ["SINGLE_INSTANCE_ENFORCE", "true"],
+    ["SCHEDULER_ENABLED", "true"],
+    ["MONGO_TRANSACTIONS_REQUIRED", "true"],
+    ["NOTIFICATION_OUTBOX_ENABLED", "false"],
+    ["ALUMNI_NETWORK_RELEASE_AVAILABLE", "false"],
+  ]) {
+    const keyPattern = new RegExp(
+      `^[ \\t]*- key:\\s*${key}\\s*$`,
+      "gm",
+    );
+    const valuePattern = new RegExp(
+      `^[ \\t]*- key:\\s*${key}\\s*\\r?\\n[ \\t]*value:\\s*${expectedValue}\\s*$`,
+      "gm",
+    );
+    if ((backendService.match(keyPattern) || []).length !== 1) {
+      fail(
+        `render.yaml backend service: expected exactly one active ${key} key.`,
+      );
+    }
+    if ((backendService.match(valuePattern) || []).length !== 1) {
+      fail(
+        `render.yaml backend service: expected ${key}=${expectedValue}.`,
+      );
+    }
+  }
   for (const required of [
     "type: rewrite",
     "source: /*",
@@ -220,6 +273,14 @@ function checkRenderTemplateContract() {
     [
       /key:\s*NOTIFICATION_OUTBOX_ENABLED\s*\n\s*value:\s*false/,
       "durable outbox delivery must remain disabled until versioned handlers are registered.",
+    ],
+    [
+      /^[ \t]*healthCheckPath:\s*\/api\/readiness\s*$/m,
+      "backend health checks must use the dependency-aware readiness endpoint.",
+    ],
+    [
+      /^[ \t]*- key:\s*ALUMNI_NETWORK_RELEASE_AVAILABLE\s*\r?\n[ \t]*value:\s*false\s*$/m,
+      "the Alumni Network deployment ceiling must default to disabled.",
     ],
     [
       /key:\s*JWT_ACCESS_EXPIRE\s*\n\s*value:\s*3h/,

@@ -187,4 +187,66 @@ describe("Authorization wiring integration", () => {
       expect(res.body).toMatchObject({ success: true });
     });
   });
+
+  describe("/api/system/recovery (MANAGE_SYSTEM_SETTINGS)", () => {
+    it("returns 401 without a token", async () => {
+      const res = await request(app).get("/api/system/recovery").expect(401);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it.each([
+      { role: "Participant", token: () => participantToken },
+      { role: "Administrator", token: () => adminToken },
+    ])("returns 403 for $role", async ({ token }) => {
+      const res = await request(app)
+        .get("/api/system/recovery")
+        .set("Authorization", `Bearer ${token()}`)
+        .expect(403);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 200 for Super Admin", async () => {
+      const res = await request(app)
+        .get("/api/system/recovery")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .expect(200);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.body).toMatchObject({
+        success: true,
+        data: { operation: "notification_outbox_reconcile" },
+      });
+    });
+  });
+
+  describe("/api/system/feature-controls (MANAGE_SYSTEM_SETTINGS)", () => {
+    it("returns 401 without a token", async () => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .expect(401);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it.each([
+      { role: "Participant", token: () => participantToken },
+      { role: "Administrator", token: () => adminToken },
+    ])("returns 403 for $role", async ({ token }) => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .set("Authorization", `Bearer ${token()}`)
+        .expect(403);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 200 for Super Admin", async () => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .expect(200);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.body).toMatchObject({
+        success: true,
+        data: { version: 1, alumniNetwork: { mode: "off" } },
+      });
+    });
+  });
 });

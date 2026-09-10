@@ -15,6 +15,7 @@ import { SystemConfig } from "./models"; // Import SystemConfig for initializati
 import { TokenService } from "./middleware/auth";
 import { isSchedulerEnabled } from "./config/scheduler";
 import { reliabilityFoundationService } from "./services/reliability/ReliabilityFoundationService";
+import { readHttpBindHost } from "./config/httpBinding";
 
 const log = createLogger("App");
 
@@ -45,6 +46,7 @@ const ensureUploadDirectories = () => {
 
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
+const HTTP_BIND_HOST = readHttpBindHost();
 const HTTP_DRAIN_TIMEOUT_MS = 8_000;
 let shutdownPromise: Promise<void> | null = null;
 
@@ -102,7 +104,11 @@ const listenHttpServer = async (): Promise<void> => {
     };
 
     httpServer.once("error", onError);
-    httpServer.listen(PORT, onListening);
+    if (HTTP_BIND_HOST) {
+      httpServer.listen(Number(PORT), HTTP_BIND_HOST, onListening);
+    } else {
+      httpServer.listen(PORT, onListening);
+    }
   });
 };
 
@@ -310,13 +316,16 @@ const startServer = async () => {
     }
 
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`🔗 API Health: http://localhost:${PORT}/api/health`);
+    console.log(`🔗 API Readiness: http://localhost:${PORT}/api/readiness`);
+    console.log(`🔗 API Liveness: http://localhost:${PORT}/api/readiness/live`);
     console.log(`🔗 Legacy Health (kept): http://localhost:${PORT}/health`);
     console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
     console.log(`🔌 WebSocket ready for real-time notifications`);
     log.info("Server started", undefined, {
       port: PORT,
-      health: `/api/health`,
+      readiness: `/api/readiness`,
+      liveness: `/api/readiness/live`,
+      compatibilityHealth: `/api/health`,
       legacyHealth: `/health`,
       docs: `/api-docs`,
       websocket: true,

@@ -82,6 +82,7 @@ export const corsOptions = {
     "X-Requested-With",
     "Cache-Control",
     "Pragma",
+    "Idempotency-Key",
   ],
   exposedHeaders: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"],
 };

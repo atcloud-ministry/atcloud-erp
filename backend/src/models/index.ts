@@ -61,6 +61,12 @@ export {
   SCHEMA_MIGRATION_GLOBAL_LOCK_ID,
 } from "./SchemaMigrationLock";
 export { default as RolesTemplate, IRolesTemplate } from "./RolesTemplate";
+export {
+  default as FeatureControl,
+  FEATURE_CONTROL_COLLECTION,
+  FEATURE_CONTROL_SINGLETON_ID,
+  IFeatureControl,
+} from "./FeatureControl";
 
 // Database connection helper
 import mongoose from "mongoose";

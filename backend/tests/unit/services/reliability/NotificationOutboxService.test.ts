@@ -466,6 +466,67 @@ describe("NotificationOutboxService", () => {
     });
   });
 
+  it("joins a caller-owned recovery transaction without publishing metrics before commit", async () => {
+    const session = {
+      inTransaction: vi.fn(() => true),
+    } as unknown as ClientSession;
+    const abortController = new AbortController();
+    model.findOneAndUpdate.mockResolvedValueOnce(
+      document({ status: "dead", deadAt: NOW }),
+    );
+
+    const result = await service.reconcile(1, {
+      session,
+      recordMetrics: false,
+      maxTimeMS: 1_000,
+      signal: abortController.signal,
+    });
+
+    expect(result).toEqual({
+      recoveredExpiredLeases: 0,
+      deadLetteredExhausted: 1,
+    });
+    expect(model.findOneAndUpdate.mock.calls[0][2]).toMatchObject({
+      session,
+      runValidators: true,
+      maxTimeMS: 1_000,
+      signal: abortController.signal,
+    });
+    expect(metrics.snapshot()).toMatchObject({
+      expiredLeasesRecovered: 0,
+      deadLettered: 0,
+    });
+  });
+
+  it("rejects an invalid recovery query deadline before writing", async () => {
+    await expect(service.reconcile(1, { maxTimeMS: 0 })).rejects.toThrow(
+      "Invalid notification outbox reconciliation timeout",
+    );
+    expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("stops reconciliation when its caller signal is already aborted", async () => {
+    const abortController = new AbortController();
+    const reason = new Error("recovery deadline exceeded");
+    abortController.abort(reason);
+
+    await expect(
+      service.reconcile(1, { signal: abortController.signal }),
+    ).rejects.toBe(reason);
+    expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects recovery sessions that are not in an active transaction", async () => {
+    const session = {
+      inTransaction: vi.fn(() => false),
+    } as unknown as ClientSession;
+
+    await expect(service.reconcile(1, { session })).rejects.toThrow(
+      "requires an active ClientSession",
+    );
+    expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("observes, counts, and dead-letters unsupported deliveries after grace", async () => {
     model.findOneAndUpdate
       .mockResolvedValueOnce(

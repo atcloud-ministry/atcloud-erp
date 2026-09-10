@@ -32,6 +32,7 @@ import {
 import RequestMonitorService from "./middleware/RequestMonitorService";
 import ErrorHandlerMiddleware from "./middleware/errorHandler";
 import { requestCorrelation } from "./middleware/requestCorrelation";
+import { operationalMonitoringService } from "./services/operations/OperationalMonitoringService";
 
 // Load environment variables
 dotenv.config();
@@ -247,6 +248,7 @@ app.get("/health", (req, res) => {
 // Unified metrics endpoint: returns Prometheus exposition (text) when Accept header prefers text/plain
 // Otherwise returns JSON with legacy in-memory short link counters plus an indicator of Prometheus enablement.
 app.get("/metrics", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   // New behavior: Always expose Prometheus text format when enabled by env, unless
   // client explicitly requests JSON via query (?format=json) for backwards compatibility.
   // This change ensures tests that do not set an Accept: text/plain header still receive
@@ -255,6 +257,7 @@ app.get("/metrics", async (req, res) => {
 
   if (isPromEnabled() && !wantJson) {
     try {
+      await operationalMonitoringService.refresh();
       const text = await getPromMetrics();
       res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
       res.status(200).send(text);

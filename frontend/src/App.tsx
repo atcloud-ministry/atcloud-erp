@@ -9,6 +9,7 @@ import {
 import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "./contexts/NotificationModalContext";
+import { RuntimeConfigProvider } from "./contexts/RuntimeConfigContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
@@ -112,12 +113,13 @@ function RootRoute() {
 
 function App() {
   return (
-    <AuthProvider>
-      <NotificationModalProvider>
-        <NotificationProvider>
-          <SessionExpiredModal />
-          <Suspense fallback={<LoadingSpinner size="lg" />}>
-            <Routes>
+    <RuntimeConfigProvider>
+      <AuthProvider>
+        <NotificationModalProvider>
+          <NotificationProvider>
+            <SessionExpiredModal />
+            <Suspense fallback={<LoadingSpinner size="lg" />}>
+              <Routes>
             <Route path="/" element={<RootRoute />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/login" element={<Login />} />
@@ -444,11 +446,12 @@ function App() {
             <Route path="/pr/:id" element={<PrRedirect />} />
             {/* SPA fallback for short link resolution (dev / proxy safety) */}
             <Route path="/s/:key" element={<ShortLinkRedirect />} />
-            </Routes>
-          </Suspense>
-        </NotificationProvider>
-      </NotificationModalProvider>
-    </AuthProvider>
+              </Routes>
+            </Suspense>
+          </NotificationProvider>
+        </NotificationModalProvider>
+      </AuthProvider>
+    </RuntimeConfigProvider>
   );
 }
 
