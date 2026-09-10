@@ -412,6 +412,40 @@ describe("MigrationTransactionDatabase", () => {
     expect(raw.aggregate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { stage: { $lookup: { from: "schema_migrations", as: "ledger" } } },
+    { stage: { $unionWith: "schema_migration_locks" } },
+    {
+      stage: {
+        $graphLookup: {
+          from: "schema_migrations",
+          startWith: "$_id",
+          connectFromField: "_id",
+          connectToField: "_id",
+          as: "ledger",
+        },
+      },
+    },
+  ])("blocks control collection reads for batch and verify views %#", ({ stage }) => {
+    const { connection, frameworkSession, raw } = createHarness();
+    const collections = [
+      createMigrationTransactionDatabase(connection, frameworkSession).collection(
+        "users",
+      ),
+      createMigrationTransactionReadDatabase(
+        connection,
+        frameworkSession,
+      ).collection("users"),
+    ];
+
+    for (const collection of collections) {
+      expect(() => collection.aggregate([stage])).toThrowError(
+        MigrationUsageError,
+      );
+    }
+    expect(raw.aggregate).not.toHaveBeenCalled();
+  });
+
   it("rejects toBSON and accessor aggregate bypasses without leaking their payload", () => {
     const secret = "private-user:private-password@private-cluster";
     const { connection, frameworkSession, raw } = createHarness();

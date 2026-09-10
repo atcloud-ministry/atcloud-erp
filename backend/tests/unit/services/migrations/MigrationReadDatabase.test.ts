@@ -325,6 +325,68 @@ describe("MigrationReadDatabase", () => {
     expect(raw.aggregate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ $lookup: { from: "schema_migrations", as: "ledger" } }],
+    [
+      {
+        $graphLookup: {
+          from: "schema_migration_locks",
+          startWith: "$_id",
+          connectFromField: "_id",
+          connectToField: "_id",
+          as: "locks",
+        },
+      },
+    ],
+    [{ $unionWith: "schema_migrations" }],
+    [{ $unionWith: { coll: "schema_migration_locks", pipeline: [] } }],
+    [
+      {
+        $facet: {
+          nested: [
+            { $lookup: { from: "schema_migrations", as: "ledger" } },
+          ],
+        },
+      },
+    ],
+    [{ $lookup: { from: { db: "admin", coll: "users" }, as: "users" } }],
+  ])("blocks control or cross-database collection reads %#", (pipeline) => {
+    const { connection, raw } = createConnectionDouble();
+    const collection = createMigrationReadDatabase(connection).collection(
+      "users",
+    );
+
+    expect(() => collection.aggregate(pipeline as never)).toThrowError(
+      MigrationUsageError,
+    );
+    expect(raw.aggregate).not.toHaveBeenCalled();
+  });
+
+  it("allows safe same-database aggregation collection references", () => {
+    const { connection, raw } = createConnectionDouble();
+    const collection = createMigrationReadDatabase(connection).collection(
+      "users",
+    );
+    const pipeline = [
+      { $lookup: { from: "programs", as: "programs" } },
+      { $unionWith: { coll: "events", pipeline: [] } },
+      {
+        $graphLookup: {
+          from: "registrations",
+          startWith: "$_id",
+          connectFromField: "_id",
+          connectToField: "userId",
+          as: "registrations",
+        },
+      },
+    ];
+
+    collection.aggregate(pipeline);
+
+    expect(raw.aggregate).toHaveBeenCalledOnce();
+    expect(raw.aggregate.mock.calls[0][0]).toEqual(pipeline);
+  });
+
   it("does not disclose rejected collection names or pipeline payloads", () => {
     const secret = "private-user:private-password@private-cluster";
     const { connection } = createConnectionDouble();

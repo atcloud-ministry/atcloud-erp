@@ -598,6 +598,83 @@ export function requireMigrationCollectionName(name: string): string {
   return name;
 }
 
+function requirePipelineCollectionName(value: unknown): void {
+  if (typeof value !== "string") return invalidPipeline();
+  try {
+    requireMigrationCollectionName(value);
+  } catch {
+    throw new MigrationUsageError(
+      "Migration aggregate pipeline references an invalid collection.",
+    );
+  }
+}
+
+function assertPipelineCollectionReferences(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) assertPipelineCollectionReferences(item);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return;
+
+  const document = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(document, "$lookup")) {
+    const lookup = document.$lookup;
+    if (
+      lookup === null ||
+      typeof lookup !== "object" ||
+      Array.isArray(lookup)
+    ) {
+      return invalidPipeline();
+    }
+    const lookupDocument = lookup as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(lookupDocument, "from")) {
+      requirePipelineCollectionName(lookupDocument.from);
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(document, "$graphLookup")) {
+    const graphLookup = document.$graphLookup;
+    if (
+      graphLookup === null ||
+      typeof graphLookup !== "object" ||
+      Array.isArray(graphLookup)
+    ) {
+      return invalidPipeline();
+    }
+    const graphLookupDocument = graphLookup as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(graphLookupDocument, "from")) {
+      return invalidPipeline();
+    }
+    requirePipelineCollectionName(graphLookupDocument.from);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(document, "$unionWith")) {
+    const unionWith = document.$unionWith;
+    if (typeof unionWith === "string") {
+      requirePipelineCollectionName(unionWith);
+    } else {
+      if (
+        unionWith === null ||
+        typeof unionWith !== "object" ||
+        Array.isArray(unionWith)
+      ) {
+        return invalidPipeline();
+      }
+      const unionWithDocument = unionWith as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(unionWithDocument, "coll")) {
+        requirePipelineCollectionName(unionWithDocument.coll);
+      }
+    }
+  }
+
+  for (const nested of Object.values(document)) {
+    assertPipelineCollectionReferences(nested);
+  }
+}
+
 export function cloneMigrationReadOnlyPipeline(
   pipeline: unknown,
 ): Document[] | undefined {
@@ -623,10 +700,12 @@ export function cloneMigrationReadOnlyPipeline(
     }
   }
 
-  return clonePipelineValue(pipeline, 0, {
+  const cloned = clonePipelineValue(pipeline, 0, {
     ancestors: new WeakSet<object>(),
     values: 0,
   }) as Document[];
+  assertPipelineCollectionReferences(cloned);
+  return cloned;
 }
 
 export function assertMigrationReadOnlyPipeline(
