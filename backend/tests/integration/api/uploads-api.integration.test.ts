@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -80,6 +81,7 @@ describe("Uploads API - Integration Tests", () => {
 
     // Create admin user
     const adminRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "upload_admin",
       email: "upload.admin@test.com",
       password: "Admin123!@#",
@@ -125,6 +127,7 @@ describe("Uploads API - Integration Tests", () => {
 
     // Create leader user
     const leaderRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "upload_leader",
       email: "upload.leader@test.com",
       password: "Leader123!@#",
@@ -170,6 +173,7 @@ describe("Uploads API - Integration Tests", () => {
 
     // Create regular member
     const memberRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "upload_member",
       email: "upload.member@test.com",
       password: "Member123!@#",

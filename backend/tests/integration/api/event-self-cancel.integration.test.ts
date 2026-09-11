@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Integration Test: User self-cancellation vs admin removal
  *
@@ -29,6 +30,7 @@ describe("Event self-cancellation vs admin removal", () => {
 
     // Create regular user
     const userRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "regularuser",
       email: "regularuser@example.com",
       password: "UserPass123!",
@@ -51,6 +53,7 @@ describe("Event self-cancellation vs admin removal", () => {
 
     // Create admin user
     const adminRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminuser",
       email: "adminuser@example.com",
       password: "AdminPass123!",

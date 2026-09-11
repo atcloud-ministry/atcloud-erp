@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Integration test: Auto-unpublish when all roles are changed to not openToPublic
  *
@@ -32,6 +33,7 @@ describe("Auto-unpublish when all roles become non-public", () => {
 
     // Create admin user
     const adminRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminuser",
       email: "adminuser@example.com",
       password: "AdminPass123!",

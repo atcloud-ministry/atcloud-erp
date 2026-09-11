@@ -3,6 +3,7 @@ import type { SignUpFormData } from "../../schemas/signUpSchema";
 import { FORM_SECTIONS, GENDER_OPTIONS } from "../../config/signUpConstants";
 import { FormField, SelectField } from "../ui";
 import { FormSectionWrapper } from "../forms/common";
+import { BirthYearField } from "../forms/RegistrationProfileFields";
 
 interface PersonalSectionProps {
   register: UseFormRegister<SignUpFormData>;
@@ -48,6 +49,8 @@ export default function PersonalSection({
         placeholder="Select Gender"
         required={true}
       />
+
+      <BirthYearField register={register} errors={errors} />
     </FormSectionWrapper>
   );
 }

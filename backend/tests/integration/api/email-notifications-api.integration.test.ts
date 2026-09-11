@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -48,6 +49,7 @@ describe("Email Notifications API - Integration Tests", () => {
 
     // Create admin user
     const adminRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_admin",
       email: "emailnotif.admin@test.com",
       password: "Admin123!@#",
@@ -99,6 +101,7 @@ describe("Email Notifications API - Integration Tests", () => {
 
     // Create leader user
     const leaderRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_leader",
       email: "emailnotif.leader@test.com",
       password: "Leader123!@#",
@@ -172,6 +175,7 @@ describe("Email Notifications API - Integration Tests", () => {
 
     // Create regular member
     const memberRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_member",
       email: "emailnotif.member@test.com",
       password: "Member123!@#",

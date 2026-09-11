@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import mongoose from "mongoose";
 import GuestMigrationService from "../../../src/services/GuestMigrationService";
@@ -37,6 +38,7 @@ describe("GuestMigrationService.performGuestToUserMigration", () => {
 
   it("creates user Registration and deletes guest doc for upcoming events", async () => {
     const user = await User.create({
+      ...TEST_REGISTRATION_PROFILE,
       username: `m_${Math.random().toString(36).slice(2, 8)}`,
       email: `x_${Math.random().toString(36).slice(2, 8)}@example.com`,
       password: "TestPass123!",

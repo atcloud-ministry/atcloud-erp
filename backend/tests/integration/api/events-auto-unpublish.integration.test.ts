@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import mongoose from "mongoose";
@@ -8,6 +9,7 @@ import { EmailService } from "../../../src/services/infrastructure/EmailServiceF
 
 async function createAdminAndLogin() {
   const admin = {
+    ...TEST_REGISTRATION_PROFILE,
     username: "autounpubadmin",
     email: "autounpubadmin@example.com",
     password: "AdminPass123!",

@@ -9,6 +9,10 @@ import {
   type PasswordStrength,
 } from "../utils/passwordUtils";
 import { authService } from "../services/api";
+import {
+  inferPhoneCountry,
+  prepareRegistrationProfileSubmission,
+} from "../utils/registrationProfile";
 
 export function useSignUpForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,6 +39,14 @@ export function useSignUpForm() {
       lastName: prefill.lastName || "",
       email: prefill.email || "",
       phone: prefill.phone || "",
+      phoneCountryCode: inferPhoneCountry(prefill.phone) || "",
+      birthYear: undefined,
+      residenceCountryCode: "",
+      residenceRegion: "",
+      residenceCity: "",
+      employmentStatus: "",
+      company: "",
+      occupation: "",
       // Ensure selects start on placeholder instead of defaulting to first option
       gender: "",
       isAtCloudLeader: "false",
@@ -47,6 +59,8 @@ export function useSignUpForm() {
     handleSubmit,
     formState: { errors },
     watch,
+    setValue,
+    setError,
   } = form;
 
   // Watch form values
@@ -64,6 +78,14 @@ export function useSignUpForm() {
     setIsSubmitting(true);
 
     try {
+      const profile = prepareRegistrationProfileSubmission(data);
+      if (!profile.success) {
+        for (const issue of profile.issues) {
+          setError(issue.field, { type: "validate", message: issue.message });
+        }
+        return;
+      }
+
       // Use a local flag to orchestrate modal sequencing for this submit
       const showMigrationNotice = migrationNoticeEmail !== email;
 
@@ -78,11 +100,8 @@ export function useSignUpForm() {
         gender: data.gender as "male" | "female",
         isAtCloudLeader: data.isAtCloudLeader === "true",
         roleInAtCloud: data.roleInAtCloud,
-        occupation: data.occupation,
-        company: data.company,
+        ...profile.value,
         weeklyChurch: data.weeklyChurch,
-        homeAddress: data.homeAddress,
-        phone: data.phone,
         churchAddress: data.churchAddress,
         acceptTerms: true, // This is handled by validation in the form
       };
@@ -192,6 +211,8 @@ export function useSignUpForm() {
     form,
     register,
     errors,
+    watch,
+    setValue,
     isSubmitting,
 
     // Watched values

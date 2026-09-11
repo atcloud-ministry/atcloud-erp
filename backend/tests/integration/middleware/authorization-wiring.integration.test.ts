@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -16,6 +17,7 @@ describe("Authorization wiring integration", () => {
 
     // Create participant
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_participant",
       email: "aw_participant@example.com",
       password: "TestPass123!",
@@ -43,6 +45,7 @@ describe("Authorization wiring integration", () => {
 
     // Create admin
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_admin",
       email: "aw_admin@example.com",
       password: "AdminPass123!",
@@ -66,6 +69,7 @@ describe("Authorization wiring integration", () => {
 
     // Create super admin
     const saData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_super",
       email: "aw_super@example.com",
       password: "SuperPass123!",

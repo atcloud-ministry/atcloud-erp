@@ -36,7 +36,6 @@ export default class RegistrationController {
         firstName,
         lastName,
         gender,
-        homeAddress,
         isAtCloudLeader,
         roleInAtCloud,
         occupation,
@@ -78,40 +77,30 @@ export default class RegistrationController {
         return;
       }
 
-      const hasStructuredRegistrationProfile = [
+      const registrationProfileResult = validateRegistrationProfile({
+        phone,
         birthYear,
         residenceCity,
         residenceRegion,
         residenceCountryCode,
         employmentStatus,
-      ].some((value) => value !== undefined);
-      let registrationProfile: RegistrationProfileFields | undefined;
-      if (hasStructuredRegistrationProfile) {
-        const result = validateRegistrationProfile({
-          phone,
-          birthYear,
-          residenceCity,
-          residenceRegion,
-          residenceCountryCode,
-          employmentStatus,
-          company,
-          occupation,
-        });
-        if (!result.success) {
-          res
-            .status(400)
-            .json(
-              createErrorResponse(
-                result.issues
-                  .map((issue) => `${issue.field}: ${issue.message}`)
-                  .join("; "),
-                400,
-              ),
-            );
-          return;
-        }
-        registrationProfile = result.value;
+        company,
+        occupation,
+      });
+      if (!registrationProfileResult.success) {
+        res
+          .status(400)
+          .json(
+            createErrorResponse(
+              registrationProfileResult.issues
+                .map((issue) => `${issue.field}: ${issue.message}`)
+                .join("; "),
+              400,
+            ),
+          );
+        return;
       }
+      const registrationProfile = registrationProfileResult.value;
 
       // Check if user already exists
       // Note: Case-insensitive uniqueness is ultimately enforced by the
@@ -150,17 +139,16 @@ export default class RegistrationController {
       const userData: {
         username: string;
         email: string;
-        phone?: string;
-        birthYear?: number;
-        residenceCity?: string;
-        residenceRegion?: string | null;
-        residenceCountryCode?: RegistrationProfileFields["residenceCountryCode"];
-        employmentStatus?: RegistrationProfileFields["employmentStatus"];
+        phone: string;
+        birthYear: number;
+        residenceCity: string;
+        residenceRegion: string | null;
+        residenceCountryCode: RegistrationProfileFields["residenceCountryCode"];
+        employmentStatus: RegistrationProfileFields["employmentStatus"];
         password: string;
         firstName?: string;
         lastName?: string;
         gender?: "male" | "female";
-        homeAddress?: string;
         isAtCloudLeader: boolean;
         roleInAtCloud?: string;
         occupation?: string | null;
@@ -175,23 +163,20 @@ export default class RegistrationController {
       } = {
         username,
         email: email.toLowerCase(),
-        phone: registrationProfile?.phone ?? phone,
-        birthYear: registrationProfile?.birthYear,
-        residenceCity: registrationProfile?.residenceCity,
-        residenceRegion: registrationProfile?.residenceRegion,
-        residenceCountryCode: registrationProfile?.residenceCountryCode,
-        employmentStatus: registrationProfile?.employmentStatus,
+        phone: registrationProfile.phone,
+        birthYear: registrationProfile.birthYear,
+        residenceCity: registrationProfile.residenceCity,
+        residenceRegion: registrationProfile.residenceRegion,
+        residenceCountryCode: registrationProfile.residenceCountryCode,
+        employmentStatus: registrationProfile.employmentStatus,
         password,
         firstName,
         lastName,
         gender,
-        homeAddress: registrationProfile ? undefined : homeAddress,
         isAtCloudLeader,
         roleInAtCloud: isAtCloudLeader ? roleInAtCloud : undefined,
-        occupation: registrationProfile
-          ? registrationProfile.occupation
-          : occupation,
-        company: registrationProfile ? registrationProfile.company : company,
+        occupation: registrationProfile.occupation,
+        company: registrationProfile.company,
         weeklyChurch,
         churchAddress,
         role: ROLES.PARTICIPANT, // Default role

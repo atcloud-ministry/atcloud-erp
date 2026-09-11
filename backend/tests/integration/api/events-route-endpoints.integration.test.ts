@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Events Route Additional Endpoints Integration Tests
  *
@@ -32,6 +33,7 @@ describe("Events Route - Additional Endpoints Integration", () => {
 
     // Admin user via registration API
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "events_routes_admin",
       email: "events-routes-admin@test.com",
       password: "AdminPass123!",
@@ -60,6 +62,7 @@ describe("Events Route - Additional Endpoints Integration", () => {
 
     // Regular user via registration API
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "events_routes_user",
       email: "events-routes-user@test.com",
       password: "UserPass123!",

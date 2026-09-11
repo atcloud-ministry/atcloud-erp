@@ -4,42 +4,8 @@
  * Tests the complete authentication flow including:
  * - User registration and login
  * - Token generation and validation
- * - Password reset flows    beforeEach(async () => {
-      // Register a user for login tests
-      const userData = {
-        username: "loginuser",
-        email: "login@example.com",
-        password: "LoginPass123!",
-        con    it("should reject     it("should reject request with malformed authorization header", async () => {
-      const response = await request(app)
-        .get("/api/auth/profile")
-        .set("Authorization", "Malformed header")
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        success: false,
-        message: expect.any(String),
-      });
-    });h invalid token", async () => {
-      const response = await request(app)
-        .get("/api/auth/profile")
-        .set("Authorization", "Bearer invalid_token")
-        .expect(401);
-
-      expect(response.body).toMatchObject({
-        success: false,
-        message: expect.any(String),
-      });
-    });d: "LoginPass123!",
-        firstName: "Login",
-        lastName: "User",
-        gender: "male",
-        isAtCloudLeader: false,
-        acceptTerms: true
-      };
-
-      await request(app).post("/api/auth/register").send(userData);
-    });arios and edge cases
+ * - Password reset flows
+ * - Authentication error scenarios and edge cases
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -47,6 +13,7 @@ import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
 import User from "../../../src/models/User";
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 
 describe("Authentication API Integration Tests", () => {
   beforeEach(async () => {
@@ -62,6 +29,7 @@ describe("Authentication API Integration Tests", () => {
   describe("POST /api/auth/register", () => {
     it("should register a new user successfully", async () => {
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "testuser",
         email: "test@example.com",
         password: "SecurePass123!",
@@ -93,7 +61,6 @@ describe("Authentication API Integration Tests", () => {
           },
         },
       });
-
       // Verify user was created in database
       const createdUser = await User.findOne({ email: "test@example.com" });
       expect(createdUser).toBeTruthy();
@@ -113,7 +80,7 @@ describe("Authentication API Integration Tests", () => {
           residenceCountryCode: "ca",
           employmentStatus: "employed",
           company: " Example   Company ",
-          occupation: " Product\tManager ",
+          occupation: " Product   Manager ",
           homeAddress: "Legacy address",
           password: "SecurePass123!",
           confirmPassword: "SecurePass123!",
@@ -152,6 +119,7 @@ describe("Authentication API Integration Tests", () => {
 
     it("should reject registration with invalid email", async () => {
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "testuser",
         email: "invalid-email",
         password: "SecurePass123!",
@@ -182,6 +150,7 @@ describe("Authentication API Integration Tests", () => {
 
     it("should reject registration with weak password", async () => {
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "testuser",
         email: "test@example.com",
         password: "weak",
@@ -211,6 +180,7 @@ describe("Authentication API Integration Tests", () => {
 
     it("should reject duplicate username registration", async () => {
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "testuser",
         email: "test1@example.com",
         password: "SecurePass123!",
@@ -244,6 +214,7 @@ describe("Authentication API Integration Tests", () => {
 
     it("should reject duplicate email registration", async () => {
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "testuser1",
         email: "test@example.com",
         password: "SecurePass123!",
@@ -280,6 +251,7 @@ describe("Authentication API Integration Tests", () => {
     beforeEach(async () => {
       // Create test user for login tests
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "loginuser",
         email: "login@example.com",
         password: "LoginPass123!",
@@ -324,6 +296,16 @@ describe("Authentication API Integration Tests", () => {
             lastName: "User",
           },
         },
+      });
+      expect(response.body.data.user).toMatchObject({
+        phone: TEST_REGISTRATION_PROFILE.phone,
+        birthYear: TEST_REGISTRATION_PROFILE.birthYear,
+        residenceCity: TEST_REGISTRATION_PROFILE.residenceCity,
+        residenceRegion: TEST_REGISTRATION_PROFILE.residenceRegion,
+        residenceCountryCode: TEST_REGISTRATION_PROFILE.residenceCountryCode,
+        employmentStatus: TEST_REGISTRATION_PROFILE.employmentStatus,
+        company: TEST_REGISTRATION_PROFILE.company,
+        occupation: TEST_REGISTRATION_PROFILE.occupation,
       });
 
       // Token should be a valid JWT structure
@@ -414,6 +396,7 @@ describe("Authentication API Integration Tests", () => {
     beforeEach(async () => {
       // Create and login user to get token
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "profileuser",
         email: "profile@example.com",
         password: "ProfilePass123!",
@@ -459,6 +442,16 @@ describe("Authentication API Integration Tests", () => {
           },
         },
       });
+      expect(response.body.data.user).toMatchObject({
+        phone: TEST_REGISTRATION_PROFILE.phone,
+        birthYear: TEST_REGISTRATION_PROFILE.birthYear,
+        residenceCity: TEST_REGISTRATION_PROFILE.residenceCity,
+        residenceRegion: TEST_REGISTRATION_PROFILE.residenceRegion,
+        residenceCountryCode: TEST_REGISTRATION_PROFILE.residenceCountryCode,
+        employmentStatus: TEST_REGISTRATION_PROFILE.employmentStatus,
+        company: TEST_REGISTRATION_PROFILE.company,
+        occupation: TEST_REGISTRATION_PROFILE.occupation,
+      });
 
       // Should not include password
       expect(response.body.data.user.password).toBeUndefined();
@@ -502,14 +495,19 @@ describe("Authentication API Integration Tests", () => {
     beforeEach(async () => {
       // Create test user
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "forgotuser",
         email: "forgot@example.com",
         password: "ForgotPass123!",
+        confirmPassword: "ForgotPass123!",
         firstName: "Forgot",
         lastName: "User",
+        gender: "male",
+        isAtCloudLeader: false,
+        acceptTerms: true,
       };
 
-      await request(app).post("/api/auth/register").send(userData);
+      await request(app).post("/api/auth/register").send(userData).expect(201);
     });
 
     it("should initiate password reset for valid email", async () => {
@@ -560,6 +558,7 @@ describe("Authentication API Integration Tests", () => {
     beforeEach(async () => {
       // Create and login user
       const userData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "logoutuser",
         email: "logout@example.com",
         password: "LogoutPass123!",
@@ -663,6 +662,7 @@ describe("Authentication API Integration Tests", () => {
         request(app)
           .post("/api/auth/register")
           .send({
+            ...TEST_REGISTRATION_PROFILE,
             username: `user${i}`,
             email: `user${i}@example.com`,
             password: "SecurePass123!",

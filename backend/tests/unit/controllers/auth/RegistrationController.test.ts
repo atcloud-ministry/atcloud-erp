@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Request, Response } from "express";
 import RegistrationController from "../../../../src/controllers/auth/RegistrationController";
@@ -78,6 +79,7 @@ describe("RegistrationController", () => {
 
       it("should return 400 if passwords do not match", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
@@ -102,6 +104,7 @@ describe("RegistrationController", () => {
 
       it("should return 409 if email is already registered", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "existing@example.com",
           password: "password123",
@@ -132,6 +135,7 @@ describe("RegistrationController", () => {
 
       it("should return 409 if username is already taken", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "existinguser",
           email: "new@example.com",
           password: "password123",
@@ -162,6 +166,7 @@ describe("RegistrationController", () => {
 
       it("should return 400 if isAtCloudLeader is true but roleInAtCloud is missing", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
@@ -191,6 +196,7 @@ describe("RegistrationController", () => {
 
       it("should return 400 if gender is missing or invalid", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
@@ -243,6 +249,7 @@ describe("RegistrationController", () => {
 
       it("should check for existing users case-insensitively", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "TEST@EXAMPLE.COM",
           password: "password123",
@@ -284,6 +291,7 @@ describe("RegistrationController", () => {
     describe("successful registration", () => {
       it("should register a user and send verification email", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -356,7 +364,7 @@ describe("RegistrationController", () => {
           residenceRegion: "us-wa",
           residenceCountryCode: "us",
           employmentStatus: "employed",
-          occupation: " Product\tManager ",
+          occupation: " Product   Manager ",
           company: " Example   Company ",
           homeAddress: "Legacy address that must be cleared",
           password: "password123",
@@ -399,7 +407,6 @@ describe("RegistrationController", () => {
             employmentStatus: "employed",
             occupation: "Product Manager",
             company: "Example Company",
-            homeAddress: undefined,
           }),
         );
         expect(mockSave).toHaveBeenCalled();
@@ -408,6 +415,7 @@ describe("RegistrationController", () => {
 
       it("should send admin notification for @Cloud co-worker signup", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "cloudworker",
           email: "worker@example.com",
           password: "password123",
@@ -467,6 +475,7 @@ describe("RegistrationController", () => {
 
       it("should still succeed if admin notification fails", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "cloudworker",
           email: "worker@example.com",
           password: "password123",
@@ -514,6 +523,7 @@ describe("RegistrationController", () => {
 
       it("should still succeed if verification email fails to send", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -559,6 +569,7 @@ describe("RegistrationController", () => {
         process.env.VITEST_SCOPE = "integration";
 
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -605,6 +616,7 @@ describe("RegistrationController", () => {
         process.env.VITEST_SCOPE = "integration";
 
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -651,6 +663,7 @@ describe("RegistrationController", () => {
     describe("error handling", () => {
       it("should handle duplicate key errors (11000)", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "duplicateuser",
           email: "duplicate@example.com",
           password: "password123",
@@ -689,6 +702,7 @@ describe("RegistrationController", () => {
 
       it("should handle validation errors", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -729,6 +743,7 @@ describe("RegistrationController", () => {
 
       it("should handle generic database errors", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",

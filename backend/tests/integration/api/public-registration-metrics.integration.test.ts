@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, beforeAll, afterAll, expect } from "vitest";
 import mongoose from "mongoose";
@@ -44,6 +45,7 @@ describe("Public registration metrics", () => {
     await Event.deleteMany({});
     // Admin user
     const admin = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "metadmin",
       email: "metadmin@example.com",
       password: "AdminPass123!",

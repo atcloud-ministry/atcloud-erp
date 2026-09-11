@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -46,6 +47,7 @@ describe("Public Event Capacity - Includes Guests", () => {
 
     // Create Admin user
     const adminResponse = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "admin@test.com",
       username: "admin",
       password: "TestPass123!",
@@ -75,6 +77,7 @@ describe("Public Event Capacity - Includes Guests", () => {
 
     // Create Participant user
     const userResponse = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "user@test.com",
       username: "user",
       password: "TestPass123!",
@@ -168,6 +171,7 @@ describe("Public Event Capacity - Includes Guests", () => {
 
     // Create another system user and register
     const user2Response = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "user2@test.com",
       username: "user2",
       password: "TestPass123!",
@@ -272,6 +276,7 @@ describe("Public Event Capacity - Includes Guests", () => {
       const userRes = await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           email: `user${i}@test.com`,
           username: `user${i}`,
           password: "TestPass123!",

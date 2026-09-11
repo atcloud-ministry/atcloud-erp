@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Roles Templates API Integration Tests
  *
@@ -43,6 +44,7 @@ describe("Roles Templates API Integration Tests", () => {
 
     // Super Admin - Create directly in database (pre-save hook will hash password)
     const superAdminUser = await User.create({
+      ...TEST_REGISTRATION_PROFILE,
       username: "superadmin",
       email: "superadmin@example.com",
       password: "SuperPass123!",
@@ -64,6 +66,7 @@ describe("Roles Templates API Integration Tests", () => {
 
     // Administrator - Create directly in database (pre-save hook will hash password)
     const adminUser = await User.create({
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -85,6 +88,7 @@ describe("Roles Templates API Integration Tests", () => {
 
     // Leader - Create directly in database (pre-save hook will hash password)
     const leaderUser = await User.create({
+      ...TEST_REGISTRATION_PROFILE,
       username: "leader",
       email: "leader@example.com",
       password: "LeaderPass123!",
@@ -106,6 +110,7 @@ describe("Roles Templates API Integration Tests", () => {
 
     // Participant - Create directly in database (pre-save hook will hash password)
     const participantUser = await User.create({
+      ...TEST_REGISTRATION_PROFILE,
       username: "participant",
       email: "participant@example.com",
       password: "PartPass123!",

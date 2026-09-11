@@ -9,6 +9,7 @@ import { User, IUser } from "../../models";
 import { TokenService } from "../../middleware/auth";
 import { createErrorResponse, createSuccessResponse } from "../../types/api";
 import { LoginRequest } from "./types";
+import { serializeSelfUser } from "../../serializers/userReadSerializers";
 
 export default class LoginController {
   static async login(req: Request, res: Response): Promise<void> {
@@ -30,7 +31,7 @@ export default class LoginController {
           { email: emailOrUsername.toLowerCase() },
           { username: emailOrUsername },
         ],
-      }).select("+password +loginAttempts +lockUntil");
+      }).select("+password +loginAttempts +lockUntil +birthYear");
 
       if (!user) {
         res
@@ -113,25 +114,7 @@ export default class LoginController {
       res.cookie("refreshToken", tokens.refreshToken, cookieOptions);
 
       const responseData = {
-        user: {
-          id: (user as IUser)._id,
-          username: (user as IUser).username,
-          email: (user as IUser).email,
-          phone: (user as IUser).phone,
-          firstName: (user as IUser).firstName,
-          lastName: (user as IUser).lastName,
-          gender: (user as IUser).gender,
-          role: (user as IUser).role,
-          isAtCloudLeader: (user as IUser).isAtCloudLeader,
-          roleInAtCloud: (user as IUser).roleInAtCloud,
-          occupation: (user as IUser).occupation,
-          company: (user as IUser).company,
-          weeklyChurch: (user as IUser).weeklyChurch,
-          homeAddress: (user as IUser).homeAddress,
-          churchAddress: (user as IUser).churchAddress,
-          avatar: (user as IUser).avatar,
-          lastLogin: (user as IUser).lastLogin,
-        },
+        user: serializeSelfUser(user),
         accessToken: tokens.accessToken,
         expiresAt: tokens.accessTokenExpires,
       };

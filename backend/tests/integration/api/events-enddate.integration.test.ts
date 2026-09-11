@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import app from "../../../src/app";
@@ -10,6 +11,7 @@ describe("Event endDate support", () => {
   beforeAll(async () => {
     // Register and promote an admin user
     const reg = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       firstName: "Admin",
       lastName: "User",
       email: "enddate.admin@example.com",

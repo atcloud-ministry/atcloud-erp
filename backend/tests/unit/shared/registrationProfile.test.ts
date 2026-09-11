@@ -82,12 +82,12 @@ describe("registration profile shared contract", () => {
         ...validInput(),
         phone: "  +12065550123  ",
         birthYear: "1988",
-        residenceCity: "  San   José\n",
+        residenceCity: "  San   José ",
         residenceRegion: " us-ca ",
         residenceCountryCode: " us ",
         employmentStatus: " EMPLOYED ",
         company: "  Acme   Corp ",
-        occupation: " Software\tEngineer ",
+        occupation: " Software   Engineer ",
       },
       NOW,
     );
@@ -194,6 +194,23 @@ describe("registration profile shared contract", () => {
     if (!rejected.success) {
       expect(rejected.issues).toContainEqual(
         expect.objectContaining({ field: "residenceCity", code: "too_long" }),
+      );
+    }
+  });
+
+  it("rejects control characters in single-line display fields", () => {
+    const result = validateRegistrationProfile(
+      { ...validInput(), residenceCity: "San\nFrancisco" },
+      NOW,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          field: "residenceCity",
+          code: "invalid_format",
+        }),
       );
     }
   });

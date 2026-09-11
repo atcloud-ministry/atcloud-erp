@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import app from "../../../src/app";
@@ -28,6 +29,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
     const regAdmin = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Admin",
         lastName: "User",
         email: adminEmail,
@@ -54,6 +56,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
     const regGuest = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Gus",
         lastName: "Expert",
         email: guestEmail,

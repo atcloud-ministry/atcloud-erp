@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { userService, fileService } from "../services/api";
+import type { AdminProfileUpdate } from "../services/api/users.api";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
-
-interface AdminEditableFields {
-  avatar?: string;
-  phone?: string;
-  isAtCloudLeader?: boolean;
-  roleInAtCloud?: string;
-}
 
 export function useAdminProfileEdit(userId: string, onSuccess: () => void) {
   const notification = useToastReplacement();
@@ -30,7 +24,7 @@ export function useAdminProfileEdit(userId: string, onSuccess: () => void) {
     setAvatarPreview(preview);
   };
 
-  const handleSave = async (formData: AdminEditableFields) => {
+  const handleSave = async (formData: AdminProfileUpdate) => {
     try {
       setIsSaving(true);
 
@@ -45,10 +39,8 @@ export function useAdminProfileEdit(userId: string, onSuccess: () => void) {
 
       // Update profile with admin endpoint
       await userService.adminEditProfile(userId, {
+        ...formData,
         avatar: avatarUrl,
-        phone: formData.phone,
-        isAtCloudLeader: formData.isAtCloudLeader,
-        roleInAtCloud: formData.roleInAtCloud,
       });
 
       notification.success("Profile updated successfully", {

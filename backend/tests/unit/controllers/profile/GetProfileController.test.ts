@@ -2,11 +2,22 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { Request, Response } from "express";
 import GetProfileController from "../../../../src/controllers/profile/GetProfileController";
 
+vi.mock("../../../../src/models", () => ({
+  User: { findById: vi.fn() },
+}));
+
+import { User } from "../../../../src/models";
+
 interface MockUser {
   _id: string;
   username: string;
   email: string;
   phone?: string;
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: string;
+  employmentStatus?: string;
   firstName: string;
   lastName: string;
   gender?: string;
@@ -56,6 +67,11 @@ describe("GetProfileController", () => {
         username: "testuser",
         email: "test@example.com",
         phone: "555-1234",
+        birthYear: 1990,
+        residenceCity: "Seattle",
+        residenceRegion: "US-WA",
+        residenceCountryCode: "US",
+        employmentStatus: "employed",
         firstName: "John",
         lastName: "Doe",
         gender: "male",
@@ -74,6 +90,12 @@ describe("GetProfileController", () => {
         isActive: true,
       },
     };
+    vi.mocked(User.findById).mockImplementation(
+      () =>
+        ({
+          select: vi.fn().mockImplementation(async () => mockReq.user),
+        }) as never,
+    );
   });
 
   afterEach(() => {
@@ -134,6 +156,11 @@ describe("GetProfileController", () => {
         expect(userData).toHaveProperty("username");
         expect(userData).toHaveProperty("email");
         expect(userData).toHaveProperty("phone");
+        expect(userData).toHaveProperty("birthYear");
+        expect(userData).toHaveProperty("residenceCity");
+        expect(userData).toHaveProperty("residenceRegion");
+        expect(userData).toHaveProperty("residenceCountryCode");
+        expect(userData).toHaveProperty("employmentStatus");
         expect(userData).toHaveProperty("firstName");
         expect(userData).toHaveProperty("lastName");
         expect(userData).toHaveProperty("gender");
@@ -150,6 +177,19 @@ describe("GetProfileController", () => {
         expect(userData).toHaveProperty("createdAt");
         expect(userData).toHaveProperty("isVerified");
         expect(userData).toHaveProperty("isActive");
+      });
+
+      it("returns 404 when the authenticated account no longer exists", async () => {
+        vi.mocked(User.findById).mockReturnValue({
+          select: vi.fn().mockResolvedValue(null),
+        } as never);
+
+        await GetProfileController.getProfile(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(404);
       });
 
       it("should handle user with minimal fields", async () => {

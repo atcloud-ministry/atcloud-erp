@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -21,6 +22,7 @@ describe("Events API - flyerUrl update/removal", () => {
 
     // Create and verify admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "flyeradmin",
       email: "flyeradmin@example.com",
       password: "AdminPass123!",

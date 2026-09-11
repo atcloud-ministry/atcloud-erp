@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -23,6 +24,7 @@ describe("Guests Manage Token API Integration", () => {
 
     // Admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",

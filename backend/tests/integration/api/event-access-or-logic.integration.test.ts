@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import mongoose from "mongoose";
 import request from "supertest";
@@ -35,6 +36,7 @@ describe("Event Access - OR Logic (Purchase ANY associated program)", () => {
 
     // Create test user
     const userResponse = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "participant@test.com",
       username: "participant",
       password: "TestPass123!",

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -25,6 +26,7 @@ describe("Workshop privacy realtime contact updates", () => {
 
     // Admin
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "Pass123!@#",
@@ -48,6 +50,7 @@ describe("Workshop privacy realtime contact updates", () => {
 
     // Group A Leader
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "leadA",
       email: "leada@example.com",
       password: "Pass123!@#",
@@ -58,7 +61,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "111-1111",
+      phone: "+12065550111",
     });
     await User.findOneAndUpdate(
       { email: "leada@example.com" },
@@ -72,6 +75,7 @@ describe("Workshop privacy realtime contact updates", () => {
 
     // Group A Participant (viewer for GET and to receive realtime updates visually in UI)
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "partA",
       email: "parta@example.com",
       password: "Pass123!@#",
@@ -82,7 +86,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "333-3333",
+      phone: "+12065550333",
     });
     await User.findOneAndUpdate(
       { email: "parta@example.com" },
@@ -96,6 +100,7 @@ describe("Workshop privacy realtime contact updates", () => {
 
     // Group B Participant (will sign up later to trigger realtime update)
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "partB",
       email: "partb@example.com",
       password: "Pass123!@#",
@@ -106,7 +111,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "444-4444",
+      phone: "+12065550444",
     });
     await User.findOneAndUpdate(
       { email: "partb@example.com" },

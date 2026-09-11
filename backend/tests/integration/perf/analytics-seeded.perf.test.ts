@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { beforeAll, describe, expect, it } from "vitest";
 import mongoose from "mongoose";
 import User from "../../../src/models/User";
@@ -15,6 +16,7 @@ describe("Seeded perf: analytics query timings", () => {
     ]);
 
     const users = Array.from({ length: 100 }).map((_, i) => ({
+      ...TEST_REGISTRATION_PROFILE,
       username: `u_${i}`,
       email: `u_${i}@example.com`,
       password: "TestPass123!",

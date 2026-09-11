@@ -14,6 +14,8 @@ export default function SignUp() {
     // Form state
     register,
     errors,
+    watch,
+    setValue,
     isSubmitting,
 
     // Watched values
@@ -43,7 +45,12 @@ export default function SignUp() {
           <PersonalSection register={register} errors={errors} />
 
           {/* Contact Information Section */}
-          <ContactSection register={register} errors={errors} />
+          <ContactSection
+            register={register}
+            errors={errors}
+            watch={watch}
+            setValue={setValue}
+          />
 
           {/* @Cloud Co-worker Question */}
           <LeaderQuestionSection
@@ -53,7 +60,12 @@ export default function SignUp() {
           />
 
           {/* Optional Information Section */}
-          <OptionalSection register={register} errors={errors} />
+          <OptionalSection
+            register={register}
+            errors={errors}
+            watch={watch}
+            setValue={setValue}
+          />
         </SignUpFormWrapper>
       </div>
     </div>

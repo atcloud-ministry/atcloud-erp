@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -12,6 +13,7 @@ describe("Analytics export CSV rows mode", () => {
     await User.deleteMany({});
 
     const a = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "csv_rows_admin",
       email: "csv_rows_admin@example.com",
       password: "AdminPass123!",

@@ -8,7 +8,7 @@ import {
   toLiteralTextSearch,
 } from "../utils/search";
 import {
-  ADMIN_USER_PROJECTION,
+  ADMIN_USER_QUERY_PROJECTION,
   COMMUNITY_MEMBER_PROJECTION,
   serializeAdminUser,
   serializeCommunityMember,
@@ -89,10 +89,10 @@ export class SearchController {
         };
       }
 
-      const selectFields = ADMIN_USER_PROJECTION;
+      const selectFields = ADMIN_USER_QUERY_PROJECTION;
 
       // Create cache key based on search parameters
-      const cacheKey = `search-users-${JSON.stringify({
+      const cacheKey = `search-users-v2-${JSON.stringify({
         query: normalizedQuery,
         page,
         limit,

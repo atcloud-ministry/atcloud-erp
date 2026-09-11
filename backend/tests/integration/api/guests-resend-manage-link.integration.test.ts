@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -35,6 +36,7 @@ describe("Guests Admin Resend Manage Link API", () => {
 
     // Admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -58,6 +60,7 @@ describe("Guests Admin Resend Manage Link API", () => {
 
     // Participant user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "parti",
       email: "parti@example.com",
       password: "PartiPass123!",

@@ -19,6 +19,11 @@ const adminUser = {
   ...communityMember,
   email: "member@example.com",
   phone: null,
+  birthYear: null,
+  residenceCity: null,
+  residenceRegion: null,
+  residenceCountryCode: null,
+  employmentStatus: null,
   homeAddress: null,
   isAtCloudLeader: false,
   occupation: null,
@@ -51,6 +56,15 @@ describe("user directory response contracts", () => {
       decodeCommunityMember({
         ...communityMember,
         email: "must-not-leak@example.com",
+      }),
+    ).toThrow(/only keys/);
+  });
+
+  it("rejects registration PII added to a CommunityMemberDTO", () => {
+    expect(() =>
+      decodeCommunityMember({
+        ...communityMember,
+        birthYear: 1990,
       }),
     ).toThrow(/only keys/);
   });

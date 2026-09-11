@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import mongoose from "mongoose";
@@ -8,6 +9,7 @@ import { EmailService } from "../../../src/services/infrastructure/EmailServiceF
 
 async function createAdminAndLogin(seed: string) {
   const admin = {
+    ...TEST_REGISTRATION_PROFILE,
     username: `confemailadmin${seed}`,
     email: `confemailadmin${seed}@example.com`,
     password: "AdminPass123!",
@@ -125,6 +127,7 @@ describe("Guest confirmation email content varies by format", () => {
     const reg = await request(app)
       .post(`/api/events/${eventId}/guest-signup`)
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         roleId,
         fullName: "Test Guest",
         email: "guest1@example.com",
@@ -170,6 +173,7 @@ describe("Guest confirmation email content varies by format", () => {
     const reg = await request(app)
       .post(`/api/events/${eventId}/guest-signup`)
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         roleId,
         fullName: "Guest Two",
         email: "guest2@example.com",
@@ -218,6 +222,7 @@ describe("Guest confirmation email content varies by format", () => {
     const reg = await request(app)
       .post(`/api/events/${eventId}/guest-signup`)
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         roleId,
         fullName: "Guest Three",
         email: "guest3@example.com",

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
@@ -38,6 +39,7 @@ describe("Public Events API - openToPublic persistence", () => {
     console.log("[persistence-test] collections cleared");
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "persistadmin",
       email: "persistadmin@example.com",
       password: "AdminPass123!",

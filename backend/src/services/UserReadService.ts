@@ -7,6 +7,7 @@ import {
 import { User, type IUser } from "../models";
 import {
   ADMIN_USER_PROJECTION,
+  ADMIN_USER_QUERY_PROJECTION,
   COMMUNITY_MEMBER_PROJECTION,
   USER_PICKER_PROJECTION,
   serializeAdminUser,
@@ -134,7 +135,7 @@ export class UserReadService {
       ]) as Promise<unknown[]>;
     } else {
       rowsPromise = User.find(filter)
-        .select(ADMIN_USER_PROJECTION)
+        .select(ADMIN_USER_QUERY_PROJECTION)
         .sort({
           [query.sortBy]: query.sortOrder === "desc" ? -1 : 1,
           _id: 1,
@@ -158,7 +159,9 @@ export class UserReadService {
   }
 
   static async getAdminUser(id: string) {
-    const row = await User.findById(id).select(ADMIN_USER_PROJECTION).lean();
+    const row = await User.findById(id)
+      .select(ADMIN_USER_QUERY_PROJECTION)
+      .lean();
     return row ? serializeAdminUser(row) : null;
   }
 

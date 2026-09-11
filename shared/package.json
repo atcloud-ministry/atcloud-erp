@@ -12,6 +12,9 @@
     "*": {
       "registration-profile": [
         "dist/cjs/registrationProfile.d.ts"
+      ],
+      "registration-profile-options": [
+        "dist/cjs/iso3166Options.d.ts"
       ]
     }
   },
@@ -27,6 +30,12 @@
       "import": "./dist/esm/registrationProfile.js",
       "require": "./dist/cjs/registrationProfile.js",
       "default": "./dist/cjs/registrationProfile.js"
+    },
+    "./registration-profile-options": {
+      "types": "./dist/cjs/iso3166Options.d.ts",
+      "import": "./dist/esm/iso3166Options.js",
+      "require": "./dist/cjs/iso3166Options.js",
+      "default": "./dist/cjs/iso3166Options.js"
     }
   },
   "files": [

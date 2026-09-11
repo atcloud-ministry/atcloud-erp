@@ -1,5 +1,6 @@
 import { BaseApiClient } from "./common";
 import type { User as AppUser } from "../../types";
+import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
 import type { AdminUserListParams } from "./userDirectory.api";
 import {
   decodeAdminUserDetail,
@@ -7,6 +8,12 @@ import {
   type AdminUserDTO,
   type AdminUsersPageDTO,
 } from "./userDirectory.contracts";
+
+export type AdminProfileUpdate = Partial<RegistrationProfileFields> & {
+  avatar?: string;
+  isAtCloudLeader?: boolean;
+  roleInAtCloud?: string;
+};
 
 /**
  * Users API Service
@@ -89,27 +96,15 @@ class UsersApiClient extends BaseApiClient {
    */
   async adminEditProfile(
     userId: string,
-    updates: {
-      avatar?: string;
-      phone?: string;
-      isAtCloudLeader?: boolean;
-      roleInAtCloud?: string;
-    },
-  ): Promise<{
-    avatar?: string;
-    phone?: string;
-    isAtCloudLeader?: boolean;
-    roleInAtCloud?: string;
-  }> {
-    const response = await this.request<{
-      avatar?: string;
-      phone?: string;
-      isAtCloudLeader?: boolean;
-      roleInAtCloud?: string;
-    }>(`/users/${userId}/admin-edit`, {
-      method: "PUT",
-      body: JSON.stringify(updates),
-    });
+    updates: AdminProfileUpdate,
+  ): Promise<AdminProfileUpdate> {
+    const response = await this.request<AdminProfileUpdate>(
+      `/users/${userId}/admin-edit`,
+      {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      },
+    );
 
     if (response.data) {
       return response.data;

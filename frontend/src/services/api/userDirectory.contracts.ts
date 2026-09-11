@@ -1,3 +1,12 @@
+import {
+  isEmploymentStatus,
+  isBirthYear,
+  isIsoCountryCode,
+  isIsoSubdivisionCode,
+  type EmploymentStatus,
+  type IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
+
 export type UserRole =
   | "Super Admin"
   | "Administrator"
@@ -12,6 +21,11 @@ export interface AdminUserDTO {
   username: string;
   email: string;
   phone: string | null;
+  birthYear: number | null;
+  residenceCity: string | null;
+  residenceRegion: string | null;
+  residenceCountryCode: IsoCountryCode | null;
+  employmentStatus: EmploymentStatus | null;
   firstName: string | null;
   lastName: string | null;
   gender: UserGender | null;
@@ -137,6 +151,36 @@ function nullableStringAt(value: unknown, path: string): string | null {
   return stringAt(value, path);
 }
 
+function nullableBirthYearAt(value: unknown, path: string): number | null {
+  if (value === null) return null;
+  if (!isBirthYear(value)) {
+    return contractError(path, "valid birth year integer or null");
+  }
+  return Number(value);
+}
+
+function nullableCountryCodeAt(
+  value: unknown,
+  path: string,
+): IsoCountryCode | null {
+  if (value === null) return null;
+  if (!isIsoCountryCode(value)) {
+    return contractError(path, "ISO 3166-1 alpha-2 country code or null");
+  }
+  return value;
+}
+
+function nullableEmploymentStatusAt(
+  value: unknown,
+  path: string,
+): EmploymentStatus | null {
+  if (value === null) return null;
+  if (!isEmploymentStatus(value)) {
+    return contractError(path, "recognized employment status or null");
+  }
+  return value;
+}
+
 function booleanAt(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") return contractError(path, "boolean");
   return value;
@@ -188,6 +232,11 @@ const ADMIN_USER_KEYS = [
   "username",
   "email",
   "phone",
+  "birthYear",
+  "residenceCity",
+  "residenceRegion",
+  "residenceCountryCode",
+  "employmentStatus",
   "firstName",
   "lastName",
   "gender",
@@ -213,11 +262,39 @@ export function decodeAdminUser(
   path = "data.user",
 ): AdminUserDTO {
   const user = exactObjectAt(value, path, ADMIN_USER_KEYS);
+  const residenceCountryCode = nullableCountryCodeAt(
+    user.residenceCountryCode,
+    `${path}.residenceCountryCode`,
+  );
+  const residenceRegion = nullableStringAt(
+    user.residenceRegion,
+    `${path}.residenceRegion`,
+  );
+  if (
+    residenceRegion !== null &&
+    !isIsoSubdivisionCode(residenceRegion, residenceCountryCode)
+  ) {
+    return contractError(
+      `${path}.residenceRegion`,
+      "ISO 3166-2 code matching residenceCountryCode or null",
+    );
+  }
   return {
     id: stringAt(user.id, `${path}.id`),
     username: stringAt(user.username, `${path}.username`),
     email: stringAt(user.email, `${path}.email`),
     phone: nullableStringAt(user.phone, `${path}.phone`),
+    birthYear: nullableBirthYearAt(user.birthYear, `${path}.birthYear`),
+    residenceCity: nullableStringAt(
+      user.residenceCity,
+      `${path}.residenceCity`,
+    ),
+    residenceRegion,
+    residenceCountryCode,
+    employmentStatus: nullableEmploymentStatusAt(
+      user.employmentStatus,
+      `${path}.employmentStatus`,
+    ),
     firstName: nullableStringAt(user.firstName, `${path}.firstName`),
     lastName: nullableStringAt(user.lastName, `${path}.lastName`),
     gender: nullableGenderAt(user.gender, `${path}.gender`),

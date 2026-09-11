@@ -191,7 +191,7 @@ export interface OrganizerDetail {
   name: string;
   role: string;
   email: string;
-  phone: string;
+  phone?: string;
   avatar?: string;
   gender?: "male" | "female";
 }

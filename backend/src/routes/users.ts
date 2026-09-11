@@ -91,7 +91,7 @@ router.put(
   "/:id/admin-edit",
   validateObjectId,
   handleValidationErrors,
-  requireAdmin,
+  authorizePermission(PERMISSIONS.MANAGE_USERS),
   AdminProfileEditController.adminEditProfile,
 );
 router.put(

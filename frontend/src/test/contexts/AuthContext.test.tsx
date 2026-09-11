@@ -41,7 +41,12 @@ describe("AuthContext", () => {
     firstName: "Test",
     lastName: "User",
     email: "test@example.com",
-    phone: "555-0100",
+    phone: "+14155550100",
+    birthYear: 1990,
+    residenceCity: "Seattle",
+    residenceRegion: "US-WA",
+    residenceCountryCode: "US" as const,
+    employmentStatus: "employed" as const,
     role: "Leader",
     isAtCloudLeader: true,
     roleInAtCloud: "Ministry Leader",
@@ -49,7 +54,7 @@ describe("AuthContext", () => {
     avatar: "/avatar.png",
     weeklyChurch: "Test Church",
     churchAddress: "123 Church St",
-    homeAddress: "456 Home Ave",
+    homeAddress: undefined,
     occupation: "Engineer",
     company: "Tech Corp",
   };
@@ -163,6 +168,14 @@ describe("AuthContext", () => {
       expect(user?.username).toBe("testuser");
       expect(user?.firstName).toBe("Test");
       expect(user?.isAtCloudLeader).toBe("Yes");
+      expect(user).toMatchObject({
+        phone: "+14155550100",
+        birthYear: 1990,
+        residenceCity: "Seattle",
+        residenceRegion: "US-WA",
+        residenceCountryCode: "US",
+        employmentStatus: "employed",
+      });
     });
   });
 

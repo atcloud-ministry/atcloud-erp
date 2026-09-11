@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
@@ -36,6 +37,7 @@ describe("Public Events API - publish validation", () => {
     await Promise.all([User.deleteMany({}), Event.deleteMany({})]);
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "valadmin",
       email: "valadmin@example.com",
       password: "AdminPass123!",

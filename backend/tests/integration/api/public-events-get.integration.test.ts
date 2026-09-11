@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { assertDbReady } from "../_utils/assertDbReady";
 import { describe, it, expect, beforeEach } from "vitest";
@@ -21,6 +22,7 @@ describe("Public Events API - GET /api/public/events/:slug", () => {
 
     // Register & promote admin
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "publicadmin",
       email: "publicadmin@example.com",
       password: "AdminPass123!",

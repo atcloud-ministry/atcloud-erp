@@ -19,6 +19,10 @@ import {
   EventListItemData,
 } from "../types/api-responses";
 import { deriveEventStatus } from "../utils/event/eventStatus";
+import {
+  canViewExactPrivateProfileFields,
+  stripExactPrivateProfileFields,
+} from "../utils/privacy";
 
 export type EventRole = {
   id: string;
@@ -187,6 +191,8 @@ export class ResponseBuilderService {
    */
   private static async populateFreshOrganizerContacts(
     organizerDetails: Array<Record<string, unknown>>,
+    viewerId?: string,
+    viewerRole?: string,
   ): Promise<Array<Record<string, unknown>>> {
     if (!organizerDetails || organizerDetails.length === 0) {
       return [];
@@ -202,7 +208,17 @@ export class ResponseBuilderService {
           ),
       ),
     ];
-    if (organizerUserIds.length === 0) return organizerDetails;
+    if (organizerUserIds.length === 0) {
+      return organizerDetails.map((organizer) =>
+        canViewExactPrivateProfileFields(
+          viewerId,
+          viewerRole,
+          organizer.userId,
+        )
+          ? organizer
+          : stripExactPrivateProfileFields(organizer),
+      );
+    }
 
     const users = (await User.find({ _id: { $in: organizerUserIds } })
       .select("email phone firstName lastName avatar")
@@ -221,15 +237,27 @@ export class ResponseBuilderService {
     return organizerDetails.map((organizer) => {
       const userId = organizer.userId?.toString();
       const user = userId ? usersById.get(userId) : undefined;
-      if (!user) return organizer;
+      if (!user) {
+        return canViewExactPrivateProfileFields(
+          viewerId,
+          viewerRole,
+          organizer.userId,
+        )
+          ? organizer
+          : stripExactPrivateProfileFields(organizer);
+      }
 
-      return {
+      const hydratedOrganizer = {
         ...organizer,
         email: user.email,
         phone: user.phone || "Phone not provided",
         name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
         avatar: user.avatar || (organizer as { avatar?: string }).avatar,
       };
+
+      return canViewExactPrivateProfileFields(viewerId, viewerRole, userId)
+        ? hydratedOrganizer
+        : stripExactPrivateProfileFields(hydratedOrganizer);
     });
   }
 
@@ -278,6 +306,8 @@ export class ResponseBuilderService {
           ]),
           ResponseBuilderService.populateFreshOrganizerContacts(
             event.organizerDetails || [],
+            viewerId,
+            viewerRole,
           ),
         ]);
 
@@ -297,8 +327,6 @@ export class ResponseBuilderService {
       );
 
       // Determine if viewer can see all contact info (admin, event creator, or registered)
-      const isAdmin =
-        viewerRole === "Super Admin" || viewerRole === "Administrator";
       const eventCreatorId = (
         event.createdBy as { _id?: Types.ObjectId }
       )?._id?.toString();
@@ -313,7 +341,13 @@ export class ResponseBuilderService {
       const isRegistered = viewerRegistrations.length > 0;
 
       // Simplified visibility: admins, event creator, or ANY registered user can see ALL contacts
-      const canViewAllContacts = isAdmin || isEventCreator || isRegistered;
+      const canManageUsers = canViewExactPrivateProfileFields(
+        viewerId,
+        viewerRole,
+        undefined,
+      );
+      const canViewAllContacts =
+        canManageUsers || isEventCreator || isRegistered;
       // Viewer can see mentor contacts if they're admin, event creator, or registered
       const canViewMentorContacts = canViewAllContacts;
 
@@ -327,7 +361,7 @@ export class ResponseBuilderService {
         // Transform each registration with privacy logic
         for (const reg of roleRegistrations) {
           if (!reg.userId) continue;
-          let showContact = false;
+          let showEmail = false;
           let email = "";
           let phone = "";
 
@@ -338,10 +372,15 @@ export class ResponseBuilderService {
           const isOwnRegistration =
             viewerId && reg.userId._id.toString() === viewerId;
           if (canViewAllContacts || isOwnRegistration) {
-            showContact = true;
+            showEmail = true;
             email = reg.userId.email || "";
-            phone = reg.userId.phone || "";
           }
+          const showPhone = canViewExactPrivateProfileFields(
+            viewerId,
+            viewerRole,
+            reg.userId._id,
+          );
+          if (showPhone) phone = reg.userId.phone || "";
 
           registrations.push({
             id: reg._id.toString(),
@@ -362,8 +401,8 @@ export class ResponseBuilderService {
               username: reg.userId.username,
               firstName: reg.userId.firstName,
               lastName: reg.userId.lastName,
-              email: showContact ? email : "",
-              phone: showContact ? phone : undefined,
+              email: showEmail ? email : "",
+              phone: showPhone ? phone : undefined,
               avatar: reg.userId.avatar,
               gender: reg.userId.gender,
               systemAuthorizationLevel:
@@ -499,8 +538,14 @@ export class ResponseBuilderService {
         totalSlots,
         signedUp: totalSignups,
         maxParticipants: totalSlots,
-        // Provide full organizer info to frontend (email/phone shown on Organizer card)
-        createdBy: ResponseBuilderService.buildUserBasicInfo(event.createdBy),
+        createdBy: ResponseBuilderService.buildUserBasicInfo(
+          event.createdBy,
+          canViewExactPrivateProfileFields(
+            viewerId,
+            viewerRole,
+            eventCreatorId,
+          ),
+        ),
         createdAt: event.createdAt || new Date(0),
         updatedAt: event.updatedAt || new Date(0),
         status: ResponseBuilderService.getReadStatus(event),
@@ -621,7 +666,9 @@ export class ResponseBuilderService {
         location: event.location || "",
         organizer: event.organizer || "",
         organizerDetails:
-          (event.organizerDetails as unknown as OrganizerDetail[]) || [],
+          ((event.organizerDetails || []).map((organizer) =>
+            stripExactPrivateProfileFields(organizer),
+          ) as unknown as OrganizerDetail[]) || [],
         hostedBy: event.hostedBy,
         format: event.format || "",
         status,
@@ -649,7 +696,10 @@ export class ResponseBuilderService {
    * Builds basic user info
    * Used for user-related API responses
    */
-  static buildUserBasicInfo(user: LeanUser | { id: string }): UserBasicInfo {
+  static buildUserBasicInfo(
+    user: LeanUser | { id: string },
+    includeExactPrivateFields = false,
+  ): UserBasicInfo {
     return {
       id: (user as LeanUser)._id
         ? (user as LeanUser)._id.toString()
@@ -658,7 +708,9 @@ export class ResponseBuilderService {
       firstName: (user as LeanUser).firstName,
       lastName: (user as LeanUser).lastName,
       email: (user as LeanUser).email || "",
-      phone: (user as LeanUser).phone,
+      ...(includeExactPrivateFields && (user as LeanUser).phone
+        ? { phone: (user as LeanUser).phone }
+        : {}),
       avatar: (user as LeanUser).avatar,
       gender: (user as LeanUser).gender,
       systemAuthorizationLevel:

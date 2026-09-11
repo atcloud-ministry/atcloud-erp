@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import mongoose from "mongoose";
@@ -25,6 +26,7 @@ describe("Publish necessary fields enforcement", () => {
     await Promise.all([User.deleteMany({}), Event.deleteMany({})]);
 
     const admin = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "pubadmin",
       email: "pubadmin@example.com",
       password: "AdminPass123!",

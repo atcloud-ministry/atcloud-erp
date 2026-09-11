@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -17,6 +18,7 @@ describe("Events API - YouTube URL for Completed Events", () => {
 
     // Create admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminyoutube",
       email: "admin-youtube@example.com",
       password: "AdminPass123!",
@@ -43,6 +45,7 @@ describe("Events API - YouTube URL for Completed Events", () => {
 
     // Create participant user (lowest permission level)
     const participantData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "participantyoutube",
       email: "participant-youtube@example.com",
       password: "ParticipantPass123!",

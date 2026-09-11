@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -17,6 +18,7 @@ describe("Events API — role deletion/capacity protections", () => {
 
     // Admin
     const adminResp = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -41,6 +43,7 @@ describe("Events API — role deletion/capacity protections", () => {
 
     // Regular user
     const userResp = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "user1",
       email: "user1@example.com",
       password: "UserPass123!",

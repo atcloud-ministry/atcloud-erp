@@ -18,10 +18,9 @@ export type RegisterUserPayload = {
   isAtCloudLeader: boolean;
   roleInAtCloud?: string;
   weeklyChurch?: string;
-  homeAddress?: string;
   churchAddress?: string;
   acceptTerms: boolean;
-} & Partial<RegistrationProfileFields>;
+} & RegistrationProfileFields;
 
 /**
  * Authentication API Service

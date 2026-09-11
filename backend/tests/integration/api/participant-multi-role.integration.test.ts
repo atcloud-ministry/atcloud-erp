@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -24,6 +25,7 @@ describe("Participant multi-role capability (policy update)", () => {
     await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "multirole_part",
         email: "multi_role_participant@example.com",
         password: "Password123!",
@@ -59,6 +61,7 @@ describe("Participant multi-role capability (policy update)", () => {
     await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "admincreator99",
         email: "admin_creator99@example.com",
         password: "Password123!",

@@ -14,7 +14,7 @@ import { CachePatterns } from "../../services/infrastructure/CacheService";
 import { ResponseBuilderService } from "../../services/ResponseBuilderService";
 
 // Local types
-type RequestWithUser = Request & { user?: { _id: unknown } };
+type RequestWithUser = Request & { user?: { _id: unknown; role?: string } };
 type EventLike = { _id: unknown; title: string; roles: IEventRole[] };
 type UserLike = { firstName?: string; lastName?: string };
 
@@ -183,7 +183,8 @@ class GuestRoleManagementController {
           eventId,
           (req as RequestWithUser).user?._id
             ? String((req as RequestWithUser).user!._id)
-            : undefined
+            : undefined,
+          (req as RequestWithUser).user?.role,
         );
 
       // Email the guest about the role move

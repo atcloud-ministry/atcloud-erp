@@ -17,6 +17,7 @@ vi.mock("../../services/api", async (orig) => {
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import SignUp from "../../pages/SignUp";
 import CheckEmail from "../../pages/CheckEmail";
+import { authService } from "../../services/api";
 
 describe("SignUp modal sequence", () => {
   beforeEach(() => {
@@ -61,6 +62,31 @@ describe("SignUp modal sequence", () => {
     fireEvent.change(screen.getByPlaceholderText(/Enter your email address/i), {
       target: { value: "john@example.com" },
     });
+    fireEvent.change(screen.getByLabelText(/Birth Year/i), {
+      target: { value: "1990" },
+    });
+    fireEvent.change(screen.getByLabelText(/Phone Country/i), {
+      target: { value: "US" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter your phone number/i), {
+      target: { value: "415 555 2671" },
+    });
+    fireEvent.change(screen.getByLabelText(/Country of Residence/i), {
+      target: { value: "US" },
+    });
+    fireEvent.change(screen.getByLabelText(/^State/i), {
+      target: { value: "US-CA" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter city/i), {
+      target: { value: "San Francisco" },
+    });
+    fireEvent.change(screen.getByLabelText(/Employment Status/i), {
+      target: { value: "employed" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Enter company or organization/i),
+      { target: { value: "Example Co" } },
+    );
 
     // isAtCloudLeader defaults to "false"; no change needed.
 
@@ -70,6 +96,21 @@ describe("SignUp modal sequence", () => {
     // First modal should appear and persist until user clicks OK
     const firstTitle = await screen.findByText(/We’ll keep your history/i);
     expect(firstTitle).toBeInTheDocument();
+    expect(authService.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: "+14155552671",
+        birthYear: 1990,
+        residenceCountryCode: "US",
+        residenceRegion: "US-CA",
+        residenceCity: "San Francisco",
+        employmentStatus: "employed",
+        company: "Example Co",
+        occupation: null,
+      }),
+    );
+    const submittedPayload = vi.mocked(authService.register).mock.calls[0]?.[0];
+    expect(submittedPayload).not.toHaveProperty("phoneCountryCode");
+    expect(submittedPayload).not.toHaveProperty("homeAddress");
 
     // No "X" close button (showCloseButton: false), but an OK button exists
     const ok1 = screen.getByRole("button", { name: /^OK$/i });

@@ -196,19 +196,19 @@ function addTextIssue(
     });
     return null;
   }
-  const value = normalizeDisplayText(rawValue);
-  if (value.length === 0) {
-    if (required) {
-      issues.push({ field, code: "required", message: `${field} is required` });
-    }
-    return null;
-  }
-  if (CONTROL_CHARACTER_PATTERN.test(value)) {
+  if (CONTROL_CHARACTER_PATTERN.test(rawValue)) {
     issues.push({
       field,
       code: "invalid_format",
       message: `${field} must contain display text on one line`,
     });
+    return null;
+  }
+  const value = normalizeDisplayText(rawValue);
+  if (value.length === 0) {
+    if (required) {
+      issues.push({ field, code: "required", message: `${field} is required` });
+    }
     return null;
   }
   if (codePointLength(value) > PROFILE_DISPLAY_TEXT_MAX_CODE_POINTS) {

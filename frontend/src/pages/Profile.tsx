@@ -54,7 +54,7 @@ export default function Profile() {
       {/* Profile Form */}
       <Card>
         <CardContent>
-          <form onSubmit={onSubmit} className="space-y-6">
+          <form onSubmit={onSubmit} noValidate className="space-y-6">
             {/* Avatar and Form Layout */}
             <div className="flex flex-col lg:flex-row lg:space-x-8 space-y-6 lg:space-y-0">
               {/* Avatar Section - Left Side */}

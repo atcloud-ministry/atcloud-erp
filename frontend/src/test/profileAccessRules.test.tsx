@@ -41,6 +41,8 @@ vi.mock("../hooks/useAuth", () => ({
       firstName: "Admin",
       lastName: "User",
     },
+    canManageUsers: true,
+    isLoading: false,
   }),
 }));
 

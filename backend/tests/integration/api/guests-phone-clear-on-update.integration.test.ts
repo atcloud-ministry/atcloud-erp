@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -18,6 +19,7 @@ async function bootstrapAdminAndEvent() {
   ]);
 
   const adminData = {
+    ...TEST_REGISTRATION_PROFILE,
     username: "admin",
     email: "admin@example.com",
     password: "AdminPass123!",

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import app from "../../../src/app";
@@ -23,6 +24,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
     const regAdmin = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Admin",
         lastName: "User",
         email: adminEmail,
@@ -49,6 +51,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
     const regLeader = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Leda",
         lastName: "Er",
         email: leaderEmail,

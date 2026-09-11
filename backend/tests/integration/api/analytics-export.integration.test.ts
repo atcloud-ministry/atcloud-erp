@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -12,6 +13,7 @@ describe("Analytics export endpoint", () => {
     await User.deleteMany({});
 
     const a = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "an_admin_export",
       email: "an_admin_export@example.com",
       password: "AdminPass123!",

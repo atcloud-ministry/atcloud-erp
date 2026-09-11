@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -37,6 +38,7 @@ describe("Auto-migrate guest registrations on email verify", () => {
     const res = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: `u_${Math.random().toString(36).slice(2, 8)}`,
         email,
         password,

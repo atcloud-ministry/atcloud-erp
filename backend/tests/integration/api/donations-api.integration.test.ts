@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Donation API Integration Tests
  *
@@ -60,6 +61,7 @@ describe("Donation API Integration Tests", () => {
     const registerResponse = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "donoruser",
         email: "donor@test.com",
         password: "DonorPass123!",

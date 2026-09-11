@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   serializeAdminUser,
   serializeCommunityMember,
+  serializeSelfUser,
   serializeUserPicker,
 } from "../../../src/serializers/userReadSerializers";
 
@@ -10,6 +11,11 @@ const source = {
   username: "amy",
   email: "amy@example.com",
   phone: "555-0100",
+  birthYear: 1988,
+  residenceCity: "Seattle",
+  residenceRegion: "US-WA",
+  residenceCountryCode: "US",
+  employmentStatus: "employed",
   passwordResetToken: "secret",
   firstName: "Amy",
   lastName: "Chen",
@@ -51,5 +57,16 @@ describe("page-specific user serializers", () => {
     expect(dto.emailNotifications).toBe(true);
     expect(dto.isAtCloudLeader).toBe(false);
     expect(dto).not.toHaveProperty("passwordResetToken");
+  });
+
+  it("returns private profile fields only through explicit owner/admin serializers", () => {
+    const own = serializeSelfUser(source);
+    const admin = serializeAdminUser(source);
+    const community = serializeCommunityMember(source);
+
+    expect(own).toMatchObject({ phone: "555-0100", birthYear: 1988 });
+    expect(admin).toMatchObject({ phone: "555-0100", birthYear: 1988 });
+    expect(community).not.toHaveProperty("phone");
+    expect(community).not.toHaveProperty("birthYear");
   });
 });

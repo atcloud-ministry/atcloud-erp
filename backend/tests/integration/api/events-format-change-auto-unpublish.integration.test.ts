@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import mongoose from "mongoose";
@@ -13,6 +14,7 @@ import { futureDateString } from "../../test-utils/eventTestHelpers";
 
 async function createAdminAndLogin() {
   const admin = {
+    ...TEST_REGISTRATION_PROFILE,
     username: "fmtchangeadmin",
     email: "fmtchangeadmin@example.com",
     password: "AdminPass123!",

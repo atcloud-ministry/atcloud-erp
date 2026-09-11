@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -11,6 +12,7 @@ import Event from "../../../src/models/Event";
 async function createAdminAndLogin() {
   const password = "TestPass123!";
   await request(app).post("/api/auth/register").send({
+    ...TEST_REGISTRATION_PROFILE,
     username: "smokeadmin",
     email: "smokeadmin@example.com",
     password,

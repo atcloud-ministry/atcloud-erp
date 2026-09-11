@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -40,6 +41,7 @@ describe("Guest concurrency safety", () => {
   async function ensureAdminAndLogin() {
     // Register admin
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: admin.username,
       email: admin.email,
       password: admin.password,

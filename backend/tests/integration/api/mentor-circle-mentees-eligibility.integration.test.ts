@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Mentor Circle – Attendee eligibility (Participant & Guest)
 
@@ -31,6 +32,7 @@ describe("Mentor Circle – Attendee eligibility (Participant & Guest)", () => {
 
     // Register & verify Participant user
     const userRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "mc_mentees_user",
       email: "mc_mentees_user@example.com",
       password: "StrongPass123!",

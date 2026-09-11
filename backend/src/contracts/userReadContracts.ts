@@ -1,4 +1,8 @@
 import { ROLES, type UserRole } from "../utils/roleUtils";
+import type {
+  EmploymentStatus,
+  IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
 
 export interface PaginationDTO {
   currentPage: number;
@@ -22,6 +26,11 @@ export interface AdminUserDTO {
   username: string;
   email: string;
   phone: string | null;
+  birthYear: number | null;
+  residenceCity: string | null;
+  residenceRegion: string | null;
+  residenceCountryCode: IsoCountryCode | null;
+  employmentStatus: EmploymentStatus | null;
   firstName: string | null;
   lastName: string | null;
   gender: "male" | "female" | null;
@@ -40,6 +49,35 @@ export interface AdminUserDTO {
   lastLogin: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** Exact private profile data returned only to the account owner. */
+export interface SelfUserDTO {
+  id: string;
+  username: string;
+  email: string;
+  phone?: string;
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: IsoCountryCode;
+  employmentStatus?: EmploymentStatus;
+  firstName?: string;
+  lastName?: string;
+  gender?: "male" | "female";
+  avatar?: string;
+  role: UserRole;
+  isAtCloudLeader: boolean;
+  roleInAtCloud?: string;
+  occupation?: string | null;
+  company?: string | null;
+  weeklyChurch?: string;
+  homeAddress?: string;
+  churchAddress?: string;
+  lastLogin?: Date | string;
+  createdAt?: Date | string;
+  isVerified: boolean;
+  isActive: boolean;
 }
 
 /** Minimal identity data used by authorized assignment workflows. */

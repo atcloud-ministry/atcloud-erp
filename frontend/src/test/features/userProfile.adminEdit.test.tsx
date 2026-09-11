@@ -4,7 +4,7 @@
  * Tests the admin profile editing feature:
  * - Super Admin and Administrator can edit other users' profiles
  * - Leaders and Participants cannot edit other users' profiles
- * - Only specific fields (avatar, phone, isAtCloudLeader, roleInAtCloud) can be edited
+ * - Registration profile, avatar, and @Cloud fields can be edited
  * - User viewing their own profile uses standard edit mode
  */
 
@@ -44,7 +44,14 @@ const mockTargetUser = {
   email: "target@example.com",
   role: "Participant",
   gender: "female" as const,
-  phone: "1234567890",
+  phone: "+14155552671",
+  birthYear: 1990,
+  residenceCountryCode: "US" as const,
+  residenceRegion: "US-CA",
+  residenceCity: "San Francisco",
+  employmentStatus: "employed" as const,
+  company: "Example Corp",
+  occupation: "Product Manager",
   isAtCloudLeader: false,
   roleInAtCloud: "",
   avatar: null,
@@ -217,7 +224,7 @@ describe("UserProfile - Admin Edit Mode", () => {
     mockGetUser.mockResolvedValue(mockTargetUser);
 
     mockAdminEditProfile.mockResolvedValue({
-      phone: "9876543210",
+      phone: "+14155552672",
       isAtCloudLeader: false,
       roleInAtCloud: "",
     });
@@ -247,14 +254,18 @@ describe("UserProfile - Admin Edit Mode", () => {
 
     // Wait for edit mode
     await waitFor(() => {
-      const phoneInput = screen.getByLabelText(/phone/i) as HTMLInputElement;
+      const phoneInput = screen.getByRole("textbox", {
+        name: /^phone/i,
+      }) as HTMLInputElement;
       expect(phoneInput).toBeTruthy();
       expect(phoneInput.disabled).toBe(false);
     });
 
     // Change phone number
-    const phoneInput = screen.getByLabelText(/phone/i) as HTMLInputElement;
-    fireEvent.change(phoneInput, { target: { value: "9876543210" } });
+    const phoneInput = screen.getByRole("textbox", {
+      name: /^phone/i,
+    }) as HTMLInputElement;
+    fireEvent.change(phoneInput, { target: { value: "4155552672" } });
 
     // Find and click save button
     const saveButton = screen.getByRole("button", { name: /save/i });
@@ -264,9 +275,153 @@ describe("UserProfile - Admin Edit Mode", () => {
     await waitFor(() => {
       expect(mockAdminEditProfile).toHaveBeenCalledWith("target-123", {
         avatar: "",
-        phone: "9876543210",
+        phone: "+14155552672",
+        birthYear: 1990,
+        residenceCountryCode: "US",
+        residenceRegion: "US-CA",
+        residenceCity: "San Francisco",
+        employmentStatus: "employed",
+        company: "Example Corp",
+        occupation: "Product Manager",
         isAtCloudLeader: false,
         roleInAtCloud: "",
+      });
+    });
+  });
+
+  it("lets an admin complete an existing incomplete profile without losing its legacy company", async () => {
+    mockGetProfile.mockResolvedValue(mockAdminUser);
+    mockGetUser.mockResolvedValue({
+      ...mockTargetUser,
+      phone: null,
+      birthYear: null,
+      residenceCountryCode: null,
+      residenceRegion: null,
+      residenceCity: null,
+      employmentStatus: null,
+      company: "Legacy Company",
+      occupation: null,
+    });
+    mockAdminEditProfile.mockResolvedValue({});
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard/profile/target-123"]}>
+        <NotificationProvider>
+          <AuthProvider>
+            <Routes>
+              <Route
+                path="/dashboard/profile/:userId"
+                element={<UserProfile />}
+              />
+            </Routes>
+          </AuthProvider>
+        </NotificationProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Target User")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /edit profile/i }));
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /^phone country/i }),
+      { target: { value: "US" } },
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: /^phone/i }), {
+      target: { value: "4155552673" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /birth year/i }), {
+      target: { value: "1985" },
+    });
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /country of residence/i }),
+      { target: { value: "US" } },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("combobox", { name: /^state/i }),
+      ).toBeTruthy();
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: /^state/i }), {
+      target: { value: "US-WA" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: /^city/i }), {
+      target: { value: "Seattle" },
+    });
+    fireEvent.change(
+      screen.getByRole("combobox", { name: /employment status/i }),
+      { target: { value: "employed" } },
+    );
+
+    const companyInput = await screen.findByRole("textbox", {
+      name: /company or organization/i,
+    });
+    expect(companyInput).toHaveValue("Legacy Company");
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockAdminEditProfile).toHaveBeenCalledWith("target-123", {
+        avatar: "",
+        phone: "+14155552673",
+        birthYear: 1985,
+        residenceCountryCode: "US",
+        residenceRegion: "US-WA",
+        residenceCity: "Seattle",
+        employmentStatus: "employed",
+        company: "Legacy Company",
+        occupation: null,
+        isAtCloudLeader: false,
+        roleInAtCloud: "",
+      });
+    });
+  });
+
+  it("allows an unrelated @Cloud edit for an incomplete legacy profile without submitting the eight fields", async () => {
+    mockGetProfile.mockResolvedValue(mockAdminUser);
+    mockGetUser.mockResolvedValue({
+      ...mockTargetUser,
+      birthYear: null,
+      residenceCountryCode: null,
+      residenceRegion: null,
+      residenceCity: null,
+      employmentStatus: null,
+    });
+    mockAdminEditProfile.mockResolvedValue({});
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard/profile/target-123"]}>
+        <NotificationProvider>
+          <AuthProvider>
+            <Routes>
+              <Route
+                path="/dashboard/profile/:userId"
+                element={<UserProfile />}
+              />
+            </Routes>
+          </AuthProvider>
+        </NotificationProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Target User")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /edit profile/i }));
+    fireEvent.click(screen.getByLabelText(/@cloud co-worker/i));
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: /role in @cloud/i }),
+      { target: { value: "Class Representative" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockAdminEditProfile).toHaveBeenCalledWith("target-123", {
+        avatar: "",
+        isAtCloudLeader: true,
+        roleInAtCloud: "Class Representative",
       });
     });
   });
@@ -337,7 +492,14 @@ describe("UserProfile - Admin Edit Mode", () => {
     await waitFor(() => {
       expect(mockAdminEditProfile).toHaveBeenCalledWith("target-123", {
         avatar: "",
-        phone: "1234567890",
+        phone: "+14155552671",
+        birthYear: 1990,
+        residenceCountryCode: "US",
+        residenceRegion: "US-CA",
+        residenceCity: "San Francisco",
+        employmentStatus: "employed",
+        company: "Example Corp",
+        occupation: "Product Manager",
         isAtCloudLeader: true,
         roleInAtCloud: "Technical Lead",
       });
@@ -372,13 +534,17 @@ describe("UserProfile - Admin Edit Mode", () => {
     fireEvent.click(editButton);
 
     await waitFor(() => {
-      const phoneInput = screen.getByLabelText(/phone/i) as HTMLInputElement;
+      const phoneInput = screen.getByRole("textbox", {
+        name: /^phone/i,
+      }) as HTMLInputElement;
       expect(phoneInput).toBeTruthy();
       expect(phoneInput.disabled).toBe(false);
     });
 
     // Make a change
-    const phoneInput = screen.getByLabelText(/phone/i) as HTMLInputElement;
+    const phoneInput = screen.getByRole("textbox", {
+      name: /^phone/i,
+    }) as HTMLInputElement;
     fireEvent.change(phoneInput, { target: { value: "9999999999" } });
 
     // Click cancel
@@ -422,7 +588,7 @@ describe("UserProfile - Admin Edit Mode", () => {
     fireEvent.click(editButton);
 
     await waitFor(() => {
-      const phoneInput = screen.getByLabelText(/phone/i);
+      const phoneInput = screen.getByRole("textbox", { name: /^phone/i });
       expect(phoneInput).toBeTruthy();
     });
 
@@ -473,7 +639,21 @@ describe("UserProfile - Admin Edit Mode", () => {
     // Check profile displays correctly
     expect(screen.getByText("@targetuser")).toBeTruthy();
     expect(screen.getByText("target@example.com")).toBeTruthy();
-    expect(screen.getByText("1234567890")).toBeTruthy();
+    expect(screen.getByDisplayValue("+14155552671")).toBeTruthy();
+    expect(screen.getByDisplayValue("1990")).toBeTruthy();
+    expect(
+      screen.getByRole("option", {
+        name: "United States of America",
+        selected: true,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: "California", selected: true }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: "Employed", selected: true }),
+    ).toBeTruthy();
+    expect(screen.getAllByText(/^Private\./i)).toHaveLength(2);
     // Role badge - use getAllByText since "Participant" appears in multiple places
     const participantTexts = screen.getAllByText("Participant");
     expect(participantTexts.length).toBeGreaterThan(0);

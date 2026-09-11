@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, afterEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -23,6 +24,7 @@ describe.sequential("Search API integration", () => {
     const username = `${emailPrefix}${compactId}`.slice(0, 20);
     const email = `${emailPrefix}${compactId}@example.com`;
     const u = {
+      ...TEST_REGISTRATION_PROFILE,
       username,
       email,
       password: "Passw0rd!",

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -19,6 +20,7 @@ describe("Validation middleware integration", () => {
     role: "Participant" | "Administrator" = "Participant",
   ) => {
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "valtestuser",
       email: "valtest@example.com",
       password: "ValTestPass123!",

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
@@ -35,6 +36,7 @@ describe("Public Events API - publish/unpublish lifecycle", () => {
     await User.deleteMany({});
     await Event.deleteMany({});
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "pubadmin",
       email: "pubadmin@example.com",
       password: "AdminPass123!",
@@ -157,6 +159,7 @@ describe("Public Events API - publish/unpublish lifecycle", () => {
     const slug = pub.body.data.slug;
     // participant user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "part1",
       email: "part1@example.com",
       password: "UserPass123!",

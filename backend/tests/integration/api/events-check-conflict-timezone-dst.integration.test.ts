@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, beforeEach, afterEach, expect } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -76,6 +77,7 @@ describe("GET /api/events/check-conflict (time zones + DST)", () => {
 
     // Create admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "tzadmin",
       email: "tzadmin@example.com",
       password: "AdminPass123!",

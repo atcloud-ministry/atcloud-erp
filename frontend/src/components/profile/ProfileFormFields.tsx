@@ -4,6 +4,12 @@ import {
   GENDER_OPTIONS,
   AT_CLOUD_LEADER_OPTIONS,
 } from "../../config/profileConstants";
+import {
+  BirthYearField,
+  EmploymentFields,
+  PhoneNumberFields,
+  ResidenceFields,
+} from "../forms/RegistrationProfileFields";
 
 interface ProfileFormFieldsProps {
   form: UseFormReturn<ProfileFormData>;
@@ -19,6 +25,7 @@ export default function ProfileFormFields({
   const {
     register,
     watch,
+    setValue,
     formState: { errors },
   } = form;
 
@@ -128,22 +135,22 @@ export default function ProfileFormFields({
         )}
       </div>
 
-      {/* Phone */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Phone
-        </label>
-        <input
-          {...register("phone")}
-          type="tel"
-          readOnly={!isEditing}
-          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
-          } ${errors.phone ? "border-red-500" : ""}`}
-        />
-        {errors.phone && (
-          <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-        )}
+      <div className="md:col-span-2 border-t pt-6">
+        <h3 className="mb-4 text-sm font-semibold text-gray-900">
+          Contact and Personal Details
+        </h3>
+        <div className="space-y-4">
+          <PhoneNumberFields
+            register={register}
+            errors={errors}
+            disabled={!isEditing}
+          />
+          <BirthYearField
+            register={register}
+            errors={errors}
+            disabled={!isEditing}
+          />
+        </div>
       </div>
 
       {/* Are you an @Cloud Co-worker? */}
@@ -213,63 +220,30 @@ export default function ProfileFormFields({
         </div>
       )}
 
-      {/* Home Address */}
-      <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Home Address
-        </label>
-        <textarea
-          {...register("homeAddress")}
-          rows={3}
-          readOnly={!isEditing}
-          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
-          } ${errors.homeAddress ? "border-red-500" : ""}`}
+      <div className="md:col-span-2 border-t pt-6">
+        <h3 className="mb-4 text-sm font-semibold text-gray-900">
+          Residence
+        </h3>
+        <ResidenceFields
+          register={register}
+          errors={errors}
+          watch={watch}
+          setValue={setValue}
+          disabled={!isEditing}
         />
-        {errors.homeAddress && (
-          <p className="mt-1 text-sm text-red-600">
-            {errors.homeAddress.message}
-          </p>
-        )}
       </div>
 
-      {/* Occupation */}
-      <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Occupation
-        </label>
-        <input
-          {...register("occupation")}
-          type="text"
-          placeholder="Please enter your profession (e.g., I'm Retired, Electrical Engineer, Entrepreneur)"
-          readOnly={!isEditing}
-          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
-          } ${errors.occupation ? "border-red-500" : ""}`}
+      <div className="md:col-span-2 border-t pt-6">
+        <h3 className="mb-4 text-sm font-semibold text-gray-900">
+          Employment
+        </h3>
+        <EmploymentFields
+          register={register}
+          errors={errors}
+          watch={watch}
+          setValue={setValue}
+          disabled={!isEditing}
         />
-        {errors.occupation && (
-          <p className="mt-1 text-sm text-red-600">
-            {errors.occupation.message}
-          </p>
-        )}
-      </div>
-
-      {/* Company */}
-      <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Company
-        </label>
-        <input
-          {...register("company")}
-          type="text"
-          readOnly={!isEditing}
-          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
-          } ${errors.company ? "border-red-500" : ""}`}
-        />
-        {errors.company && (
-          <p className="mt-1 text-sm text-red-600">{errors.company.message}</p>
-        )}
       </div>
 
       {/* Weekly Church */}
