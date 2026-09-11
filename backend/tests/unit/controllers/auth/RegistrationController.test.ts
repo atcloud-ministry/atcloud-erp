@@ -213,6 +213,34 @@ describe("RegistrationController", () => {
         );
       });
 
+      it("should reject an incomplete structured registration profile", async () => {
+        mockReq.body = {
+          username: "testuser",
+          email: "test@example.com",
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          isAtCloudLeader: false,
+          acceptTerms: true,
+          birthYear: 1988,
+        };
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            success: false,
+            statusCode: 400,
+            message: expect.stringContaining("phone: phone is required"),
+          }),
+        );
+        expect(User.findOne).not.toHaveBeenCalled();
+      });
+
       it("should check for existing users case-insensitively", async () => {
         mockReq.body = {
           username: "testuser",
@@ -316,6 +344,66 @@ describe("RegistrationController", () => {
             }),
           })
         );
+      });
+
+      it("should normalize and persist a complete structured profile", async () => {
+        mockReq.body = {
+          username: "profileuser",
+          email: "profile@example.com",
+          phone: " +12065550123 ",
+          birthYear: "1988",
+          residenceCity: " San   José ",
+          residenceRegion: "us-wa",
+          residenceCountryCode: "us",
+          employmentStatus: "employed",
+          occupation: " Product\tManager ",
+          company: " Example   Company ",
+          homeAddress: "Legacy address that must be cleared",
+          password: "password123",
+          confirmPassword: "password123",
+          firstName: "Profile",
+          lastName: "User",
+          gender: "female",
+          isAtCloudLeader: false,
+          acceptTerms: true,
+        };
+
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        const mockSave = vi.fn().mockResolvedValue({});
+        vi.mocked(User).mockReturnValue({
+          _id: "profile-user-id",
+          email: "profile@example.com",
+          username: "profileuser",
+          firstName: "Profile",
+          lastName: "User",
+          role: "Participant",
+          isAtCloudLeader: false,
+          isVerified: false,
+          save: mockSave,
+          generateEmailVerificationToken: vi.fn().mockReturnValue("token"),
+        } as any);
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(User).toHaveBeenCalledWith(
+          expect.objectContaining({
+            phone: "+12065550123",
+            birthYear: 1988,
+            residenceCity: "San José",
+            residenceRegion: "US-WA",
+            residenceCountryCode: "US",
+            employmentStatus: "employed",
+            occupation: "Product Manager",
+            company: "Example Company",
+            homeAddress: undefined,
+          }),
+        );
+        expect(mockSave).toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(201);
       });
 
       it("should send admin notification for @Cloud co-worker signup", async () => {

@@ -5,6 +5,23 @@ import {
   type AuthTokens,
 } from "./common";
 import { socketService } from "../socketService";
+import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
+
+export type RegisterUserPayload = {
+  username: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName?: string;
+  lastName?: string;
+  gender?: "male" | "female";
+  isAtCloudLeader: boolean;
+  roleInAtCloud?: string;
+  weeklyChurch?: string;
+  homeAddress?: string;
+  churchAddress?: string;
+  acceptTerms: boolean;
+} & Partial<RegistrationProfileFields>;
 
 /**
  * Authentication API Service
@@ -67,24 +84,7 @@ class AuthApiClient extends BaseApiClient {
   /**
    * Register a new user
    */
-  async register(userData: {
-    username: string;
-    email: string;
-    password: string;
-    confirmPassword: string;
-    firstName?: string;
-    lastName?: string;
-    gender?: "male" | "female";
-    isAtCloudLeader: boolean;
-    roleInAtCloud?: string;
-    occupation?: string;
-    company?: string;
-    weeklyChurch?: string;
-    homeAddress?: string;
-    phone?: string;
-    churchAddress?: string;
-    acceptTerms: boolean;
-  }): Promise<AuthResponse> {
+  async register(userData: RegisterUserPayload): Promise<AuthResponse> {
     const response = await this.request<AuthResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify(userData),

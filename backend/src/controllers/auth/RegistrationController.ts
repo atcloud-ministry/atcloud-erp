@@ -14,6 +14,10 @@ import GuestMigrationService from "../../services/GuestMigrationService";
 import { createLogger } from "../../services/LoggerService";
 import { createErrorResponse, createSuccessResponse } from "../../types/api";
 import { RegisterRequest, UserDocLike, LoggerLike } from "./types";
+import {
+  validateRegistrationProfile,
+  type RegistrationProfileFields,
+} from "@atcloud/shared-time/registration-profile";
 
 export default class RegistrationController {
   static async register(req: Request, res: Response): Promise<void> {
@@ -22,6 +26,11 @@ export default class RegistrationController {
         username,
         email,
         phone,
+        birthYear,
+        residenceCity,
+        residenceRegion,
+        residenceCountryCode,
+        employmentStatus,
         password,
         confirmPassword,
         firstName,
@@ -69,6 +78,41 @@ export default class RegistrationController {
         return;
       }
 
+      const hasStructuredRegistrationProfile = [
+        birthYear,
+        residenceCity,
+        residenceRegion,
+        residenceCountryCode,
+        employmentStatus,
+      ].some((value) => value !== undefined);
+      let registrationProfile: RegistrationProfileFields | undefined;
+      if (hasStructuredRegistrationProfile) {
+        const result = validateRegistrationProfile({
+          phone,
+          birthYear,
+          residenceCity,
+          residenceRegion,
+          residenceCountryCode,
+          employmentStatus,
+          company,
+          occupation,
+        });
+        if (!result.success) {
+          res
+            .status(400)
+            .json(
+              createErrorResponse(
+                result.issues
+                  .map((issue) => `${issue.field}: ${issue.message}`)
+                  .join("; "),
+                400,
+              ),
+            );
+          return;
+        }
+        registrationProfile = result.value;
+      }
+
       // Check if user already exists
       // Note: Case-insensitive uniqueness is ultimately enforced by the
       // usernameLower unique index in the User model. The router currently
@@ -107,6 +151,11 @@ export default class RegistrationController {
         username: string;
         email: string;
         phone?: string;
+        birthYear?: number;
+        residenceCity?: string;
+        residenceRegion?: string | null;
+        residenceCountryCode?: RegistrationProfileFields["residenceCountryCode"];
+        employmentStatus?: RegistrationProfileFields["employmentStatus"];
         password: string;
         firstName?: string;
         lastName?: string;
@@ -114,8 +163,8 @@ export default class RegistrationController {
         homeAddress?: string;
         isAtCloudLeader: boolean;
         roleInAtCloud?: string;
-        occupation?: string;
-        company?: string;
+        occupation?: string | null;
+        company?: string | null;
         weeklyChurch?: string;
         churchAddress?: string;
         role: string;
@@ -126,16 +175,23 @@ export default class RegistrationController {
       } = {
         username,
         email: email.toLowerCase(),
-        phone,
+        phone: registrationProfile?.phone ?? phone,
+        birthYear: registrationProfile?.birthYear,
+        residenceCity: registrationProfile?.residenceCity,
+        residenceRegion: registrationProfile?.residenceRegion,
+        residenceCountryCode: registrationProfile?.residenceCountryCode,
+        employmentStatus: registrationProfile?.employmentStatus,
         password,
         firstName,
         lastName,
         gender,
-        homeAddress,
+        homeAddress: registrationProfile ? undefined : homeAddress,
         isAtCloudLeader,
         roleInAtCloud: isAtCloudLeader ? roleInAtCloud : undefined,
-        occupation,
-        company,
+        occupation: registrationProfile
+          ? registrationProfile.occupation
+          : occupation,
+        company: registrationProfile ? registrationProfile.company : company,
         weeklyChurch,
         churchAddress,
         role: ROLES.PARTICIPANT, // Default role

@@ -8,12 +8,25 @@
   "main": "dist/cjs/timezoneSearch.js",
   "module": "dist/esm/timezoneSearch.mjs",
   "types": "dist/cjs/timezoneSearch.d.ts",
+  "typesVersions": {
+    "*": {
+      "registration-profile": [
+        "dist/cjs/registrationProfile.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/cjs/timezoneSearch.d.ts",
       "import": "./dist/esm/timezoneSearch.mjs",
       "require": "./dist/cjs/timezoneSearch.js",
       "default": "./dist/cjs/timezoneSearch.js"
+    },
+    "./registration-profile": {
+      "types": "./dist/cjs/registrationProfile.d.ts",
+      "import": "./dist/esm/registrationProfile.js",
+      "require": "./dist/cjs/registrationProfile.js",
+      "default": "./dist/cjs/registrationProfile.js"
     }
   },
   "files": [
@@ -21,12 +34,16 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
+    "generate:iso-codes": "node scripts/generateIso3166Codes.mjs",
+    "check:iso-codes": "node scripts/generateIso3166Codes.mjs --check",
+    "prebuild": "npm run check:iso-codes",
     "build": "npm run clean && npm run build:cjs && npm run build:esm",
     "build:cjs": "tsc -p tsconfig.json",
-    "build:esm": "tsc -p tsconfig.esm.json && mv dist/esm/timezoneSearch.js dist/esm/timezoneSearch.mjs",
+    "build:esm": "tsc -p tsconfig.esm.json && mv dist/esm/timezoneSearch.js dist/esm/timezoneSearch.mjs && cp esm-package.json dist/esm/package.json",
     "prepare": "npm run build"
   },
   "devDependencies": {
+    "iso-3166": "4.4.0",
     "typescript": "5.8.3"
   }
 }

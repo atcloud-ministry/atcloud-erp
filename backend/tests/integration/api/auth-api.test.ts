@@ -100,6 +100,56 @@ describe("Authentication API Integration Tests", () => {
       expect(createdUser?.username).toBe("testuser");
     });
 
+    it("should persist a canonical structured registration profile", async () => {
+      const response = await request(app)
+        .post("/api/auth/register")
+        .send({
+          username: "profileuser",
+          email: "profile@example.com",
+          phone: " +12065550123 ",
+          birthYear: "1988",
+          residenceCity: " San   José ",
+          residenceRegion: "ca-on",
+          residenceCountryCode: "ca",
+          employmentStatus: "employed",
+          company: " Example   Company ",
+          occupation: " Product\tManager ",
+          homeAddress: "Legacy address",
+          password: "SecurePass123!",
+          confirmPassword: "SecurePass123!",
+          firstName: "Profile",
+          lastName: "User",
+          gender: "female",
+          isAtCloudLeader: false,
+          acceptTerms: true,
+        })
+        .expect(201);
+
+      expect(response.body.data.user).not.toHaveProperty("phone");
+      expect(response.body.data.user).not.toHaveProperty("birthYear");
+
+      const createdUser = await User.findOne({ email: "profile@example.com" })
+        .select("+birthYear")
+        .lean();
+      expect(createdUser).toMatchObject({
+        phone: "+12065550123",
+        birthYear: 1988,
+        residenceCity: "San José",
+        residenceRegion: "CA-ON",
+        residenceCountryCode: "CA",
+        employmentStatus: "employed",
+        company: "Example Company",
+        occupation: "Product Manager",
+      });
+      expect(createdUser).not.toHaveProperty("homeAddress");
+      await expect(
+        User.collection.countDocuments({
+          email: "profile@example.com",
+          birthYear: { $type: "int" },
+        }),
+      ).resolves.toBe(1);
+    });
+
     it("should reject registration with invalid email", async () => {
       const userData = {
         username: "testuser",
