@@ -6,6 +6,7 @@ import {
   validateRegistrationProfile,
   type EmploymentStatus,
   type RegistrationProfileInput,
+  type RegistrationProfileValidationIssue,
   type RegistrationProfileValidationResult,
 } from "@atcloud/shared-time/registration-profile";
 import {
@@ -126,6 +127,38 @@ export function isRegistrationProfileComplete(
   now = new Date(),
 ): boolean {
   return validateRegistrationProfile(input, now).success;
+}
+
+export const REGISTRATION_PROFILE_FIELD_LABELS = {
+  phone: "Phone",
+  birthYear: "Birth year",
+  residenceCity: "City",
+  residenceRegion: "State / province / region",
+  residenceCountryCode: "Country of residence",
+  employmentStatus: "Employment status",
+  company: "Company or organization",
+  occupation: "Occupation",
+} as const satisfies Record<
+  (typeof REGISTRATION_PROFILE_FIELDS)[number],
+  string
+>;
+
+export function getRegistrationProfileIssues(
+  input: RegistrationProfileInput,
+  now = new Date(),
+): RegistrationProfileValidationIssue[] {
+  const result = validateRegistrationProfile(input, now);
+  return result.success ? [] : result.issues;
+}
+
+export function getRegistrationProfileIssueLabels(
+  issues: readonly RegistrationProfileValidationIssue[],
+): string[] {
+  return Array.from(
+    new Set(
+      issues.map((issue) => REGISTRATION_PROFILE_FIELD_LABELS[issue.field]),
+    ),
+  );
 }
 
 function comparableRegistrationValue(

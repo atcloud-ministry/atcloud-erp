@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type {
   FieldErrors,
   FieldValues,
@@ -116,15 +116,21 @@ export function ResidenceFields<TFormValues extends FieldValues>({
     () => getSubdivisionOptions(countryCode),
     [countryCode],
   );
+  const previousCountryCode = useRef(countryCode);
 
   useEffect(() => {
+    const countryChanged = previousCountryCode.current !== countryCode;
+    previousCountryCode.current = countryCode;
+
     if (
+      !disabled &&
+      countryChanged &&
       regionCode &&
       !regionOptions.some((option) => option.value === regionCode)
     ) {
       setFormValue(setValue, "residenceRegion", "");
     }
-  }, [regionCode, regionOptions, setValue]);
+  }, [countryCode, disabled, regionCode, regionOptions, setValue]);
 
   return (
     <div className="space-y-4">
@@ -179,12 +185,23 @@ export function EmploymentFields<TFormValues extends FieldValues>({
   const employmentStatus = watchedString(watch, "employmentStatus");
   const company = watchedString(watch, "company");
   const requiresCompany = employmentStatusRequiresCompany(employmentStatus);
+  const previousEmploymentStatus = useRef(employmentStatus);
 
   useEffect(() => {
-    if (employmentStatus && !requiresCompany && company) {
+    const employmentStatusChanged =
+      previousEmploymentStatus.current !== employmentStatus;
+    previousEmploymentStatus.current = employmentStatus;
+
+    if (
+      !disabled &&
+      employmentStatusChanged &&
+      employmentStatus &&
+      !requiresCompany &&
+      company
+    ) {
       setFormValue(setValue, "company", "");
     }
-  }, [company, employmentStatus, requiresCompany, setValue]);
+  }, [company, disabled, employmentStatus, requiresCompany, setValue]);
 
   return (
     <div className="space-y-4">

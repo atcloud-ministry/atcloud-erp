@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, Outlet, Navigate } from "react-router-dom";
 import { Header, Sidebar } from "./dashboard";
 import { Footer } from "../components/common";
+import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
 import { useAuth } from "../hooks/useAuth";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 
@@ -35,6 +36,9 @@ export default function DashboardLayout() {
   }
 
   const isGuest = !currentUser;
+  const isOwnProfileRoute = /^\/dashboard\/profile\/?$/i.test(
+    location.pathname,
+  );
 
   // Redirect to login if guest tries to access a non-allowed route
   if (isGuest && !isGuestAllowedRoute(location.pathname)) {
@@ -83,6 +87,12 @@ export default function DashboardLayout() {
                 : "max-w-7xl"
             } mx-auto w-full`}
           >
+            {!isGuest && !isOwnProfileRoute && (
+              <ProfileCompletionNotice
+                profile={currentUser}
+                className="mb-4"
+              />
+            )}
             <Outlet key={location.pathname} />
           </div>
           <div className="mt-8">

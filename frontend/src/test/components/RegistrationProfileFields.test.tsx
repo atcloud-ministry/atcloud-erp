@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,7 +11,7 @@ import type { RegistrationProfileFormValues } from "../../schemas/common/registr
 function InteractionHarness() {
   const {
     register,
-    formState: { errors },
+    formState: { dirtyFields, errors },
     setValue,
     watch,
   } = useForm<RegistrationProfileFormValues>({
@@ -43,6 +44,60 @@ function InteractionHarness() {
       />
       <output data-testid="region-value">{watch("residenceRegion")}</output>
       <output data-testid="company-value">{watch("company")}</output>
+      <output data-testid="region-dirty">
+        {dirtyFields.residenceRegion ? "true" : "false"}
+      </output>
+      <output data-testid="company-dirty">
+        {dirtyFields.company ? "true" : "false"}
+      </output>
+    </>
+  );
+}
+
+function LegacyDependentValueHarness() {
+  const [editing, setEditing] = useState(false);
+  const {
+    register,
+    formState: { errors },
+    setValue,
+    watch,
+  } = useForm<RegistrationProfileFormValues>({
+    defaultValues: {
+      phoneCountryCode: "US",
+      phone: "4155552671",
+      birthYear: 1990,
+      residenceCountryCode: "US",
+      residenceRegion: "US-LEGACY",
+      residenceCity: "Seattle",
+      employmentStatus: "retired",
+      company: "Legacy Company",
+      occupation: "Engineer",
+    },
+  });
+
+  return (
+    <>
+      <button type="button" onClick={() => setEditing(true)}>
+        Edit
+      </button>
+      <ResidenceFields
+        register={register}
+        errors={errors}
+        watch={watch}
+        setValue={setValue}
+        disabled={!editing}
+      />
+      <EmploymentFields
+        register={register}
+        errors={errors}
+        watch={watch}
+        setValue={setValue}
+        disabled={!editing}
+      />
+      <output data-testid="legacy-region-value">
+        {watch("residenceRegion")}
+      </output>
+      <output data-testid="legacy-company-value">{watch("company")}</output>
     </>
   );
 }
@@ -56,9 +111,10 @@ describe("RegistrationProfileFields interactions", () => {
       target: { value: "CA" },
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("region-value")).toBeEmptyDOMElement(),
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("region-value")).toBeEmptyDOMElement();
+      expect(screen.getByTestId("region-dirty")).toHaveTextContent("true");
+    });
   });
 
   it("hides and clears company when employment no longer requires it", async () => {
@@ -76,6 +132,29 @@ describe("RegistrationProfileFields interactions", () => {
         screen.queryByLabelText(/Company or Organization/i),
       ).not.toBeInTheDocument();
       expect(screen.getByTestId("company-value")).toBeEmptyDOMElement();
+      expect(screen.getByTestId("company-dirty")).toHaveTextContent("true");
+    });
+  });
+
+  it("does not clear legacy dependent values merely because the form entered edit mode", async () => {
+    render(<LegacyDependentValueHarness />);
+
+    expect(screen.getByTestId("legacy-region-value")).toHaveTextContent(
+      "US-LEGACY",
+    );
+    expect(screen.getByTestId("legacy-company-value")).toHaveTextContent(
+      "Legacy Company",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("legacy-region-value")).toHaveTextContent(
+        "US-LEGACY",
+      );
+      expect(screen.getByTestId("legacy-company-value")).toHaveTextContent(
+        "Legacy Company",
+      );
     });
   });
 });

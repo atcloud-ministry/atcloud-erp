@@ -58,9 +58,14 @@ function sourceMigration(
 }
 
 describe("migration registry", () => {
-  it("exports a valid immutable empty production registry", () => {
+  it("exports the immutable checksum-backed production registry", () => {
     expect(Object.isFrozen(MIGRATION_REGISTRY)).toBe(true);
-    expect(MIGRATION_REGISTRY).toEqual([]);
+    expect(MIGRATION_REGISTRY).toHaveLength(1);
+    expect(MIGRATION_REGISTRY[0]).toMatchObject({
+      id: "20260911_001_inventory-registration-profile",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(Object.isFrozen(MIGRATION_REGISTRY[0])).toBe(true);
     expect(() => validateMigrationRegistry(MIGRATION_REGISTRY)).not.toThrow();
   });
 

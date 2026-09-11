@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { useAuth } from "./useAuth";
@@ -46,7 +46,13 @@ function profileFormValues(user: AuthUser | null): ProfileFormData {
   } as ProfileFormData;
 }
 
-export function useProfileForm() {
+interface UseProfileFormOptions {
+  forceRegistrationProfileCompletion?: boolean;
+}
+
+export function useProfileForm({
+  forceRegistrationProfileCompletion = false,
+}: UseProfileFormOptions = {}) {
   const { currentUser, updateUser } = useAuth();
   const notification = useToastReplacement();
   const [isEditing, setIsEditing] = useState(false);
@@ -81,9 +87,9 @@ export function useProfileForm() {
     }
   }, [currentUser?.avatar]);
 
-  const handleEdit = () => {
+  const handleEdit = useCallback(() => {
     setIsEditing(true);
-  };
+  }, []);
 
   const handleCancel = () => {
     setIsEditing(false);
@@ -142,6 +148,7 @@ export function useProfileForm() {
     if (!currentUser) return;
 
     const shouldSubmitRegistrationProfile =
+      forceRegistrationProfileCompletion ||
       isRegistrationProfileComplete(currentUser) ||
       hasRegistrationProfileFieldChanges(data, userData);
     const registrationProfile = shouldSubmitRegistrationProfile

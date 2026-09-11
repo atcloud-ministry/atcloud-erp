@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   COUNTRY_SELECT_OPTIONS,
+  getRegistrationProfileIssueLabels,
+  getRegistrationProfileIssues,
   getSubdivisionOptions,
   hasRegistrationProfileFieldChanges,
   inferPhoneCountry,
@@ -61,6 +63,27 @@ describe("registration profile form utilities", () => {
     expect(
       hasRegistrationProfileFieldChanges(formOnlyChange, persisted),
     ).toBe(false);
+  });
+
+  it("returns de-duplicated human labels for fields that need attention", () => {
+    const issues = getRegistrationProfileIssues({
+      phone: "not-a-phone",
+      birthYear: "",
+      residenceCountryCode: "US",
+      residenceRegion: "",
+      residenceCity: "",
+      employmentStatus: "employed",
+      company: "",
+      occupation: "",
+    });
+
+    expect(getRegistrationProfileIssueLabels(issues)).toEqual([
+      "Phone",
+      "Birth year",
+      "City",
+      "State / province / region",
+      "Company or organization",
+    ]);
   });
 
   it("returns the canonical eight-field payload and clears inapplicable values", () => {
