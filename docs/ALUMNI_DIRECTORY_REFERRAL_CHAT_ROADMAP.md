@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：2.9
-- 更新时间：2026-09-09
+- 版本：3.0
+- 更新时间：2026-09-10
 - 状态：Approved
-- 实施进度：M0-01、ADD-001、M0-02、M0-03、ADD-002、ADD-003、M0-04 与 M0-05 已完成
-- 下一任务：M0-06（待确认）
+- 实施进度：M0 已完成
+- 下一任务：M1-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -151,14 +151,15 @@ MongoDB 是 message source of truth；发送链路为 `persist → outbox → ac
 为 `enabled=true`、`opensAt <= now`、`closesAt=null | now<closesAt`、`archivedAt=null`。
 
 Program Room membership 由 account status、active enrollment、effective completed-purchase
-enrollment、Mentor、Class Representative 和 Mentee assignment 共同计算。Effective
-purchase-derived enrollment 以 canonical enrollment state 为 active 为条件；unenroll 关闭该
-Program 的 active entitlements。Program 页面提供 `Open Chat Room`。
+enrollment、Mentor、Class Representative 和 Mentee assignment 共同计算。多个 membership
+sources 按 `userId` 合并；最后一个有效 source 结束时关闭 active access window。Program 页面提供
+`Open Chat Room`。
 
 - `mute/unmute` 更新该 Room 的 Push/Email preference，并保留内容与 unread；
-- unenroll 记录 `visibleThroughSequence`，把 membership 转为 `history_only`；
+- 最后一个有效 membership source 结束时记录 `visibleThroughSequence`，把 membership 转为
+  `history_only`；
 - history query 返回该 member 各 authorized access window 的 messages；
-- re-enroll 创建新的 access window；
+- `history_only` member 恢复资格时创建新的 access window；
 - Program close 把 Room 转为 `archived`。
 
 History 使用各 authorized window；send、unread、Socket subscription、announcement、Program
@@ -270,7 +271,9 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
   - 验证：backend unit 6,338、HTTP 379、MongoDB integration 1,759、frontend 1,906；migration unit 342、真实事务 26；lint、type-check、production build、checksum/CLI smoke 与独立审查通过。
 - [x] M0-05 建立 production full-stack E2E、Alumni Network 部署/运行模式控制、readiness、recovery controls 和 monitoring。
   - 验证：backend unit 6,422、HTTP 398、targeted MongoDB integration 21、frontend 1,923、production full-stack E2E；lint、type-check、production build、deployment guards 与独立审查通过。
-- [ ] M0-06 向 Travis 提交 retention、field normalization、capacity、RPO/RTO 和 Program mapping 参数并登记批准值。
+- [x] M0-06 登记 Travis 于 2026-09-10 批准的 retention、field normalization、capacity、RPO/RTO 和 Program mapping 参数。
+  - 参数：[Alumni Network 已批准参数](ALUMNI_NETWORK_APPROVED_PARAMETERS.md)。
+  - 验证：批准参数一致性、Markdown 本地链接、diff check、deployment guardrails 与独立审查通过。
 
 ### M1 — Registration / KPI
 

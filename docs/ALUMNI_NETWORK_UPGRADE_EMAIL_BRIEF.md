@@ -1,8 +1,8 @@
 # @Cloud Alumni Network Upgrade — Implementation Brief
 
 **Suggested subject:** Approved Scope and Delivery Plan for the @Cloud Alumni Network Upgrade
-**Version:** 2.2
-**Prepared:** September 8, 2026
+**Version:** 2.3
+**Prepared:** September 10, 2026
 **Project leads:** Sam Ma, Executive Director; Travis Fan, Assistant Director of IT and Website
 
 This upgrade adds an alumni directory, structured help workflows, private and Program chat rooms,
@@ -54,6 +54,8 @@ confirmed automatically after 480 hours. Denial lets the recipient submit a new 
 new period. Every action enters the audit history, and accepted requests support result recording
 throughout the approved retention period.
 Pending 480-hour deadlines remain scheduled when a Request is completed/closed or its Room is archived.
+Accepted Request, outcome, and timeline records remain for 12 months after close, with an additional
+30-day safeguard after the latest outcome deadline.
 
 ### Chat Rooms, Program Rooms, and notifications
 
@@ -62,9 +64,10 @@ restore missed messages. Rooms support text/safe links, send state, retry, read 
 mute/unmute, and responsive layouts.
 
 Each enabled Program has one primary Room. Active, verified access follows active enrollment,
-effective purchase-derived enrollment, and current Program assignments. Unenrollment closes every
-active entitlement and the access window at the last visible message, then moves the Room to Past /
-Read-only; re-enrollment opens a new window. Historical reads use authorized windows, while sending,
+effective purchase-derived enrollment, and current Program assignments. Membership sources are
+merged by user ID. Unenrollment closes the relevant enrollment entitlement; the active access window
+closes when the last eligible source ends and the Room moves to Past / Read-only. Regaining eligibility
+after that closure opens a new window. Historical reads use authorized windows, while sending,
 unread, Socket, announcements, Program updates, and Push/email recipients use the current active
 window. Program pages provide Open Chat Room, and Program closure archives the Room.
 
@@ -108,27 +111,32 @@ UX, Web Push, preferences, deep links, login recovery, email fallback, and real-
 6. **PWA/delivery:** manifest, Service Worker, Push subscriptions, VAPID, preferences, badges, deep
    links, email fallback, and device installation UX.
 7. **Reliability/release:** authorization, validation, indexes, idempotency, durable outbox,
-   migrations, audit, retention, monitoring, accessibility, load, backup/restore, and recovery tests.
+   migrations, approved record-specific retention and capacity limits, monitoring, accessibility,
+   load, backup/restore, and recovery tests.
+
+The exact field, retention, capacity, Program-mapping, and recovery contracts are maintained in the
+[approved parameter registry](ALUMNI_NETWORK_APPROVED_PARAMETERS.md).
 
 ## 3. Architecture and cost
 
 `React website/PWA on Render Static Site → Node/Express/Socket.IO and workers on Render Web Service → MongoDB Atlas`, with Push and email adapters.
 
-The repository confirms a Render Static Site and Starter Web Service. Invoice and dashboard review
-will establish the exact Atlas tier, workspace, email, domain, bandwidth, and usage baseline.
+The approved launch configuration keeps the Render Static Site and Starter Web Service and uses an
+Atlas Flex cluster.
 
-| Operating scenario | Monthly planning view |
+| Launch services | Monthly planning view |
 | --- | --- |
-| Current known configuration | Static Site compute `$0` + Starter backend about `$7` + actual Atlas/workspace/email/domain/usage |
-| Development and qualification | Current service shape: about `$7` with Atlas Free or about `$15–$37` with Atlas Flex |
-| Recovery-oriented production | Starter + Atlas Dedicated from about `$63.94+`, or Standard + Atlas Dedicated from about `$81.94+`, plus workspace and variable services |
+| Core configuration | Static Site `$0` + Starter backend about `$7` + Atlas Flex `$8–$30` = about `$15–$37` |
+| Additional services | Actual workspace, email, domain, bandwidth, storage, Push, and other usage |
 
-A Render Pro workspace adds approximately `$25/month` when selected for the operating model.
+The approved database recovery targets are RPO ≤24 hours and RTO ≤8 hours. Release requires a
+successful isolated Flex restore test; restore drills repeat quarterly and snapshots are reviewed
+monthly. Launch requires data plus indexes at or below 3.5 GB. Atlas tier upgrade triggers are 4 GB,
+projected 5 GB usage within 90 days, sustained load near `400 ops/s`, missed
+approved p95 targets, a restore drill exceeding eight hours, or a point-in-time recovery requirement.
 
-Current plans remain when load and recovery measurements meet the approved targets. Render moves from
-Starter to Standard when testing or monitoring shows sustained CPU, memory, latency, restart, or
-worker-backlog pressure after query/index optimization. Atlas moves to Dedicated when the approved
-recovery objective calls for continuous backup, point-in-time restore, or another Dedicated feature.
+Render and Atlas capacity are reassessed when testing or monitoring reaches an approved threshold or
+when the recovery objective requires point-in-time restore.
 
 Published references: [Render plans and pricing](https://render.com/pricing),
 [Render workspaces](https://render.com/docs/platform-features-by-plan),
