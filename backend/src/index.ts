@@ -11,7 +11,10 @@ import { SchedulerService } from "./services/SchedulerService";
 import app from "./app";
 import { lockService } from "./services/LockService";
 import { createLogger } from "./services/LoggerService";
-import { SystemConfig } from "./models"; // Import SystemConfig for initialization
+import {
+  initializeAlumniDataModels,
+  SystemConfig,
+} from "./models"; // Import models required during startup
 import { TokenService } from "./middleware/auth";
 import { isSchedulerEnabled } from "./config/scheduler";
 import { reliabilityFoundationService } from "./services/reliability/ReliabilityFoundationService";
@@ -296,6 +299,13 @@ const startServer = async () => {
     await reliabilityFoundationService.initialize();
     console.log("✅ Reliability foundation initialized");
     log.info("Reliability foundation initialized");
+
+    // These collections are new and empty when M2 first deploys. Waiting for
+    // model initialization makes unique and retention index failures fail the
+    // deployment before HTTP/Socket traffic is accepted.
+    await initializeAlumniDataModels();
+    console.log("✅ Alumni data models initialized");
+    log.info("Alumni data models initialized");
 
     // Initialize WebSocket server
     socketService.initialize(httpServer);

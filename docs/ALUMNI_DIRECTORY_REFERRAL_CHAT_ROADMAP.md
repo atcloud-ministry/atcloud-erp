@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.1
+- 版本：3.2
 - 更新时间：2026-09-11
 - 状态：Approved
-- 实施进度：M0 与 M1 已完成
-- 下一任务：M2-01（待确认）
+- 实施进度：M0、M1 与 M2-01 已完成
+- 下一任务：M2-02（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -288,7 +288,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M2 — Community 与 Directory
 
-- [ ] M2-01 实现 alumni profile、affiliation、invitation、import 和 consent models/indexes。
+- [x] M2-01 实现 alumni profile、affiliation、invitation、import 和 consent models/indexes。
+  - 验证：backend unit 6,514、HTTP 401、MongoDB integration 1,799、frontend 1,968；lint、type-check、production build、deployment guards 与独立审查通过。
 - [ ] M2-02 实现 roster CSV dry-run、matching、review、invitation、claim 和 rerun。
 - [ ] M2-03 实现 profile edit、preview、consent、publish、withdraw 和 offering settings。
 - [ ] M2-04 实现 Community navigation、routes、redirects、Members 和 User Management entry。

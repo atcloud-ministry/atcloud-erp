@@ -67,6 +67,66 @@ export {
   FEATURE_CONTROL_SINGLETON_ID,
   IFeatureControl,
 } from "./FeatureControl";
+export {
+  default as AlumniProfile,
+  ALUMNI_PROFILE_COLLECTION,
+  AlumniHelpOfferings,
+  AlumniProfileSearchProjection,
+  IAlumniProfile,
+} from "./AlumniProfile";
+export {
+  default as AlumniAffiliation,
+  ALUMNI_AFFILIATION_COLLECTION,
+  IAlumniAffiliation,
+} from "./AlumniAffiliation";
+export {
+  default as AlumniInvitation,
+  ALUMNI_INVITATION_COLLECTION,
+  AlumniInvitationAffiliation,
+  IAlumniInvitation,
+} from "./AlumniInvitation";
+export {
+  default as AlumniImportBatch,
+  ALUMNI_IMPORT_BATCH_COLLECTION,
+  AlumniImportBatchCounts,
+  AlumniImportRawRow,
+  AlumniImportRowError,
+  AlumniImportRowResult,
+  IAlumniImportBatch,
+} from "./AlumniImportBatch";
+export {
+  default as ConsentRecord,
+  CONSENT_RECORD_COLLECTION,
+  IConsentRecord,
+} from "./ConsentRecord";
+export { initializeAlumniDataModels } from "./initializeAlumniDataModels";
+export {
+  ACCOUNT_DELETION_RETENTION_DAYS,
+  ALUMNI_AFFILIATION_VERIFICATION_STATUSES,
+  ALUMNI_IMPORT_BATCH_STATUSES,
+  ALUMNI_IMPORT_BATCH_TERMINAL_STATUSES,
+  ALUMNI_IMPORT_ROW_APPLICATION_STATUSES,
+  ALUMNI_IMPORT_ROW_ELIGIBILITY_STATUSES,
+  ALUMNI_IMPORT_ROW_MATCH_STATUSES,
+  ALUMNI_INVITATION_STATUSES,
+  ALUMNI_PROFILE_PUBLISH_STATUSES,
+  CONSENT_RECORD_PURPOSES,
+  CONSENT_RECORD_RETENTION_MONTHS,
+  CONSENT_RECORD_STATUSES,
+  IMPORT_RAW_DATA_RETENTION_DAYS,
+  IMPORT_SUMMARY_RETENTION_MONTHS,
+  INVITATION_CONTACT_RETENTION_MONTHS,
+  INVITATION_TOKEN_LIFETIME_DAYS,
+  type AlumniAffiliationVerificationStatus,
+  type AlumniImportBatchStatus,
+  type AlumniImportRowApplicationStatus,
+  type AlumniImportRowEligibilityStatus,
+  type AlumniImportRowMatchStatus,
+  type AlumniInvitationStatus,
+  type AlumniProfilePublishStatus,
+  type ConsentRecordPurpose,
+  type ConsentRecordStatus,
+} from "../contracts/alumniDirectoryData";
 
 // Database connection helper
 import mongoose from "mongoose";

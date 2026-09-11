@@ -31,6 +31,7 @@ const mockCreateServer = vi.fn(() => ({
   listening: true,
 }));
 const mockReliabilityInitialize = vi.fn().mockResolvedValue(undefined);
+const mockAlumniDataInitialize = vi.fn().mockResolvedValue(undefined);
 const mockReliabilityStart = vi.fn();
 const mockReliabilityStop = vi.fn().mockResolvedValue(undefined);
 const mockReliabilityStatus = vi.fn(() => ({
@@ -61,6 +62,7 @@ vi.mock("../../../src/config/swagger", () => ({ setupSwagger: vi.fn() }));
 
 vi.mock("../../../src/models", () => ({
   SystemConfig: { initializeDefaults: vi.fn().mockResolvedValue(undefined) },
+  initializeAlumniDataModels: mockAlumniDataInitialize,
 }));
 
 vi.mock("../../../src/services/LockService", () => ({
@@ -165,6 +167,7 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
     // Critical assertion: scheduler start was NOT called
     expect(mockStart).not.toHaveBeenCalled();
     expect(mockReliabilityInitialize).toHaveBeenCalledOnce();
+    expect(mockAlumniDataInitialize).toHaveBeenCalledOnce();
     expect(mockReliabilityStart).toHaveBeenCalledOnce();
   });
 
@@ -198,6 +201,27 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
     exit.mockRestore();
   });
 
+  it("fails closed before Socket.IO or HTTP starts when alumni indexes fail", async () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    mockAlumniDataInitialize.mockRejectedValueOnce(
+      new Error("alumni index initialization failed"),
+    );
+
+    await import("../../../src/index");
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1), {
+      timeout: 1000,
+    });
+    expect(mockReliabilityInitialize).toHaveBeenCalledOnce();
+    expect(mockAlumniDataInitialize).toHaveBeenCalledOnce();
+    expect(mockInitialize).not.toHaveBeenCalled();
+    expect(mockReliabilityStart).not.toHaveBeenCalled();
+    expect(mockListen).not.toHaveBeenCalled();
+    exit.mockRestore();
+  });
+
   it("does not start workers and cleans up when the HTTP listener fails", async () => {
     const exit = vi
       .spyOn(process, "exit")
@@ -216,6 +240,7 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
       timeout: 1000,
     });
     expect(mockReliabilityInitialize).toHaveBeenCalledOnce();
+    expect(mockAlumniDataInitialize).toHaveBeenCalledOnce();
     expect(mockInitialize).toHaveBeenCalledOnce();
     expect(mockReliabilityStart).not.toHaveBeenCalled();
     expect(mockSocketShutdown).toHaveBeenCalledOnce();
