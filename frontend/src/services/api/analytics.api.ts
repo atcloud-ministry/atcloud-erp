@@ -1,4 +1,12 @@
 import { BaseApiClient } from "./common";
+import {
+  MIN_BIRTH_YEAR,
+  isEmploymentStatus,
+  isIsoCountryCode,
+  isIsoSubdivisionCode,
+  type EmploymentStatus,
+  type IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
 
 /**
  * Overview Analytics Types
@@ -255,6 +263,61 @@ export interface UserAnalyticsDemographics {
   };
 }
 
+export interface PrivacyProtectedDistribution<TBucket> {
+  buckets: TBucket[];
+  suppressionApplied: boolean;
+}
+
+export interface BirthYearDecadeKpiBucket {
+  startYear: number;
+  endYear: number;
+  count: number;
+}
+
+export interface ResidenceCountryKpiBucket {
+  countryCode: IsoCountryCode;
+  count: number;
+}
+
+export interface ResidenceRegionKpiBucket {
+  countryCode: IsoCountryCode;
+  regionCode: string;
+  count: number;
+}
+
+export interface ResidenceCityKpiBucket {
+  countryCode: IsoCountryCode;
+  regionCode: string | null;
+  city: string;
+  count: number;
+}
+
+export interface EmploymentStatusKpiBucket {
+  employmentStatus: EmploymentStatus;
+  count: number;
+}
+
+export interface CompanyKpiBucket {
+  company: string;
+  count: number;
+}
+
+export interface OccupationKpiBucket {
+  occupation: string;
+  count: number;
+}
+
+export interface RegistrationProfileKpis {
+  minimumGroupSize: 5;
+  birthYearDecades: PrivacyProtectedDistribution<BirthYearDecadeKpiBucket>;
+  residenceCountries: PrivacyProtectedDistribution<ResidenceCountryKpiBucket>;
+  residenceRegions: PrivacyProtectedDistribution<ResidenceRegionKpiBucket>;
+  residenceCities: PrivacyProtectedDistribution<ResidenceCityKpiBucket>;
+  employmentStatuses: PrivacyProtectedDistribution<EmploymentStatusKpiBucket>;
+  companies: PrivacyProtectedDistribution<CompanyKpiBucket>;
+  occupations: PrivacyProtectedDistribution<OccupationKpiBucket>;
+}
+
 export interface UserAnalytics {
   usersByRole: Array<{ _id: string; count: number }>;
   usersByAtCloudStatus: Array<{ _id: boolean | null; count: number }>;
@@ -267,6 +330,8 @@ export interface UserAnalytics {
   totalUsers: number;
   activeUsers: number;
   demographics: UserAnalyticsDemographics;
+  /** Optional while the independently deployed frontend/backend roll out. */
+  registrationProfileKpis?: RegistrationProfileKpis;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -307,6 +372,276 @@ const analyticsString = (value: unknown, path: string): string => {
   return value;
 };
 
+const analyticsBoolean = (value: unknown, path: string): boolean => {
+  if (typeof value !== "boolean") {
+    return analyticsContractError(path, "boolean");
+  }
+  return value;
+};
+
+const analyticsInteger = (value: unknown, path: string): number => {
+  const number = analyticsNumber(value, path);
+  if (!Number.isInteger(number)) {
+    return analyticsContractError(path, "integer");
+  }
+  return number;
+};
+
+const analyticsNonEmptyString = (value: unknown, path: string): string => {
+  const string = analyticsString(value, path);
+  if (!string.trim()) {
+    return analyticsContractError(path, "non-empty string");
+  }
+  return string;
+};
+
+const analyticsCountryCode = (
+  value: unknown,
+  path: string,
+): IsoCountryCode => {
+  if (!isIsoCountryCode(value)) {
+    return analyticsContractError(path, "ISO 3166-1 alpha-2 country code");
+  }
+  return value;
+};
+
+const privacyProtectedDistribution = <TBucket>(
+  value: unknown,
+  path: string,
+  minimumGroupSize: number,
+  decodeBucket: (value: unknown, path: string) => TBucket,
+): PrivacyProtectedDistribution<TBucket> => {
+  const distribution = exactAnalyticsObject(value, path, [
+    "buckets",
+    "suppressionApplied",
+  ]);
+  if (!Array.isArray(distribution.buckets)) {
+    return analyticsContractError(`${path}.buckets`, "array");
+  }
+
+  const buckets = distribution.buckets.map((bucket, index) =>
+    decodeBucket(bucket, `${path}.buckets[${index}]`),
+  );
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index] as { count?: unknown };
+    const count = analyticsInteger(
+      bucket.count,
+      `${path}.buckets[${index}].count`,
+    );
+    if (count < minimumGroupSize) {
+      return analyticsContractError(
+        `${path}.buckets[${index}].count`,
+        `integer greater than or equal to ${minimumGroupSize}`,
+      );
+    }
+  }
+
+  return {
+    buckets,
+    suppressionApplied: analyticsBoolean(
+      distribution.suppressionApplied,
+      `${path}.suppressionApplied`,
+    ),
+  };
+};
+
+function decodeRegistrationProfileKpis(
+  value: unknown,
+  path: string,
+): RegistrationProfileKpis {
+  const data = exactAnalyticsObject(value, path, [
+    "minimumGroupSize",
+    "birthYearDecades",
+    "residenceCountries",
+    "residenceRegions",
+    "residenceCities",
+    "employmentStatuses",
+    "companies",
+    "occupations",
+  ]);
+  const minimumGroupSize = analyticsInteger(
+    data.minimumGroupSize,
+    `${path}.minimumGroupSize`,
+  );
+  if (minimumGroupSize !== 5) {
+    return analyticsContractError(`${path}.minimumGroupSize`, "5");
+  }
+
+  return {
+    minimumGroupSize,
+    birthYearDecades: privacyProtectedDistribution(
+      data.birthYearDecades,
+      `${path}.birthYearDecades`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "startYear",
+          "endYear",
+          "count",
+        ]);
+        const startYear = analyticsInteger(
+          bucket.startYear,
+          `${bucketPath}.startYear`,
+        );
+        const endYear = analyticsInteger(
+          bucket.endYear,
+          `${bucketPath}.endYear`,
+        );
+        if (
+          startYear < MIN_BIRTH_YEAR ||
+          startYear % 10 !== 0 ||
+          endYear !== startYear + 9
+        ) {
+          return analyticsContractError(
+            bucketPath,
+            "valid ten-year birth-year bucket",
+          );
+        }
+        return {
+          startYear,
+          endYear,
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    residenceCountries: privacyProtectedDistribution(
+      data.residenceCountries,
+      `${path}.residenceCountries`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "countryCode",
+          "count",
+        ]);
+        return {
+          countryCode: analyticsCountryCode(
+            bucket.countryCode,
+            `${bucketPath}.countryCode`,
+          ),
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    residenceRegions: privacyProtectedDistribution(
+      data.residenceRegions,
+      `${path}.residenceRegions`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "countryCode",
+          "regionCode",
+          "count",
+        ]);
+        const countryCode = analyticsCountryCode(
+          bucket.countryCode,
+          `${bucketPath}.countryCode`,
+        );
+        if (!isIsoSubdivisionCode(bucket.regionCode, countryCode)) {
+          return analyticsContractError(
+            `${bucketPath}.regionCode`,
+            "ISO 3166-2 code matching countryCode",
+          );
+        }
+        return {
+          countryCode,
+          regionCode: bucket.regionCode,
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    residenceCities: privacyProtectedDistribution(
+      data.residenceCities,
+      `${path}.residenceCities`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "countryCode",
+          "regionCode",
+          "city",
+          "count",
+        ]);
+        const countryCode = analyticsCountryCode(
+          bucket.countryCode,
+          `${bucketPath}.countryCode`,
+        );
+        const regionCode = bucket.regionCode;
+        if (
+          regionCode !== null &&
+          !isIsoSubdivisionCode(regionCode, countryCode)
+        ) {
+          return analyticsContractError(
+            `${bucketPath}.regionCode`,
+            "null or ISO 3166-2 code matching countryCode",
+          );
+        }
+        return {
+          countryCode,
+          regionCode,
+          city: analyticsNonEmptyString(bucket.city, `${bucketPath}.city`),
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    employmentStatuses: privacyProtectedDistribution(
+      data.employmentStatuses,
+      `${path}.employmentStatuses`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "employmentStatus",
+          "count",
+        ]);
+        if (!isEmploymentStatus(bucket.employmentStatus)) {
+          return analyticsContractError(
+            `${bucketPath}.employmentStatus`,
+            "employment status",
+          );
+        }
+        return {
+          employmentStatus: bucket.employmentStatus,
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    companies: privacyProtectedDistribution(
+      data.companies,
+      `${path}.companies`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "company",
+          "count",
+        ]);
+        return {
+          company: analyticsNonEmptyString(
+            bucket.company,
+            `${bucketPath}.company`,
+          ),
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+    occupations: privacyProtectedDistribution(
+      data.occupations,
+      `${path}.occupations`,
+      minimumGroupSize,
+      (value, bucketPath) => {
+        const bucket = exactAnalyticsObject(value, bucketPath, [
+          "occupation",
+          "count",
+        ]);
+        return {
+          occupation: analyticsNonEmptyString(
+            bucket.occupation,
+            `${bucketPath}.occupation`,
+          ),
+          count: analyticsInteger(bucket.count, `${bucketPath}.count`),
+        };
+      },
+    ),
+  };
+}
+
 const countRecord = (value: unknown, path: string): Record<string, number> => {
   const object = analyticsObject(value, path);
   return Object.fromEntries(
@@ -343,6 +678,7 @@ export function decodeUserAnalytics(value: unknown): UserAnalytics {
     "totalUsers",
     "activeUsers",
     "demographics",
+    "registrationProfileKpis",
   ]);
   const demographics = exactAnalyticsObject(data.demographics, "data.demographics", [
     "roleStats",
@@ -378,6 +714,13 @@ export function decodeUserAnalytics(value: unknown): UserAnalytics {
   if (!Array.isArray(occupation.topOccupations)) {
     return analyticsContractError("data.demographics.occupationAnalytics.topOccupations", "array");
   }
+  const registrationProfileKpis =
+    data.registrationProfileKpis === undefined
+      ? undefined
+      : decodeRegistrationProfileKpis(
+          data.registrationProfileKpis,
+          "data.registrationProfileKpis",
+        );
 
   return {
     usersByRole: countBuckets(data.usersByRole, "data.usersByRole", analyticsString),
@@ -446,6 +789,7 @@ export function decodeUserAnalytics(value: unknown): UserAnalytics {
         occupationCompletionRate: analyticsNumber(occupation.occupationCompletionRate, "data.demographics.occupationAnalytics.occupationCompletionRate"),
       },
     },
+    ...(registrationProfileKpis ? { registrationProfileKpis } : {}),
   };
 }
 
@@ -473,7 +817,10 @@ class AnalyticsApiClient extends BaseApiClient {
    * @returns User analytics object
    */
   async getUserAnalytics(): Promise<UserAnalytics> {
-    const response = await this.request<unknown>("/analytics/users");
+    const response = await this.request<unknown>(
+      "/analytics/users?includeRegistrationProfileKpis=1",
+      { cache: "no-store" },
+    );
 
     if (response.data) {
       return decodeUserAnalytics(response.data);
@@ -545,6 +892,28 @@ class AnalyticsApiClient extends BaseApiClient {
 
     if (!response.ok) {
       throw new Error("Failed to export analytics");
+    }
+
+    return response.blob();
+  }
+
+  /**
+   * Export privacy-protected registration profile KPI aggregates.
+   */
+  async exportRegistrationProfileKpis(
+    format: "csv" | "xlsx" | "json" = "xlsx",
+  ): Promise<Blob> {
+    const response = await fetch(
+      `${this.baseURL}/analytics/registration-profile-kpis/export?format=${format}`,
+      {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to export registration profile KPIs");
     }
 
     return response.blob();
@@ -645,4 +1014,6 @@ export const analyticsService = {
   ) => analyticsApiClient.getTrends(period, startDate, endDate),
   exportAnalytics: (format?: "csv" | "xlsx" | "json") =>
     analyticsApiClient.exportAnalytics(format),
+  exportRegistrationProfileKpis: (format?: "csv" | "xlsx" | "json") =>
+    analyticsApiClient.exportRegistrationProfileKpis(format),
 };

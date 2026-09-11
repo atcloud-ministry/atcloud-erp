@@ -5,8 +5,8 @@
 - 版本：3.1
 - 更新时间：2026-09-11
 - 状态：Approved
-- 实施进度：M0、M1-01、M1-02 与 M1-03 已完成
-- 下一任务：M1-04（待确认）
+- 实施进度：M0 与 M1 已完成
+- 下一任务：M2-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -283,7 +283,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
   - 验证：backend unit 6,454、HTTP 398、targeted MongoDB integration 83、frontend 1,945；ISO dataset generation check、lint、type-check、production build、deployment guards 与独立审查通过。
 - [x] M1-03 实现 existing-user completion、user-confirmed backfill、baseline migration 和 rollback。
   - 验证：backend unit 6,454、HTTP 398、MongoDB integration 全量 1,784/1,785 与并行 setup 偶发项 standalone 7/7、M1-03 migration 3/3、frontend 1,955；checksum、lint、type-check、production build、deployment guards 与独立审查通过。
-- [ ] M1-04 实现 privacy-safe KPI analytics/export 及 tests。
+- [x] M1-04 实现 privacy-safe KPI analytics/export 及 tests。
+  - 验证：backend unit 6,478、HTTP 401、MongoDB integration 1,786、frontend 1,968；lint、type-check、production build、deployment guards 与独立审查通过。
 
 ### M2 — Community 与 Directory
 

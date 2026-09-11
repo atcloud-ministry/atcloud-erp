@@ -42,6 +42,19 @@ describe("Analytics export endpoint", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .expect(200);
     expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.body.users).toHaveLength(1);
+    for (const privateField of [
+      "phone",
+      "birthYear",
+      "residenceCity",
+      "residenceRegion",
+      "residenceCountryCode",
+      "employmentStatus",
+      "company",
+      "occupation",
+    ]) {
+      expect(res.body.users[0]).not.toHaveProperty(privateField);
+    }
   });
 
   it("GET /api/analytics/export (xlsx) with range and row cap -> 200", async () => {

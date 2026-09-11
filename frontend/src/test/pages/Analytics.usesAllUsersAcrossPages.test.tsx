@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Analytics from "../../pages/Analytics";
+import { createRegistrationProfileKpis } from "../fixtures/registrationProfileKpis";
 
 vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => ({ currentUser: { id: "admin", role: "Administrator" } }),
@@ -56,6 +57,7 @@ describe("Analytics people aggregate", () => {
             totalUsers: 25,
             activeUsers: 25,
             demographics,
+            registrationProfileKpis: createRegistrationProfileKpis(),
           }
         : url.includes("/analytics/events")
           ? { upcomingEvents: [], completedEvents: [] }
@@ -87,7 +89,13 @@ describe("Analytics people aggregate", () => {
       expect(screen.getByTestId("role-dist-participant")).toHaveTextContent(
         "12",
       );
+      expect(screen.getByTestId("registration-profile-kpis")).toHaveTextContent(
+        "1980–1989",
+      );
     });
+
+    expect(screen.queryByText("Occupation Statistics")).not.toBeInTheDocument();
+    expect(screen.getByText("Software Engineer")).toBeInTheDocument();
 
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => /\/analytics\/users(?:\?|$)/.test(url))).toBe(

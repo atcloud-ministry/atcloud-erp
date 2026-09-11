@@ -3,6 +3,7 @@ import { User } from "../../models";
 import { hasPermission, PERMISSIONS } from "../../utils/roleUtils";
 import { CorrelatedLogger } from "../../services/CorrelatedLogger";
 import { buildUserDemographics } from "../../contracts/userAnalyticsContracts";
+import RegistrationProfileKpiAnalyticsService from "../../services/RegistrationProfileKpiAnalyticsService";
 
 export default class UserAnalyticsController {
   static async getUserAnalytics(req: Request, res: Response): Promise<void> {
@@ -71,21 +72,8 @@ export default class UserAnalyticsController {
         { $sort: { "_id.year": 1, "_id.month": 1 } },
       ]);
 
-      // Compatibility distribution used by existing analytics consumers.
-      const usersByOccupation = await User.aggregate([
-        {
-          $match: {
-            isActive: true,
-            occupation: { $type: "string" },
-            $expr: { $ne: [{ $trim: { input: "$occupation" } }, ""] },
-          },
-        },
-        { $group: { _id: "$occupation", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]);
-
-      // These rows never leave the server. They preserve the exact all-account
-      // population previously loaded by the People tab without exposing users.
+      // These rows never leave the server. They preserve the existing
+      // authorization/church population without exposing individual users.
       const demographicRows = await User.aggregate([
         {
           $project: {
@@ -95,7 +83,6 @@ export default class UserAnalyticsController {
             isAtCloudLeader: 1,
             weeklyChurch: 1,
             churchAddress: 1,
-            occupation: 1,
           },
         },
       ]);
@@ -103,7 +90,39 @@ export default class UserAnalyticsController {
       const activeUsers = demographicRows.filter(
         (row: { isActive?: unknown }) => row.isActive === true,
       ).length;
-
+      const registrationProfileKpis =
+        await RegistrationProfileKpiAnalyticsService.getRegistrationProfileKpis();
+      const usersByOccupation =
+        registrationProfileKpis.occupations.buckets.map(
+          ({ occupation, count }) => ({ _id: occupation, count }),
+        );
+      const reportableOccupationCount = usersByOccupation.reduce(
+        (total, bucket) => total + bucket.count,
+        0,
+      );
+      const privacySafeDemographics = {
+        ...demographics,
+        occupationAnalytics: {
+          occupationStats: Object.fromEntries(
+            usersByOccupation.map(({ _id, count }) => [_id, count]),
+          ),
+          usersWithOccupation: reportableOccupationCount,
+          // Compatibility fields remain numeric for older frontends, but do
+          // not disclose exact missing/suppressed populations or a derived rate.
+          usersWithoutOccupation: 0,
+          totalOccupationTypes: usersByOccupation.length,
+          topOccupations: usersByOccupation.slice(0, 5).map(
+            ({ _id, count }) => ({ occupation: _id, count }),
+          ),
+          occupationCompletionRate: 0,
+        },
+      };
+      // The frontend and backend are deployed as independent Render services.
+      // Opt-in keeps the response compatible regardless of which service is
+      // deployed first; the new frontend tolerates an old backend omitting it.
+      const includeRegistrationProfileKpis =
+        req.query.includeRegistrationProfileKpis === "1";
+      res.setHeader("Cache-Control", "no-store");
       res.status(200).json({
         success: true,
         data: {
@@ -114,7 +133,10 @@ export default class UserAnalyticsController {
           usersByOccupation,
           totalUsers: demographicRows.length,
           activeUsers,
-          demographics,
+          demographics: privacySafeDemographics,
+          ...(includeRegistrationProfileKpis
+            ? { registrationProfileKpis }
+            : {}),
         },
       });
     } catch (error: unknown) {

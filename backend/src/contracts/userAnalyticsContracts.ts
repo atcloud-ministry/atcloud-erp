@@ -1,4 +1,5 @@
 import { ROLES } from "../utils/roleUtils";
+import { REGISTRATION_KPI_MINIMUM_GROUP_SIZE } from "./registrationProfileKpiContracts";
 
 export interface UserRoleStatsDTO {
   total: number;
@@ -96,6 +97,11 @@ export function buildUserDemographics(
   }
 
   const total = rows.length;
+  const reportableOccupationStats = Object.fromEntries(
+    Object.entries(occupationStats).filter(
+      ([, count]) => count >= REGISTRATION_KPI_MINIMUM_GROUP_SIZE,
+    ),
+  );
   return {
     roleStats,
     churchAnalytics: {
@@ -111,11 +117,11 @@ export function buildUserDemographics(
           : 0,
     },
     occupationAnalytics: {
-      occupationStats,
+      occupationStats: reportableOccupationStats,
       usersWithOccupation,
       usersWithoutOccupation: total - usersWithOccupation,
-      totalOccupationTypes: Object.keys(occupationStats).length,
-      topOccupations: Object.entries(occupationStats)
+      totalOccupationTypes: Object.keys(reportableOccupationStats).length,
+      topOccupations: Object.entries(reportableOccupationStats)
         .sort(([, left], [, right]) => right - left)
         .slice(0, 5)
         .map(([occupation, count]) => ({ occupation, count })),

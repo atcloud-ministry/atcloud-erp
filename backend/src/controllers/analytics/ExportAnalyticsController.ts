@@ -155,10 +155,14 @@ export default class ExportAnalyticsController {
         return fullName || snapshot.username || "";
       };
 
-      const csvValue = (value: unknown): string =>
-        String(value ?? "")
-          .replace(/\r?\n/g, " ")
-          .replace(/,/g, " ");
+      const csvValue = (value: unknown): string => {
+        const sanitized = String(value ?? "")
+          .replace(/[\r\n,]+/gu, " ");
+
+        // Keep user-controlled values from becoming spreadsheet formulas when
+        // a CSV is opened in Excel or another spreadsheet application.
+        return /^\s*[=+\-@]/u.test(sanitized) ? `'${sanitized}` : sanitized;
+      };
 
       const programPeriod = (period?: {
         startYear?: string;
@@ -348,30 +352,48 @@ export default class ExportAnalyticsController {
 
       // Get constrained analytics data
       const data = {
-        users: (await safeFetch(User as unknown, userFilter, {
-          select: "-password",
-          sort: { createdAt: -1 },
-          limit: maxRows,
-          strict: true,
-        })) as Array<{
-          username?: string;
-          firstName?: string;
-          lastName?: string;
-          email?: string;
-          phone?: string;
-          role?: string;
-          isAtCloudLeader?: boolean;
-          roleInAtCloud?: string;
-          gender?: string;
-          occupation?: string;
-          company?: string;
-          weeklyChurch?: string;
-          churchAddress?: string;
-          isVerified?: boolean;
-          isActive?: boolean;
-          lastLogin?: string | Date;
-          createdAt?: string | Date;
-        }>,
+        // This legacy row-level export intentionally uses a positive allowlist.
+        // Registration/KPI fields are available only through the separately
+        // suppressed aggregate export and must never be copied into these rows.
+        users: (
+          (await safeFetch(User as unknown, userFilter, {
+            select:
+              "username firstName lastName email role isAtCloudLeader roleInAtCloud gender weeklyChurch churchAddress isVerified isActive lastLogin createdAt",
+            sort: { createdAt: -1 },
+            limit: maxRows,
+            strict: true,
+          })) as Array<{
+            username?: string;
+            firstName?: string;
+            lastName?: string;
+            email?: string;
+            role?: string;
+            isAtCloudLeader?: boolean;
+            roleInAtCloud?: string;
+            gender?: string;
+            weeklyChurch?: string;
+            churchAddress?: string;
+            isVerified?: boolean;
+            isActive?: boolean;
+            lastLogin?: string | Date;
+            createdAt?: string | Date;
+          }>
+        ).map((user) => ({
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          isAtCloudLeader: user.isAtCloudLeader,
+          roleInAtCloud: user.roleInAtCloud,
+          gender: user.gender,
+          weeklyChurch: user.weeklyChurch,
+          churchAddress: user.churchAddress,
+          isVerified: user.isVerified,
+          isActive: user.isActive,
+          lastLogin: user.lastLogin,
+          createdAt: user.createdAt,
+        })),
         events: (await safeFetch(Event as unknown, eventFilter, {
           sort: { createdAt: -1 },
           limit: maxRows,
@@ -613,7 +635,7 @@ export default class ExportAnalyticsController {
               u.role ?? "",
               u.createdAt ? new Date(u.createdAt).toISOString() : "",
             ]
-              .map((v) => String(v).replace(/\n/g, " ").replace(/,/g, " "))
+              .map(csvValue)
               .join(",");
             res.write(`${row}\n`);
           }
@@ -627,7 +649,7 @@ export default class ExportAnalyticsController {
               e.status ?? "",
               e.createdAt ? new Date(e.createdAt).toISOString() : "",
             ]
-              .map((v) => String(v).replace(/\n/g, " ").replace(/,/g, " "))
+              .map(csvValue)
               .join(",");
             res.write(`${row}\n`);
           }

@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { createRegistrationProfileKpis } from "./registrationProfileKpis";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -219,6 +220,7 @@ export function installDefaultFetchMock() {
                 occupationCompletionRate: 0,
               },
             },
+            registrationProfileKpis: createRegistrationProfileKpis(),
           },
         });
       }
