@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { AlumniDirectoryQueryValidationError } from "../../contracts/alumniDirectoryFlow";
+import { AlumniHelpFlowValidationError } from "../../contracts/alumniHelpFlow";
 import { AlumniProfileFlowValidationError } from "../../contracts/alumniProfileFlow";
 import { AlumniRosterFlowValidationError } from "../../contracts/alumniRosterFlow";
 import { AlumniRosterCsvError } from "../../services/alumni/AlumniRosterCsvParser";
@@ -97,6 +98,46 @@ const ALUMNI_FLOW_PUBLIC_FAILURES: Readonly<
     code: "ALUMNI_PROFILE_NOT_PUBLISHABLE",
     message: "The alumni profile is not ready to publish.",
   },
+  ALUMNI_HELP_REQUEST_NOT_FOUND: {
+    code: "ALUMNI_HELP_REQUEST_NOT_FOUND",
+    message: "The alumni help request was not found.",
+  },
+  ALUMNI_HELP_REQUEST_DUPLICATE: {
+    code: "ALUMNI_HELP_REQUEST_DUPLICATE",
+    message: "An active request for this help offering already exists.",
+  },
+  ALUMNI_HELP_REQUEST_REVISION_CONFLICT: {
+    code: "ALUMNI_HELP_REQUEST_REVISION_CONFLICT",
+    message: "The help request changed. Refresh it and try again.",
+  },
+  ALUMNI_HELP_REQUEST_STATE_CONFLICT: {
+    code: "ALUMNI_HELP_REQUEST_STATE_CONFLICT",
+    message: "The help request is not in the required state.",
+  },
+  ALUMNI_HELP_OFFERING_UNAVAILABLE: {
+    code: "ALUMNI_HELP_OFFERING_UNAVAILABLE",
+    message: "That help offering is no longer available.",
+  },
+  ALUMNI_HELP_TERMS_VERSION_INVALID: {
+    code: "ALUMNI_HELP_TERMS_VERSION_INVALID",
+    message: "The help request terms changed. Review them and try again.",
+  },
+  ALUMNI_HELP_OUTCOME_NOT_FOUND: {
+    code: "ALUMNI_HELP_OUTCOME_NOT_FOUND",
+    message: "The reported outcome was not found.",
+  },
+  ALUMNI_HELP_OUTCOME_REVISION_CONFLICT: {
+    code: "ALUMNI_HELP_OUTCOME_REVISION_CONFLICT",
+    message: "The reported outcome changed. Refresh it and try again.",
+  },
+  ALUMNI_HELP_OUTCOME_STATE_CONFLICT: {
+    code: "ALUMNI_HELP_OUTCOME_STATE_CONFLICT",
+    message: "The reported outcome is not in the required state.",
+  },
+  ALUMNI_HELP_OUTCOME_DEADLINE_PASSED: {
+    code: "ALUMNI_HELP_OUTCOME_DEADLINE_PASSED",
+    message: "The confirmation deadline has passed and is being processed.",
+  },
   ALUMNI_COMMIT_UNCERTAIN: {
     code: "ALUMNI_COMMIT_UNCERTAIN",
     message:
@@ -136,6 +177,14 @@ function csvStructuralContext(error: AlumniRosterCsvError) {
 }
 
 export function sendAlumniHttpError(res: Response, error: unknown): void {
+  if (error instanceof AlumniHelpFlowValidationError) {
+    respond(res, {
+      status: 400,
+      code: error.code,
+      message: "A valid alumni help request is required.",
+    });
+    return;
+  }
   if (error instanceof AlumniDirectoryQueryValidationError) {
     respond(res, {
       status: 400,

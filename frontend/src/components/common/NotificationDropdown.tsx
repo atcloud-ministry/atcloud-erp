@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { BellIcon } from "@heroicons/react/24/outline";
 import { Icon } from "../common";
 import { useNotifications } from "../../contexts/NotificationContext";
+import { getAlumniHelpRequestPath } from "../../utils/alumniHelpNotification";
 
 type SystemMessageType =
   | "announcement"
@@ -34,6 +35,7 @@ interface BaseNotification {
       roleInAtCloud?: string;
     };
   };
+  metadata?: Record<string, unknown>;
 }
 
 export default function NotificationDropdown() {
@@ -79,8 +81,10 @@ export default function NotificationDropdown() {
       switch (notification.type) {
         case "system":
         case "SYSTEM_MESSAGE":
-          // Navigate to system messages page with hash to scroll to specific message
-          navigate(`/dashboard/system-messages#${notification.id}`);
+          navigate(
+            getAlumniHelpRequestPath(notification.metadata) ??
+              `/dashboard/system-messages#${notification.id}`,
+          );
           break;
         case "management_action":
         case "USER_ACTION":

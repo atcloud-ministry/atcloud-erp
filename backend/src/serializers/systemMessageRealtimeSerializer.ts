@@ -26,6 +26,7 @@ const FORBIDDEN_KEYS = new Set([
   "recipients",
   "recipientIds",
   "targetUserIds",
+  "workflowDeliveryId",
 ]);
 
 function objectSource(value: unknown): Record<string, unknown> | undefined {
@@ -86,7 +87,9 @@ function sanitizeRealtimeValue(value: unknown): unknown {
   );
 }
 
-function serializeMetadata(value: unknown): Record<string, unknown> | undefined {
+export function serializeSystemMessageMetadata(
+  value: unknown,
+): Record<string, unknown> | undefined {
   const source = objectSource(value);
   if (!source) return undefined;
   return sanitizeRealtimeValue(source) as Record<string, unknown>;
@@ -105,7 +108,7 @@ export function serializeSystemMessageForRecipient(
   const creator =
     message.hideCreator === true ? undefined : serializeCreator(message.creator);
   const targetUserId = optionalString(message.targetUserId);
-  const metadata = serializeMetadata(message.metadata);
+  const metadata = serializeSystemMessageMetadata(message.metadata);
 
   return {
     id: requiredString(persistedId),

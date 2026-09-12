@@ -22,6 +22,7 @@ export * from "./promoCodes.api";
 export * from "./users.api";
 export * from "./userDirectory.api";
 export * from "./alumniDirectory.api";
+export * from "./alumniHelp.api";
 export * from "./files.api";
 export * from "./notifications.api";
 export * from "./systemMessages.api";

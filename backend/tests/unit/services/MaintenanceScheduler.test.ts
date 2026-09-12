@@ -13,6 +13,9 @@ import AuditLog from "../../../src/models/AuditLog";
 const alumniRetentionMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
+const alumniOutcomeMocks = vi.hoisted(() => ({
+  runBounded: vi.fn(),
+}));
 
 // Mock the models
 vi.mock("../../../src/models/GuestRegistration");
@@ -23,6 +26,9 @@ vi.mock(
     alumniRetentionCleanupService: alumniRetentionMocks,
   }),
 );
+vi.mock("../../../src/services/alumni/AlumniOutcomeDeadlineService", () => ({
+  alumniOutcomeDeadlineService: alumniOutcomeMocks,
+}));
 vi.mock("../../../src/services/LoggerService", () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -47,6 +53,13 @@ describe("MaintenanceScheduler", () => {
       importBatchesPurged: 0,
       invitationCandidatesScanned: 0,
       invitationsPurged: 0,
+    });
+    alumniOutcomeMocks.runBounded.mockResolvedValue({
+      candidatesScanned: 0,
+      automaticallyConfirmed: 0,
+      racedOrUnavailable: 0,
+      remainingOverdue: 0,
+      paused: false,
     });
 
     (GuestRegistration as any).purgeExpiredManageTokens =
@@ -110,6 +123,32 @@ describe("MaintenanceScheduler", () => {
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(3);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(3);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(3);
+    });
+
+    it("runs outcome recovery at startup and then once per minute", async () => {
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+      expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(alumniOutcomeMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "alumni-outcome",
+            capabilities: ["alumni.outcome.auto_confirm"],
+          }),
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(50 * 1000);
+      expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(alumniOutcomeMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trigger: "scheduled" }),
+      );
+
+      scheduler.stop();
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(2);
     });
 
     it("should not start if already running", () => {

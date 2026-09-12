@@ -1,4 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { useAlumniHelp } from "../contexts/AlumniHelpContext";
 
 const communityLinks = [
   {
@@ -12,6 +13,11 @@ const communityLinks = [
     to: "/dashboard/community/alumni/me",
   },
   {
+    id: "help-requests",
+    label: "Help Requests",
+    to: "/dashboard/community/help-requests",
+  },
+  {
     id: "members",
     label: "Members",
     to: "/dashboard/community/members",
@@ -20,17 +26,27 @@ const communityLinks = [
 
 export default function CommunityLayout() {
   const { pathname } = useLocation();
+  const { helpActionRequiredCount } = useAlumniHelp();
   const directoryBase = "/dashboard/community/alumni";
+  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
 
   const isActive = (id: (typeof communityLinks)[number]["id"]): boolean => {
-    if (id === "my-profile") return pathname === `${directoryBase}/me`;
+    if (id === "my-profile") {
+      return normalizedPathname === `${directoryBase}/me`;
+    }
+    if (id === "help-requests") {
+      return (
+        normalizedPathname === "/dashboard/community/help-requests" ||
+        normalizedPathname.startsWith("/dashboard/community/help-requests/")
+      );
+    }
     if (id === "members") {
-      return pathname === "/dashboard/community/members";
+      return normalizedPathname === "/dashboard/community/members";
     }
     return (
-      pathname === directoryBase ||
-      (pathname.startsWith(`${directoryBase}/`) &&
-        pathname !== `${directoryBase}/me`)
+      normalizedPathname === directoryBase ||
+      (normalizedPathname.startsWith(`${directoryBase}/`) &&
+        normalizedPathname !== `${directoryBase}/me`)
     );
   };
 
@@ -47,6 +63,11 @@ export default function CommunityLayout() {
               <Link
                 key={link.to}
                 to={link.to}
+                aria-label={
+                  link.id === "help-requests" && helpActionRequiredCount > 0
+                    ? `${link.label}, ${helpActionRequiredCount} actions required`
+                    : undefined
+                }
                 aria-current={active ? "page" : undefined}
                 className={`-mb-px rounded-t-lg border px-6 py-3 text-base font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
                   active
@@ -54,12 +75,30 @@ export default function CommunityLayout() {
                     : "border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900"
                 }`}
               >
-                {link.label}
+                <span>{link.label}</span>
+                {link.id === "help-requests" &&
+                  helpActionRequiredCount > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
+                    >
+                      {helpActionRequiredCount > 99
+                        ? "99+"
+                        : helpActionRequiredCount}
+                    </span>
+                  )}
               </Link>
             );
           })}
         </div>
       </nav>
+      <span aria-live="polite" className="sr-only">
+        {helpActionRequiredCount > 0
+          ? `${helpActionRequiredCount} Alumni Help ${
+              helpActionRequiredCount === 1 ? "action" : "actions"
+            } required.`
+          : "No Alumni Help actions required."}
+      </span>
       <Outlet />
     </div>
   );

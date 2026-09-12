@@ -51,6 +51,13 @@ export interface UnreadCountUpdate {
   timestamp: string;
 }
 
+export interface AlumniHelpUpdate {
+  requestId: string;
+  requestRevision: number;
+  helpActionRequiredCount: number;
+  timestamp: string;
+}
+
 export interface ConnectedPayload {
   message: string;
   userId: string;
@@ -80,6 +87,7 @@ export type ServerToClientEvents = {
   system_message_update: (payload: SystemMessageUpdate) => void;
   bell_notification_update: (payload: BellNotificationUpdate) => void;
   unread_count_update: (payload: UnreadCountUpdate) => void;
+  alumni_help_update: (payload: AlumniHelpUpdate) => void;
 };
 
 export type ClientToServerEvents = {

@@ -5,6 +5,7 @@ import {
 import IdempotencyRecord from "../../models/IdempotencyRecord";
 import NotificationOutbox from "../../models/NotificationOutbox";
 import { alumniInvitationEmailDeliveryHandler } from "../alumni/AlumniInvitationEmailDeliveryHandler";
+import { alumniHelpWorkflowDeliveryHandler } from "../alumni/AlumniHelpWorkflowDeliveryHandler";
 import {
   mongoTransactionService,
   type MongoTransactionService,
@@ -169,6 +170,7 @@ const DEFAULT_DEPENDENCIES = Object.freeze({
 export function createProductionNotificationOutboxDeliveryRegistry(): NotificationOutboxDeliveryRegistry {
   return new NotificationOutboxDeliveryRegistry([
     alumniInvitationEmailDeliveryHandler,
+    alumniHelpWorkflowDeliveryHandler,
   ]);
 }
 

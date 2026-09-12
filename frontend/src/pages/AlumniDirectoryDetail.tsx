@@ -1,6 +1,8 @@
 import { ArrowLeftIcon, MapPinIcon } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import RequestHelpDialog from "../components/alumniHelp/RequestHelpDialog";
+import { hasEnabledHelpOffering } from "../components/alumniHelp/presentation";
 import DirectoryAvatar from "../components/directory/DirectoryAvatar";
 import DirectoryHelpOfferings from "../components/directory/DirectoryHelpOfferings";
 import { affiliationLabel } from "../components/directory/AlumniDirectoryCard";
@@ -19,6 +21,8 @@ function professionalLine(profile: DirectoryDetailDTO): string | null {
 
 export default function AlumniDirectoryDetail() {
   const { profileId = "" } = useParams<{ profileId: string }>();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { config, status: runtimeStatus } = useRuntimeConfig();
   const [loadedProfile, setLoadedProfile] = useState<{
     profileId: string;
@@ -123,6 +127,16 @@ export default function AlumniDirectoryDetail() {
   }
 
   const roleAndCompany = professionalLine(profile);
+  const canRequestHelp =
+    config.alumniNetwork.writable && hasEnabledHelpOffering(profile);
+  const requestDialogOpen =
+    canRequestHelp && searchParams.get("requestHelp") === "1";
+
+  const closeRequestDialog = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("requestHelp");
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -229,26 +243,45 @@ export default function AlumniDirectoryDetail() {
 
             <aside className="min-w-0 rounded-lg bg-gray-50 p-4">
               <DirectoryHelpOfferings offerings={profile.helpOfferings} />
-              <span
-                className="mt-5 block"
-                title="Request Help will be enabled with the Alumni Help workflow"
-              >
+              <span className="mt-5 block">
                 <Button
-                  aria-describedby={`request-help-note-${profile.id}`}
+                  aria-describedby={
+                    canRequestHelp ? undefined : `request-help-note-${profile.id}`
+                  }
                   className="min-h-11 w-full"
-                  disabled
+                  disabled={!canRequestHelp}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("requestHelp", "1");
+                    setSearchParams(next);
+                  }}
                   type="button"
                 >
                   Request Help
                 </Button>
               </span>
-              <span className="sr-only" id={`request-help-note-${profile.id}`}>
-                Request Help is not available yet.
-              </span>
+              {!canRequestHelp && (
+                <span className="sr-only" id={`request-help-note-${profile.id}`}>
+                  {config.alumniNetwork.writable
+                    ? "This alumni member is not currently offering help."
+                    : "Alumni Help is currently read-only."}
+                </span>
+              )}
             </aside>
           </div>
         </article>
       </Card>
+      {requestDialogOpen && (
+        <RequestHelpDialog
+          onClose={closeRequestDialog}
+          onCreated={(result) => {
+            navigate(`/dashboard/community/help-requests/${result.request.id}`);
+          }}
+          open
+          profile={profile}
+          writable={config.alumniNetwork.writable}
+        />
+      )}
     </div>
   );
 }

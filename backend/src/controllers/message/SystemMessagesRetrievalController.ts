@@ -2,13 +2,7 @@ import { Request, Response } from "express";
 import Message from "../../models/Message";
 import User from "../../models/User";
 import { isMessageRoleVisible } from "../../utils/messageAuthorization";
-
-// Minimal runtime shapes to reduce explicit any usage without changing behavior
-type UnreadCounts = {
-  bellNotifications: number;
-  systemMessages: number;
-  total: number;
-};
+import { serializeSystemMessageMetadata } from "../../serializers/systemMessageRealtimeSerializer";
 
 type UserStateRecord = {
   isReadInSystem?: boolean;
@@ -192,7 +186,7 @@ export default class SystemMessagesRetrievalController {
           type: m.type,
           priority: m.priority,
           // Include metadata so clients can render contextual CTAs (e.g., View Event Details)
-          metadata: m.metadata,
+          metadata: serializeSystemMessageMetadata(m.metadata),
           // Hide creator in API response when hideCreator flag is set
           creator: m.hideCreator ? undefined : m.creator,
           targetUserId: visibleTargetUserId,

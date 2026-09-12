@@ -10,6 +10,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "./contexts/NotificationModalContext";
 import { RuntimeConfigProvider } from "./contexts/RuntimeConfigContext";
+import { AlumniHelpProvider } from "./contexts/AlumniHelpContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
@@ -57,6 +58,8 @@ const AlumniDirectoryDetail = lazy(
   () => import("./pages/AlumniDirectoryDetail"),
 );
 const MyAlumniProfile = lazy(() => import("./pages/MyAlumniProfile"));
+const HelpRequests = lazy(() => import("./pages/HelpRequests"));
+const HelpRequestDetail = lazy(() => import("./pages/HelpRequestDetail"));
 const Profile = lazy(() => import("./pages/Profile"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
 const RequestPasswordChange = lazy(
@@ -113,6 +116,20 @@ function PrRedirect() {
   return <Navigate to={`/dashboard/programs/${id}`} replace />;
 }
 
+function LegacyHelpRequestRedirect() {
+  const { requestId } = useParams<{ requestId?: string }>();
+  return (
+    <Navigate
+      replace
+      to={
+        requestId
+          ? `/dashboard/community/help-requests/${encodeURIComponent(requestId)}`
+          : "/dashboard/community/help-requests"
+      }
+    />
+  );
+}
+
 function RootRoute() {
   const [searchParams] = useSearchParams();
   const verificationToken = searchParams.get("verifyEmailToken");
@@ -130,9 +147,10 @@ function App() {
       <AuthProvider>
         <NotificationModalProvider>
           <NotificationProvider>
-            <SessionExpiredModal />
-            <Suspense fallback={<LoadingSpinner size="lg" />}>
-              <Routes>
+            <AlumniHelpProvider>
+              <SessionExpiredModal />
+              <Suspense fallback={<LoadingSpinner size="lg" />}>
+                <Routes>
             <Route path="/" element={<RootRoute />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/login" element={<Login />} />
@@ -319,7 +337,17 @@ function App() {
                   element={<AlumniDirectoryDetail />}
                 />
                 <Route path="members" element={<CommunityMembers />} />
+                <Route path="help-requests" element={<HelpRequests />} />
+                <Route
+                  path="help-requests/:requestId"
+                  element={<HelpRequestDetail />}
+                />
               </Route>
+              <Route path="help-requests" element={<LegacyHelpRequestRedirect />} />
+              <Route
+                path="help-requests/:requestId"
+                element={<LegacyHelpRequestRedirect />}
+              />
               <Route
                 path="admin/users"
                 element={
@@ -500,8 +528,9 @@ function App() {
             <Route path="/pr/:id" element={<PrRedirect />} />
             {/* SPA fallback for short link resolution (dev / proxy safety) */}
             <Route path="/s/:key" element={<ShortLinkRedirect />} />
-              </Routes>
-            </Suspense>
+                </Routes>
+              </Suspense>
+            </AlumniHelpProvider>
           </NotificationProvider>
         </NotificationModalProvider>
       </AuthProvider>

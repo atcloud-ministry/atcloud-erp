@@ -36,6 +36,7 @@ import adminAlumniImportRoutes from "./admin/alumniImports";
 import adminAlumniInvitationRoutes from "./admin/alumniInvitations";
 import alumniInvitationRoutes from "./alumniInvitations";
 import directoryRoutes from "./directory";
+import alumniHelpRequestRoutes from "./alumniHelpRequests";
 
 const router = Router();
 
@@ -77,6 +78,7 @@ router.use("/admin/alumni-imports", adminAlumniImportRoutes);
 router.use("/admin/alumni-invitations", adminAlumniInvitationRoutes);
 router.use("/alumni-invitations", alumniInvitationRoutes);
 router.use("/directory", directoryRoutes);
+router.use("/alumni-help-requests", alumniHelpRequestRoutes);
 router.use("/user-options", userOptionsRoutes);
 
 // Health check endpoint

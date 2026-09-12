@@ -1,7 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import CommunityLayout from "../../layouts/CommunityLayout";
+
+const mocks = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("../../contexts/AlumniHelpContext", () => ({
+  useAlumniHelp: () => ({ helpActionRequiredCount: mocks.count }),
+}));
 
 function renderCommunity(path: string) {
   return render(
@@ -9,6 +15,7 @@ function renderCommunity(path: string) {
       <Routes>
         <Route path="/dashboard/community" element={<CommunityLayout />}>
           <Route path="alumni/*" element={<div>Directory content</div>} />
+          <Route path="help-requests/*" element={<div>Help content</div>} />
           <Route path="members" element={<div>Members content</div>} />
         </Route>
       </Routes>
@@ -17,6 +24,9 @@ function renderCommunity(path: string) {
 }
 
 describe("CommunityLayout", () => {
+  beforeEach(() => {
+    mocks.count = 0;
+  });
   it("provides canonical Directory and Members navigation", () => {
     renderCommunity("/dashboard/community/members");
 
@@ -61,5 +71,17 @@ describe("CommunityLayout", () => {
     expect(
       screen.getByRole("link", { name: "Alumni Directory" }),
     ).not.toHaveAttribute("aria-current");
+  });
+
+  it("selects Help Requests on list/detail routes and caps its visible badge", () => {
+    mocks.count = 123;
+    renderCommunity("/dashboard/community/help-requests/64b000000000000000000001");
+
+    const link = screen.getByRole("link", {
+      name: "Help Requests, 123 actions required",
+    });
+    expect(link).toHaveAttribute("aria-current", "page");
+    expect(link).toHaveTextContent("99+");
+    expect(screen.getByText("Help content")).toBeInTheDocument();
   });
 });

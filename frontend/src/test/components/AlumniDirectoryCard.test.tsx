@@ -51,15 +51,29 @@ describe("AlumniDirectoryCard", () => {
     expect(offerings).toHaveTextContent(
       "Not available: Formal Employee Referral",
     );
-    const requestHelp = screen.getByRole("button", { name: "Request Help" });
-    expect(requestHelp).toBeDisabled();
-    expect(requestHelp).toHaveAccessibleDescription(
-      "Request Help is not available yet.",
+    const requestHelp = screen.getByRole("link", { name: "Request Help" });
+    expect(requestHelp).toHaveAttribute(
+      "href",
+      "/dashboard/community/alumni/64b000000000000000000001?requestHelp=1",
     );
     expect(screen.getByRole("article")).toHaveClass("min-w-0");
     expect(
       screen.getByRole("link", { name: "View Profile" }).parentElement,
     ).toHaveClass("grid-cols-1", "sm:grid-cols-2");
+  });
+
+  it("keeps Request Help disabled in read-only mode", () => {
+    render(
+      <MemoryRouter>
+        <AlumniDirectoryCard profile={profile} writable={false} />
+      </MemoryRouter>,
+    );
+
+    const requestHelp = screen.getByRole("button", { name: "Request Help" });
+    expect(requestHelp).toBeDisabled();
+    expect(requestHelp).toHaveAccessibleDescription(
+      "Alumni Help is currently read-only.",
+    );
   });
 
   it("uses stable initials and rejects unsafe avatar schemes", () => {

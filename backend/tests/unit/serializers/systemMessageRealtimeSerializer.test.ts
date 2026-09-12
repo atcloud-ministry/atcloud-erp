@@ -10,6 +10,7 @@ const FORBIDDEN_KEYS = new Set([
   "recipients",
   "recipientIds",
   "targetUserIds",
+  "workflowDeliveryId",
 ]);
 
 function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
@@ -50,6 +51,7 @@ describe("serializeSystemMessageForRecipient", () => {
         targetUserId: "recipient-1",
         metadata: {
           eventId: "event-1",
+          workflowDeliveryId: "internal-delivery-id",
           nested: {
             userStates: { "recipient-2": { isReadInBell: false } },
             createdBy: "private-creator-id",

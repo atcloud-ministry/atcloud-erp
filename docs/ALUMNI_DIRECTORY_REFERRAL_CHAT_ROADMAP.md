@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.4
+- 版本：3.5
 - 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0、M1 与 M2 已完成
-- 下一任务：M3-01（待确认）
+- 实施进度：M0、M1、M2 与 M3 已完成
+- 下一任务：M4-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -303,13 +303,14 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M3 — Alumni Help 与 outcomes
 
-- [ ] M3-01 实现 Help Request schema、uniqueness、actor permissions 和 transitions。
-- [ ] M3-02 实现 Request Help、information exchange、alternative 和 list/detail UI。
-- [ ] M3-03 实现 accepted request 的 Alumni Help Room provisioning。
-- [ ] M3-04 实现七种 outcome、immutable revisions、Confirm/Deny 和 audit history。
-- [ ] M3-05 实现 480-hour worker、automatic confirmation、resubmission 和 recovery。
-- [ ] M3-06 实现 workflow notifications、deep links 和 `helpActionRequiredCount`。
-- [ ] M3-07 完成 lifecycle、race、deadline、permission、notification 和 counter tests。
+- [x] M3-01 实现 Help Request schema、uniqueness、actor permissions 和 transitions。
+- [x] M3-02 实现 Request Help、information exchange、alternative 和 list/detail UI。
+- [x] M3-03 实现 accepted request 的 Alumni Help Room provisioning。
+- [x] M3-04 实现七种 outcome、immutable revisions、Confirm/Deny 和 audit history。
+- [x] M3-05 实现 480-hour worker、automatic confirmation、resubmission 和 recovery。
+- [x] M3-06 实现 workflow notifications、deep links 和 `helpActionRequiredCount`。
+- [x] M3-07 完成 lifecycle、race、deadline、permission、notification 和 counter tests。
+  - 验证：backend unit 6,664、HTTP 429、MongoDB integration 1,852/1,854 与并行隔离偶发项 standalone 23/23、frontend 2,069；M3 MongoDB transaction 6、production full-stack E2E、lint、type-check、production build、deployment guards 与独立审查通过。
 
 ### M4 — Chat Rooms
 

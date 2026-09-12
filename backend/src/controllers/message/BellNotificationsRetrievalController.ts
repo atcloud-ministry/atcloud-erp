@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Message from "../../models/Message";
 import User from "../../models/User";
 import { isMessageRoleVisible } from "../../utils/messageAuthorization";
+import { serializeSystemMessageMetadata } from "../../serializers/systemMessageRealtimeSerializer";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UserStateRecord = {
@@ -152,6 +153,7 @@ export default class BellNotificationsRetrievalController {
           | UserStateRecord
           | undefined;
         const creator = serializeBellCreator(m);
+        const metadata = serializeSystemMessageMetadata(m.metadata);
         return {
           id: m._id,
           title: m.getBellDisplayTitle ? m.getBellDisplayTitle() : m.title,
@@ -164,6 +166,7 @@ export default class BellNotificationsRetrievalController {
           showRemoveButton: m.canRemoveFromBell
             ? m.canRemoveFromBell(userId)
             : true,
+          ...(metadata ? { metadata } : {}),
           ...(creator ? { creator } : {}),
         };
       });

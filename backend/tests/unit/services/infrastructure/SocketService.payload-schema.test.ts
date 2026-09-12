@@ -53,6 +53,35 @@ describe("SocketService payload schema", () => {
     expect(isISODateString(payload.timestamp)).toBe(true);
   });
 
+  it("emits a minimal alumni_help_update only to the canonical user room", () => {
+    const userId = "507F1F77BCF86CD799439011";
+    socketService.emitAlumniHelpUpdate(userId, {
+      requestId: "507F1F77BCF86CD799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 2,
+    });
+
+    expect(mockIO.to).toHaveBeenCalledWith(
+      "user:507f1f77bcf86cd799439011",
+    );
+    expect(mockIO.emit).toHaveBeenCalledWith("alumni_help_update", {
+      requestId: "507f1f77bcf86cd799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 2,
+      timestamp: expect.any(String),
+    });
+  });
+
+  it("refuses an invalid alumni_help_update without selecting a room", () => {
+    socketService.emitAlumniHelpUpdate("not-a-user", {
+      requestId: eventId,
+      requestRevision: 1,
+      helpActionRequiredCount: 1,
+    });
+    expect(mockIO.to).not.toHaveBeenCalled();
+    expect(mockIO.emit).not.toHaveBeenCalled();
+  });
+
   it("emits event_update only to the authorized event room", () => {
     const data = { bar: 2 };
     socketService.emitEventUpdate(eventId, "guest_updated", data);

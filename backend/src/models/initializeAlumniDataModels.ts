@@ -3,6 +3,11 @@ import AlumniImportBatch from "./AlumniImportBatch";
 import AlumniInvitation from "./AlumniInvitation";
 import AlumniProfile from "./AlumniProfile";
 import ConsentRecord from "./ConsentRecord";
+import AlumniHelpRequest from "./AlumniHelpRequest";
+import AlumniHelpOutcomeSubmission from "./AlumniHelpOutcomeSubmission";
+import Conversation from "./Conversation";
+import ConversationMember from "./ConversationMember";
+import Message from "./Message";
 
 const ALUMNI_DATA_MODELS = [
   AlumniProfile,
@@ -10,9 +15,14 @@ const ALUMNI_DATA_MODELS = [
   AlumniInvitation,
   AlumniImportBatch,
   ConsentRecord,
+  AlumniHelpRequest,
+  AlumniHelpOutcomeSubmission,
+  Conversation,
+  ConversationMember,
+  Message,
 ] as const;
 
-/** Create and verify the new empty-collection indexes before accepting traffic. */
+/** Create and verify every Alumni feature index before accepting traffic. */
 export async function initializeAlumniDataModels(): Promise<void> {
   await Promise.all(ALUMNI_DATA_MODELS.map((model) => model.init()));
 }

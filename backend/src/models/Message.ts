@@ -379,6 +379,15 @@ const messageSchema: Schema = new Schema(
 messageSchema.index({ isActive: 1, createdAt: -1 });
 messageSchema.index({ type: 1, isActive: 1 });
 messageSchema.index({ priority: 1, isActive: 1 });
+messageSchema.index(
+  { "metadata.workflowDeliveryId": 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      "metadata.workflowDeliveryId": { $type: "string" },
+    },
+  },
+);
 messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
 
 // Instance Methods

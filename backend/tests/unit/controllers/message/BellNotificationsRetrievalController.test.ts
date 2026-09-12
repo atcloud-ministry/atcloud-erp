@@ -251,6 +251,43 @@ describe("BellNotificationsRetrievalController", () => {
         });
       });
 
+      it("preserves workflow navigation metadata without exposing its delivery key", async () => {
+        const mockMessages = [
+          {
+            _id: "msg-workflow",
+            title: "Alumni help updated",
+            content: "Open the request to continue.",
+            type: "update",
+            priority: "medium",
+            hideCreator: true,
+            creator: {},
+            metadata: {
+              workflowDeliveryId: "internal-only",
+              kind: "alumni_help_workflow",
+              requestId: "64f100000000000000000001",
+            },
+            userStates: new Map([
+              ["user123", { isReadInBell: false, isRemovedFromBell: false }],
+            ]),
+            createdAt: new Date(),
+          },
+        ];
+        vi.mocked(Message.find).mockReturnValue({
+          sort: vi.fn().mockResolvedValue(mockMessages),
+        } as any);
+
+        await BellNotificationsRetrievalController.getBellNotifications(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        const response = jsonMock.mock.calls[0][0];
+        expect(response.data.notifications[0].metadata).toEqual({
+          kind: "alumni_help_workflow",
+          requestId: "64f100000000000000000001",
+        });
+      });
+
       it("should exclude notifications removed from bell", async () => {
         const mockMessages = [
           {

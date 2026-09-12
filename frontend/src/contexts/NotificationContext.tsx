@@ -120,7 +120,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         creator?: CreatorInfo;
         createdAt: string;
         targetUserId?: string;
-        metadata?: { eventId?: string };
+        metadata?: Record<string, unknown>;
       };
     };
     type SystemMessageReadData = { messageId: string; readAt?: string };
@@ -221,6 +221,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             isRead: false,
             createdAt: newMessage.createdAt,
             userId: "",
+            ...(newMessage.metadata
+              ? { metadata: newMessage.metadata }
+              : {}),
             systemMessage: {
               id: messageId,
               type: newMessage.type,

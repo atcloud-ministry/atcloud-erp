@@ -157,7 +157,11 @@ describe("Bell notifications derived from system_message_update", () => {
           },
           createdAt: new Date().toISOString(),
           targetUserId: "u1",
-          metadata: { eventId: "e123" },
+          metadata: {
+            eventId: "e123",
+            kind: "alumni_help_workflow",
+            requestId: "64f100000000000000000001",
+          },
         },
       },
     } as any;
@@ -173,6 +177,11 @@ describe("Bell notifications derived from system_message_update", () => {
       );
       expect(found).toBeTruthy();
       expect(found?.eventId).toBe("e123");
+      expect(found?.metadata).toEqual({
+        eventId: "e123",
+        kind: "alumni_help_workflow",
+        requestId: "64f100000000000000000001",
+      });
     });
   });
 });

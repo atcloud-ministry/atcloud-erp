@@ -19,6 +19,7 @@ import type {
   SystemMessageUpdate,
   BellNotificationUpdate,
   UnreadCountUpdate,
+  AlumniHelpUpdate,
   ConnectedPayload,
   AuthExpiredPayload,
 } from "@/types/realtime";
@@ -438,6 +439,46 @@ class SocketService {
       ),
     });
     this.io.to(`user:${userId}`).emit("unread_count_update", payload);
+  }
+
+  /** Emit a recipient-scoped Alumni Help invalidation and absolute badge count. */
+  emitAlumniHelpUpdate(
+    userId: string,
+    update: Omit<AlumniHelpUpdate, "timestamp">,
+  ): void {
+    if (!this.io) return;
+    const normalizedUserId = normalizeObjectId(userId);
+    const normalizedRequestId = normalizeObjectId(update.requestId);
+    if (
+      !normalizedUserId ||
+      !normalizedRequestId ||
+      !Number.isSafeInteger(update.requestRevision) ||
+      update.requestRevision < 0 ||
+      !Number.isSafeInteger(update.helpActionRequiredCount) ||
+      update.helpActionRequiredCount < 0
+    ) {
+      this.log.warn("Refused invalid alumni_help_update", undefined, {
+        hasValidUserId: Boolean(normalizedUserId),
+        hasValidRequestId: Boolean(normalizedRequestId),
+      });
+      return;
+    }
+
+    const payload: AlumniHelpUpdate = {
+      requestId: normalizedRequestId,
+      requestRevision: update.requestRevision,
+      helpActionRequiredCount: update.helpActionRequiredCount,
+      timestamp: new Date().toISOString(),
+    };
+    this.log.debug("Emitting alumni_help_update", undefined, {
+      userId: normalizedUserId,
+      requestId: normalizedRequestId,
+      requestRevision: update.requestRevision,
+      helpActionRequiredCount: update.helpActionRequiredCount,
+    });
+    this.io
+      .to(`user:${normalizedUserId}`)
+      .emit("alumni_help_update", payload);
   }
 
   /**

@@ -8,6 +8,7 @@ const log = createLogger("MaintenanceScheduler");
 import GuestRegistration from "../models/GuestRegistration";
 import AuditLog from "../models/AuditLog";
 import { alumniRetentionCleanupService } from "./alumni/AlumniRetentionCleanupService";
+import { alumniOutcomeDeadlineService } from "./alumni/AlumniOutcomeDeadlineService";
 import {
   WORKER_RUN_TRIGGERS,
   WORKER_SERVICE_KEYS,
@@ -43,6 +44,7 @@ class MaintenanceScheduler {
     }, 60 * 60 * 1000);
 
     this.intervals.push(hourly);
+    this.scheduleAlumniOutcomeConfirmation();
     this.isRunning = true;
 
     console.log("🧹 Maintenance scheduler started (hourly purge)");
@@ -162,6 +164,57 @@ class MaintenanceScheduler {
       log.error(
         "Failed to execute alumni retention cleanup",
         new Error("Alumni retention cleanup failed"),
+        undefined,
+        {
+          errorName:
+            typeof candidate?.name === "string" ? candidate.name : "UnknownError",
+          ...(typeof candidate?.code === "string" ||
+          typeof candidate?.code === "number"
+            ? { errorCode: candidate.code }
+            : {}),
+        },
+      );
+    }
+  }
+
+  private scheduleAlumniOutcomeConfirmation(): void {
+    const execute = (trigger: WorkerRunTrigger) => {
+      void this.confirmDueAlumniOutcomes(trigger);
+    };
+    const interval = setInterval(
+      () => execute(WORKER_RUN_TRIGGERS.SCHEDULED),
+      60 * 1000,
+    );
+    const startup = setTimeout(
+      () => execute(WORKER_RUN_TRIGGERS.STARTUP),
+      10 * 1000,
+    );
+    this.intervals.push(interval, startup);
+    log.info("Alumni outcome confirmation scheduled", undefined, {
+      cadence: "every minute",
+    });
+  }
+
+  private async confirmDueAlumniOutcomes(trigger: WorkerRunTrigger) {
+    try {
+      const runContext = workerAuthorizationService.createRunContext(
+        WORKER_SERVICE_KEYS.ALUMNI_OUTCOME,
+        trigger,
+      );
+      const result = await alumniOutcomeDeadlineService.runBounded(runContext);
+      if (result.candidatesScanned > 0) {
+        log.info("Completed bounded alumni outcome confirmation", undefined, {
+          candidatesScanned: result.candidatesScanned,
+          automaticallyConfirmed: result.automaticallyConfirmed,
+          racedOrUnavailable: result.racedOrUnavailable,
+          remainingOverdue: result.remainingOverdue,
+        });
+      }
+    } catch (error) {
+      const candidate = error as { name?: unknown; code?: unknown };
+      log.error(
+        "Failed to execute alumni outcome confirmation",
+        new Error("Alumni outcome confirmation failed"),
         undefined,
         {
           errorName:

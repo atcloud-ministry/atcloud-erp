@@ -99,6 +99,34 @@ export {
   CONSENT_RECORD_COLLECTION,
   IConsentRecord,
 } from "./ConsentRecord";
+export {
+  default as AlumniHelpRequest,
+  ALUMNI_HELP_REQUEST_COLLECTION,
+  AlumniHelpLifecycleEvent,
+  AlumniHelpParticipantSnapshot,
+  IAlumniHelpRequest,
+} from "./AlumniHelpRequest";
+export {
+  default as AlumniHelpOutcomeSubmission,
+  ALUMNI_HELP_OUTCOME_SUBMISSION_COLLECTION,
+  IAlumniHelpOutcomeSubmission,
+} from "./AlumniHelpOutcomeSubmission";
+export {
+  default as Conversation,
+  CONVERSATION_COLLECTION,
+  CONVERSATION_KINDS,
+  CONVERSATION_STATUSES,
+  ConversationKind,
+  ConversationStatus,
+  IConversation,
+} from "./Conversation";
+export {
+  default as ConversationMember,
+  CONVERSATION_MEMBER_COLLECTION,
+  CONVERSATION_MEMBER_STATUSES,
+  ConversationMemberStatus,
+  IConversationMember,
+} from "./ConversationMember";
 export { initializeAlumniDataModels } from "./initializeAlumniDataModels";
 export {
   ACCOUNT_DELETION_RETENTION_DAYS,

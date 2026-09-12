@@ -4,6 +4,7 @@ import type { DirectoryCardDTO } from "../../services/api";
 import { Button, Card } from "../ui";
 import DirectoryAvatar from "./DirectoryAvatar";
 import DirectoryHelpOfferings from "./DirectoryHelpOfferings";
+import { hasEnabledHelpOffering } from "../alumniHelp/presentation";
 
 function occupationAndCompany(profile: DirectoryCardDTO): string | null {
   return [profile.occupation, profile.company].filter(Boolean).join(" · ") || null;
@@ -19,11 +20,14 @@ export function affiliationLabel(
 
 export default function AlumniDirectoryCard({
   profile,
+  writable = true,
 }: {
   profile: DirectoryCardDTO;
+  writable?: boolean;
 }) {
   const professionalLine = occupationAndCompany(profile);
   const profilePath = `/dashboard/community/alumni/${profile.id}`;
+  const canRequestHelp = writable && hasEnabledHelpOffering(profile);
 
   return (
     <Card className="flex h-full min-w-0 flex-col" padding="md">
@@ -89,20 +93,39 @@ export default function AlumniDirectoryCard({
           >
             View Profile
           </Link>
-          <span title="Request Help will be enabled with the Alumni Help workflow">
-            <Button
-              aria-describedby={`request-help-note-${profile.id}`}
-              className="min-h-10 w-full"
-              disabled
-              size="small"
-              type="button"
+          {canRequestHelp ? (
+            <Link
+              className="inline-flex min-h-10 w-full items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              to={`${profilePath}?requestHelp=1`}
             >
               Request Help
-            </Button>
-          </span>
-          <span className="sr-only" id={`request-help-note-${profile.id}`}>
-            Request Help is not available yet.
-          </span>
+            </Link>
+          ) : (
+            <>
+              <span
+                title={
+                  writable
+                    ? "This alumni member is not currently offering help"
+                    : "Alumni Help is currently read-only"
+                }
+              >
+                <Button
+                  aria-describedby={`request-help-note-${profile.id}`}
+                  className="min-h-10 w-full"
+                  disabled
+                  size="small"
+                  type="button"
+                >
+                  Request Help
+                </Button>
+              </span>
+              <span className="sr-only" id={`request-help-note-${profile.id}`}>
+                {writable
+                  ? "This alumni member is not currently offering help."
+                  : "Alumni Help is currently read-only."}
+              </span>
+            </>
+          )}
         </div>
       </article>
     </Card>

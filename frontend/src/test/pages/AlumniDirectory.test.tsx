@@ -241,7 +241,7 @@ describe("AlumniDirectoryDetail page", () => {
     });
   });
 
-  it("renders published detail fields and keeps Request Help inactive for M2", async () => {
+  it("renders published detail fields and keeps writes disabled in read-only mode", async () => {
     render(
       <MemoryRouter
         initialEntries={[
@@ -265,7 +265,7 @@ describe("AlumniDirectoryDetail page", () => {
     const requestHelp = screen.getByRole("button", { name: "Request Help" });
     expect(requestHelp).toBeDisabled();
     expect(requestHelp).toHaveAccessibleDescription(
-      "Request Help is not available yet.",
+      "Alumni Help is currently read-only.",
     );
     expect(heading.closest("header")).toHaveClass(
       "flex-col",

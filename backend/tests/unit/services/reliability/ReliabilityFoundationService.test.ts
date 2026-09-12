@@ -100,11 +100,12 @@ function deferred(): {
 }
 
 describe("ReliabilityFoundationService", () => {
-  it("wires the alumni invitation email handler into the production registry", () => {
+  it("wires the alumni delivery handlers into the production registry", () => {
     expect(
       createProductionNotificationOutboxDeliveryRegistry().supportedDeliveries,
     ).toEqual([
       { topic: "alumni.invitation.email", payloadVersion: 1 },
+      { topic: "alumni.help.workflow", payloadVersion: 1 },
     ]);
   });
 

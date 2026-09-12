@@ -165,7 +165,11 @@ export default function AlumniDirectory() {
             data-testid="alumni-directory-grid"
           >
             {profiles.map((profile) => (
-              <AlumniDirectoryCard key={profile.id} profile={profile} />
+              <AlumniDirectoryCard
+                key={profile.id}
+                profile={profile}
+                writable={config.alumniNetwork.writable}
+              />
             ))}
           </div>
         )}
