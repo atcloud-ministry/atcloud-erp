@@ -61,6 +61,10 @@ import {
   chatSendRateLimiter,
   type ChatSendRateLimiter,
 } from "./ChatSendRateLimiter";
+import {
+  enqueueWebPushChatMessage,
+  type EnqueueWebPushChatMessageInput,
+} from "../push/WebPushChatMessageOutbox";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const CHAT_LAST_MESSAGE_PREVIEW_CODE_POINTS = 160;
@@ -111,6 +115,9 @@ interface ChatRoomServiceDependencies {
   readonly rateLimiter?: Pick<ChatSendRateLimiter, "assertAllowed">;
   readonly enqueueMessage?: (
     input: EnqueueChatMessagePersistedInput,
+  ) => Promise<unknown>;
+  readonly enqueuePushMessage?: (
+    input: EnqueueWebPushChatMessageInput,
   ) => Promise<unknown>;
 }
 
@@ -298,6 +305,9 @@ export class ChatRoomService {
   private readonly enqueueMessage: (
     input: EnqueueChatMessagePersistedInput,
   ) => Promise<unknown>;
+  private readonly enqueuePushMessage: (
+    input: EnqueueWebPushChatMessageInput,
+  ) => Promise<unknown>;
 
   constructor(dependencies: ChatRoomServiceDependencies = {}) {
     this.now = dependencies.now ?? (() => new Date());
@@ -306,6 +316,8 @@ export class ChatRoomService {
     this.idempotency = dependencies.idempotency ?? idempotencyService;
     this.rateLimiter = dependencies.rateLimiter ?? chatSendRateLimiter;
     this.enqueueMessage = dependencies.enqueueMessage ?? enqueueChatMessagePersisted;
+    this.enqueuePushMessage =
+      dependencies.enqueuePushMessage ?? enqueueWebPushChatMessage;
   }
 
   async list(userId: string, query: ChatRoomListQuery): Promise<ChatRoomListDataDTO> {
@@ -607,6 +619,29 @@ export class ChatRoomService {
             session,
             correlationId: input.correlationId,
           });
+          // External delivery is recipient-scoped so one transient endpoint
+          // cannot replay an email already sent to another room member.
+          const pushRecipients = await ConversationMember.find({
+            conversationId: roomId,
+            userId: { $ne: actorId },
+            status: "active",
+            ...openWindowFilter,
+            ...retainedFilter(occurredAt),
+          })
+            .select({ userId: 1, _id: 0 })
+            .session(session)
+            .lean<Array<{ userId: mongoose.Types.ObjectId }>>();
+          for (const recipient of pushRecipients) {
+            await this.enqueuePushMessage({
+              conversationId: roomId.toString(),
+              messageId: messageId.toString(),
+              recipientUserId: recipient.userId.toString(),
+              sequence: conversation.lastSequence,
+              occurredAt: occurredAt.toISOString(),
+              session,
+              correlationId: input.correlationId,
+            });
+          }
           return {
             httpStatus: 201,
             response: {

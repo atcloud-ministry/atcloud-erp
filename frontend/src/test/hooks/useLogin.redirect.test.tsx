@@ -1,19 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-// Mock navigate BEFORE importing hook
 const navigateMock = vi.fn();
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
     useNavigate: () => navigateMock,
-    MemoryRouter: actual.MemoryRouter,
-    Routes: actual.Routes,
-    Route: actual.Route,
-    useLocation: actual.useLocation,
   };
 });
-import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { useLogin } from "../../hooks/useLogin";
 
 // Mock auth context
@@ -34,41 +28,17 @@ vi.mock("../../contexts/NotificationModalContext", () => ({
   }),
 }));
 
-// Helper to render hook within router with initial URL
-function setup(url: string) {
-  const wrapper = ({ children }: any) => (
-    <MemoryRouter initialEntries={[url]}>
-      <Routes>
-        <Route path="/login" element={children} />
-      </Routes>
-    </MemoryRouter>
-  );
-  return renderHook(() => useLogin(), { wrapper });
-}
-
-describe("useLogin redirect param", () => {
+describe("useLogin navigation ownership", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
   });
 
-  it("navigates to redirect query param /dashboard/event/:id after success", async () => {
-    const { result } = setup("/login?redirect=/dashboard/event/evt999");
-    await act(async () => {
-      await result.current.handleLogin({
-        emailOrUsername: "user@example.com",
-        password: "pass",
-      } as any);
-    });
-    expect(navigateMock).toHaveBeenCalledWith("/dashboard/event/evt999", {
-      replace: true,
-    });
-  });
-
-  it("navigates to redirect query param /dashboard/programs/:id after success", async () => {
-    const redirect = encodeURIComponent(
-      "/dashboard/programs/program-123?ref=share",
-    );
-    const { result } = setup(`/login?redirect=${redirect}`);
+  it("leaves the stored return URL for the Login page to consume", async () => {
+    const returnUrl =
+      "/dashboard/chat-rooms/507f1f77bcf86cd799439011?source=session-expired#latest";
+    sessionStorage.setItem("returnUrl", returnUrl);
+    const { result } = renderHook(() => useLogin());
 
     await act(async () => {
       await result.current.handleLogin({
@@ -77,24 +47,7 @@ describe("useLogin redirect param", () => {
       } as any);
     });
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      "/dashboard/programs/program-123?ref=share",
-      { replace: true },
-    );
-  });
-
-  it("ignores unsafe redirect query params", async () => {
-    const { result } = setup("/login?redirect=//evil.example/path");
-
-    await act(async () => {
-      await result.current.handleLogin({
-        emailOrUsername: "user@example.com",
-        password: "pass",
-      } as any);
-    });
-
-    expect(navigateMock).toHaveBeenCalledWith("/dashboard", {
-      replace: true,
-    });
+    expect(sessionStorage.getItem("returnUrl")).toBe(returnUrl);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

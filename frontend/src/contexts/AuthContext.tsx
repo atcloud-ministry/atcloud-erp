@@ -11,18 +11,21 @@ import {
   sendWelcomeMessage,
   hasWelcomeMessageBeenSent,
 } from "../utils/welcomeMessageService";
+import { unregisterPushBeforeLogout } from "../services/webPushLifecycle";
 
 interface AuthContextType {
   // State
   currentUser: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  initializationError: string | null;
 
   // Actions
   login: (
     credentials: LoginFormData
   ) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  retryInitialization: () => Promise<void>;
   updateUser: (user: Partial<AuthUser>) => void;
 
   // Permissions
@@ -40,10 +43,14 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [initializationError, setInitializationError] = useState<string | null>(
+    null,
+  );
 
-  // Check for existing authentication on app start
-  React.useEffect(() => {
-    const checkExistingAuth = async () => {
+  const checkExistingAuth = useCallback(async () => {
+    setIsLoading(true);
+    setInitializationError(null);
+    try {
       const token = localStorage.getItem("authToken");
       if (token) {
         try {
@@ -80,16 +87,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
           setCurrentUser(authUser);
         } catch (error) {
-          // Token is invalid, remove it
-          localStorage.removeItem("authToken");
-          console.error("Token validation failed:", error);
+          const status =
+            error && typeof error === "object" && "status" in error
+              ? Number((error as { status?: unknown }).status)
+              : null;
+          if (status === 401 || status === 403) {
+            await unregisterPushBeforeLogout();
+            localStorage.removeItem("authToken");
+            sessionStorage.removeItem("authToken");
+            setCurrentUser(null);
+          } else {
+            // Keep the session token during offline and temporary server failures.
+            setInitializationError(
+              "We could not verify your session. Check your connection and try again.",
+            );
+          }
         }
+      } else {
+        setCurrentUser(null);
       }
+    } finally {
       setIsLoading(false);
-    };
-
-    checkExistingAuth();
+    }
   }, []);
+
+  // Check for existing authentication on app start.
+  React.useEffect(() => {
+    void checkExistingAuth();
+  }, [checkExistingAuth]);
 
   const login = useCallback(async (credentials: LoginFormData) => {
     setIsLoading(true);
@@ -131,6 +156,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       };
 
       setCurrentUser(authUser);
+      setInitializationError(null);
 
       // Check if this is a first login and send welcome message
       // Move this to after successful login state is set
@@ -158,6 +184,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Remove only this installation while the access token is still available.
+    // The account-level preferences and the user's other installations remain.
+    await unregisterPushBeforeLogout();
     try {
       // Call backend logout endpoint
       await authService.logout();
@@ -167,6 +196,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     setCurrentUser(null);
+    setInitializationError(null);
     localStorage.removeItem("authToken");
     sessionStorage.removeItem("authToken");
   }, []);
@@ -204,10 +234,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     currentUser,
     isAuthenticated: !!currentUser,
     isLoading,
+    initializationError,
 
     // Actions
     login,
     logout,
+    retryInitialization: checkExistingAuth,
     updateUser,
 
     // Permissions

@@ -15,6 +15,7 @@ const DIRECT_HASH_ROUTE_PATTERNS: RegExp[] = [
   /^\/dashboard\/management\/?$/i,
   /^\/dashboard\/community(?:\/.*)?$/i,
   /^\/dashboard\/help-requests(?:\/.*)?$/i,
+  /^\/dashboard\/chat-rooms(?:\/.*)?$/i,
   /^\/dashboard\/admin\/users\/?$/i,
   /^\/dashboard\/event\/[^/]+\/?$/i,
   /^\/dashboard\/programs\/[^/]+\/?$/i,

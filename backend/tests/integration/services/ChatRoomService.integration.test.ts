@@ -242,6 +242,18 @@ describe("M4 ChatRoomService integration", () => {
         topic: "chat.message.persisted",
       }),
     ).toBe(2);
+    const externalEvents = await NotificationOutbox.find({
+      topic: "web_push.chat_message",
+    })
+      .sort({ createdAt: 1 })
+      .lean();
+    expect(externalEvents).toHaveLength(2);
+    expect(
+      externalEvents.map((entry) => entry.payload.recipientUserId),
+    ).toEqual([recipientId.toString(), recipientId.toString()]);
+    expect(
+      new Set(externalEvents.map((entry) => entry.dedupeKeyHash)).size,
+    ).toBe(2);
     expect(await AuditLog.countDocuments({ action: "chat.message_sent" })).toBe(
       2,
     );
@@ -271,6 +283,12 @@ describe("M4 ChatRoomService integration", () => {
     expect(
       await NotificationOutbox.countDocuments({
         topic: "chat.message.persisted",
+      }),
+    ).toBe(1);
+    expect(
+      await NotificationOutbox.countDocuments({
+        topic: "web_push.chat_message",
+        "payload.recipientUserId": recipientId.toString(),
       }),
     ).toBe(1);
     expect(

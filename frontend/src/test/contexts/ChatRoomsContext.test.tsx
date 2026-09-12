@@ -47,6 +47,7 @@ function Consumer() {
       <span data-testid="room">
         {value.roomUnreadCounts["64b000000000000000000002"] ?? "missing"}
       </span>
+      <span data-testid="ready">{String(value.countReady)}</span>
     </div>
   );
 }
@@ -68,6 +69,24 @@ describe("ChatRoomsProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("total")).toHaveTextContent("4"));
     expect(mocks.getUnreadCount).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("retries an uninitialized count when the browser comes back online", async () => {
+    mocks.getUnreadCount
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce(7);
+    render(
+      <ChatRoomsProvider>
+        <Consumer />
+      </ChatRoomsProvider>,
+    );
+    await waitFor(() => expect(mocks.getUnreadCount).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("ready")).toHaveTextContent("false");
+
+    act(() => window.dispatchEvent(new Event("online")));
+
+    await waitFor(() => expect(screen.getByTestId("total")).toHaveTextContent("7"));
+    expect(screen.getByTestId("ready")).toHaveTextContent("true");
   });
 
   it("applies recipient-scoped absolute room and aggregate counters", async () => {

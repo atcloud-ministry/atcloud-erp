@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import {
   NotificationProvider,
@@ -6,6 +6,8 @@ import {
 } from "../contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "../contexts/NotificationModalContext";
 import { AuthProvider } from "../contexts/AuthContext";
+import { notificationService } from "../services/notificationService";
+import { systemMessageService } from "../services/systemMessageService";
 
 // --- Mocks ---
 // Create a simple in-memory fake socket with on/off/emit
@@ -129,6 +131,11 @@ function renderNotifications() {
 }
 
 describe("Bell notifications derived from system_message_update", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
   it("creates a bell notification when a system_message_update(message_created) arrives", async () => {
     // Ensure auth flow treats user as logged in
     localStorage.setItem("authToken", "test-token");
@@ -182,6 +189,107 @@ describe("Bell notifications derived from system_message_update", () => {
         kind: "alumni_help_workflow",
         requestId: "64f100000000000000000001",
       });
+    });
+  });
+
+  it("applies the authoritative System Messages unread socket count", async () => {
+    localStorage.setItem("authToken", "test-token");
+    const result = renderNotifications();
+    await waitFor(() => {
+      expect(
+        fakeSocketInstance.listenerCount("unread_count_update"),
+      ).toBeGreaterThan(0);
+    });
+
+    await act(async () => {
+      fakeSocketInstance.emit("unread_count_update", {
+        counts: {
+          bellNotifications: 5,
+          systemMessages: 7,
+          total: 5,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.systemMessageUnreadCount).toBe(7);
+    });
+  });
+
+  it("keeps the absolute count when the read socket snapshot precedes the HTTP response", async () => {
+    let resolveMarkAsRead: ((updated: boolean) => void) | undefined;
+    vi.mocked(systemMessageService.markAsRead).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveMarkAsRead = resolve;
+      }),
+    );
+    localStorage.setItem("authToken", "test-token");
+    const result = renderNotifications();
+    await waitFor(() => {
+      expect(
+        fakeSocketInstance.listenerCount("unread_count_update"),
+      ).toBeGreaterThan(0);
+      expect(result.current.systemMessageUnreadReady).toBe(true);
+    });
+
+    await act(async () => {
+      fakeSocketInstance.emit("unread_count_update", {
+        counts: {
+          bellNotifications: 2,
+          systemMessages: 2,
+          total: 2,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    let markPromise: Promise<void> | undefined;
+    act(() => {
+      markPromise = result.current.markSystemMessageAsRead("m-1");
+    });
+    await act(async () => {
+      fakeSocketInstance.emit("unread_count_update", {
+        counts: {
+          bellNotifications: 1,
+          systemMessages: 1,
+          total: 1,
+        },
+        timestamp: new Date().toISOString(),
+      });
+      vi.mocked(notificationService.getUnreadCounts).mockResolvedValueOnce({
+        bellNotifications: 1,
+        systemMessages: 1,
+        total: 1,
+      });
+      resolveMarkAsRead?.(true);
+      await markPromise;
+    });
+
+    expect(result.current.systemMessageUnreadCount).toBe(1);
+  });
+
+  it("recovers an uninitialized System Messages count after reconnect", async () => {
+    vi.mocked(notificationService.getUnreadCounts)
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce({
+        bellNotifications: 2,
+        systemMessages: 6,
+        total: 8,
+      });
+    localStorage.setItem("authToken", "test-token");
+    const result = renderNotifications();
+
+    await waitFor(() =>
+      expect(notificationService.getUnreadCounts).toHaveBeenCalledTimes(1),
+    );
+    expect(result.current.systemMessageUnreadReady).toBe(false);
+
+    await act(async () => window.dispatchEvent(new Event("online")));
+
+    await waitFor(() => {
+      expect(result.current.systemMessageUnreadCount).toBe(6);
+      expect(result.current.systemMessageUnreadReady).toBe(true);
     });
   });
 });

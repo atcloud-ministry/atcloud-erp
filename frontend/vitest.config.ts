@@ -28,7 +28,13 @@ export default defineConfig({
     // diagnostics with VITEST_VERBOSE_LOGS=true when debugging.
     silent: process.env.VITEST_VERBOSE_LOGS !== "true",
     setupFiles: ["src/test/setup.ts"],
-    exclude: ["e2e/**", "e2e-fullstack/**", "node_modules/**", "dist/**"],
+    exclude: [
+      "e2e/**",
+      "e2e-pwa/**",
+      "e2e-fullstack/**",
+      "node_modules/**",
+      "dist/**",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html", "json-summary"],

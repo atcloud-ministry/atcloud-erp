@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
 } from "react";
 import type { ReactNode } from "react";
 import { useToastReplacement } from "./NotificationModalContext";
@@ -30,6 +31,8 @@ interface NotificationContextType {
 
   // System Messages (for dedicated system messages page)
   systemMessages: SystemMessage[];
+  systemMessageUnreadCount: number;
+  systemMessageUnreadReady: boolean;
   markSystemMessageAsRead: (messageId: string) => Promise<void>;
   reloadSystemMessages: () => Promise<void>;
 }
@@ -41,9 +44,57 @@ const NotificationContext = createContext<NotificationContextType | undefined>(
 export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [systemMessages, setSystemMessages] = useState<SystemMessage[]>([]);
+  const [systemMessageUnreadCount, setSystemMessageUnreadCount] = useState(0);
+  const [systemMessageUnreadReady, setSystemMessageUnreadReady] =
+    useState(false);
   const notification = useToastReplacement();
   const { currentUser, updateUser } = useAuth();
+  const notificationUserId = currentUser?.id ?? null;
+  const unreadCountOwnerRef = useRef<string | null>(notificationUserId);
+  const unreadCountGenerationRef = useRef(0);
+  const unreadCountRequestSequenceRef = useRef(0);
   const socket = useSocket();
+
+  const applySystemMessageUnreadSnapshot = useCallback(
+    (value: unknown, expectedGeneration?: number): boolean => {
+      if (
+        !Number.isSafeInteger(value) ||
+        Number(value) < 0 ||
+        (expectedGeneration !== undefined &&
+          expectedGeneration !== unreadCountGenerationRef.current)
+      ) {
+        return false;
+      }
+      setSystemMessageUnreadCount(Number(value));
+      setSystemMessageUnreadReady(true);
+      unreadCountGenerationRef.current += 1;
+      return true;
+    },
+    [],
+  );
+
+  const refreshSystemMessageUnreadCount = useCallback(async () => {
+    if (!notificationUserId) return false;
+    const owner = notificationUserId;
+    const requestSequence = ++unreadCountRequestSequenceRef.current;
+    const expectedGeneration = unreadCountGenerationRef.current;
+    try {
+      const counts = await notificationService.getUnreadCounts();
+      if (
+        unreadCountOwnerRef.current !== owner ||
+        requestSequence !== unreadCountRequestSequenceRef.current
+      ) {
+        return false;
+      }
+      return applySystemMessageUnreadSnapshot(
+        counts.systemMessages,
+        expectedGeneration,
+      );
+    } catch {
+      // Preserve the last trusted absolute count during a transient outage.
+      return false;
+    }
+  }, [applySystemMessageUnreadSnapshot, notificationUserId]);
 
   // Load system messages from backend
   const loadSystemMessages = useCallback(async () => {
@@ -98,6 +149,37 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     loadSystemMessages();
   }, [loadSystemMessages]);
+
+  // Keep the navigation and PWA launcher count authoritative even when the
+  // System Messages page has loaded only its first pagination window.
+  useEffect(() => {
+    let cancelled = false;
+    let requestInFlight = false;
+    if (unreadCountOwnerRef.current !== notificationUserId) {
+      unreadCountOwnerRef.current = notificationUserId;
+      unreadCountGenerationRef.current += 1;
+      unreadCountRequestSequenceRef.current += 1;
+      setSystemMessageUnreadCount(0);
+      setSystemMessageUnreadReady(false);
+    }
+    if (!notificationUserId) {
+      return;
+    }
+    const refreshUnreadCount = () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      void refreshSystemMessageUnreadCount()
+        .finally(() => {
+          if (!cancelled) requestInFlight = false;
+        });
+    };
+    refreshUnreadCount();
+    window.addEventListener("online", refreshUnreadCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", refreshUnreadCount);
+    };
+  }, [notificationUserId, refreshSystemMessageUnreadCount]);
 
   // Real-time WebSocket listeners for instant updates
   useEffect(() => {
@@ -333,7 +415,19 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    const handleUnreadCountUpdate = async () => {
+    const handleUnreadCountUpdate = async (payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "counts" in payload &&
+        payload.counts &&
+        typeof payload.counts === "object" &&
+        "systemMessages" in payload.counts &&
+        Number.isSafeInteger(payload.counts.systemMessages) &&
+        Number(payload.counts.systemMessages) >= 0
+      ) {
+        applySystemMessageUnreadSnapshot(payload.counts.systemMessages);
+      }
       // Refresh notifications to ensure the UI is consistent with the new counts
       try {
         const data = await notificationService.getNotifications();
@@ -399,6 +493,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   }, [
     currentUser,
     socket.socket,
+    applySystemMessageUnreadSnapshot,
     loadSystemMessages,
     notification,
     updateUser,
@@ -444,7 +539,8 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const markSystemMessageAsRead = useCallback(
     async (messageId: string) => {
       try {
-        await systemMessageService.markAsRead(messageId);
+        const updated = await systemMessageService.markAsRead(messageId);
+        if (!updated) throw new Error("System Message was not marked read");
         const readAt = new Date().toISOString();
 
         setSystemMessages((prev) =>
@@ -461,12 +557,17 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
               : item,
           ),
         );
+        // The backend emits an absolute unread snapshot before completing this
+        // request. Re-read the same absolute source for disconnected clients;
+        // generation/request guards prevent either response from overwriting a
+        // newer Socket snapshot.
+        await refreshSystemMessageUnreadCount();
       } catch (error) {
         console.error("Failed to mark system message as read:", error);
         notification.error("Failed to mark system message as read");
       }
     },
-    [notification],
+    [notification, refreshSystemMessageUnreadCount],
   );
 
   const unreadCount = useMemo(
@@ -493,6 +594,8 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       allNotifications,
       totalUnreadCount,
       systemMessages,
+      systemMessageUnreadCount,
+      systemMessageUnreadReady,
       markSystemMessageAsRead,
       reloadSystemMessages: loadSystemMessages,
     }),
@@ -505,6 +608,8 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       allNotifications,
       totalUnreadCount,
       systemMessages,
+      systemMessageUnreadCount,
+      systemMessageUnreadReady,
       markSystemMessageAsRead,
       loadSystemMessages,
     ],
@@ -525,4 +630,10 @@ export function useNotifications() {
     );
   }
   return context;
+}
+
+export function useOptionalNotifications():
+  | NotificationContextType
+  | undefined {
+  return useContext(NotificationContext);
 }

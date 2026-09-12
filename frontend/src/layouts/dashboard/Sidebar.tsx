@@ -46,6 +46,7 @@ interface SidebarProps {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   chatUnreadTotal?: number;
+  systemMessageUnreadCount?: number;
 }
 
 export default function Sidebar({
@@ -53,6 +54,7 @@ export default function Sidebar({
   sidebarOpen,
   setSidebarOpen,
   chatUnreadTotal = 0,
+  systemMessageUnreadCount = 0,
 }: SidebarProps) {
   const location = useLocation(); //获取当前路径
   const navigate = useNavigate();
@@ -263,6 +265,7 @@ export default function Sidebar({
       name: "System Messages",
       href: "/dashboard/system-messages",
       icon: SpeakerWaveIcon,
+      badgeCount: systemMessageUnreadCount,
     });
 
     // Add Analytics for all roles (page handles access notice for Participants)
@@ -416,7 +419,12 @@ export default function Sidebar({
               ? `${chatUnreadTotal} unread Chat Room ${
                   chatUnreadTotal === 1 ? "message" : "messages"
                 }.`
-              : "No unread Chat Room messages."}
+              : "No unread Chat Room messages."}{" "}
+            {systemMessageUnreadCount > 0
+              ? `${systemMessageUnreadCount} unread System ${
+                  systemMessageUnreadCount === 1 ? "Message" : "Messages"
+                }.`
+              : "No unread System Messages."}
           </span>
         </div>
       </nav>

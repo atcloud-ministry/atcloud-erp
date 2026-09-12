@@ -239,7 +239,7 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
     const enqueueInTransaction = vi
       .fn()
       .mockImplementation(async (input) => ({
-        eventId: `${input.payload.recipientUserId}`,
+        eventId: DELIVERY_ID,
       } as NotificationOutboxRecord));
 
     await enqueueAlumniHelpWorkflowNotifications(
@@ -257,7 +257,7 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
       { enqueueInTransaction },
     );
 
-    expect(enqueueInTransaction).toHaveBeenCalledTimes(2);
+    expect(enqueueInTransaction).toHaveBeenCalledTimes(3);
     expect(enqueueInTransaction.mock.calls[0][0]).toMatchObject({
       topic: "alumni.help.workflow",
       dedupeKey: `alumni-help:${TIMELINE_EVENT_ID}:${REQUESTER_ID}`,
@@ -273,12 +273,21 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
         presentation: "system_message",
       },
     });
+    expect(enqueueInTransaction.mock.calls[2][0]).toMatchObject({
+      topic: "alumni.help.external_notification",
+      dedupeKey: `alumni-help-external:${TIMELINE_EVENT_ID}:${PROVIDER_ID}`,
+      payload: {
+        workflowEventId: DELIVERY_ID,
+        recipientUserId: PROVIDER_ID,
+        requestId: REQUEST_ID,
+      },
+    });
   });
 
   it("routes automatic confirmation to requester and requires outcome identity", async () => {
     const enqueueInTransaction = vi
       .fn()
-      .mockResolvedValue({} as NotificationOutboxRecord);
+      .mockResolvedValue({ eventId: DELIVERY_ID } as NotificationOutboxRecord);
     await enqueueAlumniHelpWorkflowNotifications(
       {
         requestId: REQUEST_ID,
@@ -301,7 +310,14 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
       outcomeSubmissionId: OUTCOME_ID,
       outcomeRevision: 1,
     });
-    expect(enqueueInTransaction.mock.calls[1][0].payload).toMatchObject({
+    expect(enqueueInTransaction.mock.calls[1][0]).toMatchObject({
+      topic: "alumni.help.external_notification",
+      payload: {
+        workflowEventId: DELIVERY_ID,
+        recipientUserId: REQUESTER_ID,
+      },
+    });
+    expect(enqueueInTransaction.mock.calls[2][0].payload).toMatchObject({
       recipientUserId: PROVIDER_ID,
       presentation: "counter_only",
     });

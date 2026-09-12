@@ -15,6 +15,8 @@ import { ChatRoomsProvider } from "./contexts/ChatRoomsContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
+import PwaExperience from "./components/pwa/PwaExperience";
+import PwaBadgeSync from "./components/pwa/PwaBadgeSync";
 import {
   AlumniNetworkReadableRoute,
   LegacyManagementEntry,
@@ -73,6 +75,9 @@ const CompletePasswordChange = lazy(
 );
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SystemMessages = lazy(() => import("./pages/SystemMessages"));
+const NotificationSettings = lazy(
+  () => import("./pages/NotificationSettings"),
+);
 const Analytics = lazy(() => import("./pages/Analytics"));
 const SystemMonitor = lazy(() => import("./pages/SystemMonitor"));
 const EditEvent = lazy(() => import("./pages/EditEvent"));
@@ -146,12 +151,15 @@ function RootRoute() {
 
 function App() {
   return (
-    <RuntimeConfigProvider>
-      <AuthProvider>
-        <NotificationModalProvider>
-          <NotificationProvider>
-            <ChatRoomsProvider>
-              <AlumniHelpProvider>
+    <>
+      <PwaExperience />
+      <RuntimeConfigProvider>
+        <AuthProvider>
+          <NotificationModalProvider>
+            <NotificationProvider>
+              <ChatRoomsProvider>
+                <AlumniHelpProvider>
+              <PwaBadgeSync />
               <SessionExpiredModal />
               <Suspense fallback={<LoadingSpinner size="lg" />}>
                 <Routes>
@@ -391,6 +399,10 @@ function App() {
                 element={<RequestPasswordChange />}
               />
               <Route path="system-messages" element={<SystemMessages />} />
+              <Route
+                path="notification-settings"
+                element={<NotificationSettings />}
+              />
               <Route path="get-involved" element={<GetInvolved />} />
               <Route
                 path="edit-event/:id"
@@ -554,12 +566,13 @@ function App() {
             <Route path="/s/:key" element={<ShortLinkRedirect />} />
                 </Routes>
               </Suspense>
-              </AlumniHelpProvider>
-            </ChatRoomsProvider>
-          </NotificationProvider>
-        </NotificationModalProvider>
-      </AuthProvider>
-    </RuntimeConfigProvider>
+                </AlumniHelpProvider>
+              </ChatRoomsProvider>
+            </NotificationProvider>
+          </NotificationModalProvider>
+        </AuthProvider>
+      </RuntimeConfigProvider>
+    </>
   );
 }
 

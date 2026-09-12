@@ -22,6 +22,7 @@ interface ChatRoomsContextValue {
   chatUnreadTotal: number;
   roomUnreadCounts: Readonly<Record<string, number>>;
   countLoading: boolean;
+  countReady: boolean;
   refreshChatUnreadTotal: () => Promise<void>;
   captureCounterGeneration: () => number;
   applyCounterSnapshot: (
@@ -52,6 +53,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
     Record<string, number>
   >({});
   const [countLoading, setCountLoading] = useState(false);
+  const [countReady, setCountReady] = useState(false);
   const mountedRef = useRef(false);
   const activeRequestRef = useRef<AbortController | null>(null);
   const reconciliationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -99,6 +101,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
         }));
       }
       setChatUnreadTotal(total);
+      setCountReady(true);
       if (expectedGeneration === undefined) {
         counterGenerationRef.current += 1;
       }
@@ -118,6 +121,9 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
         setRoomUnreadCounts({});
         roomLastReadSequencesRef.current = {};
         setCountLoading(false);
+        // Once runtime configuration is known, an unavailable Chat feature has
+        // an authoritative zero count.
+        setCountReady(Boolean(userId) && status === "ready");
       }
       return;
     }
@@ -138,6 +144,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
       ) {
         if (expectedGeneration === counterGenerationRef.current) {
           setChatUnreadTotal(total);
+          setCountReady(true);
         }
       }
     } catch {
@@ -152,7 +159,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
         activeRequestRef.current = null;
       }
     }
-  }, [canRead]);
+  }, [canRead, status, userId]);
 
   const scheduleAuthoritativeUnreadRefresh = useCallback(() => {
     if (reconciliationTimerRef.current) return;
@@ -186,6 +193,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
       roomLastReadSequencesRef.current = {};
       counterGenerationRef.current += 1;
       setCountLoading(false);
+      setCountReady(false);
     }
     void refreshChatUnreadTotal();
     return () => {
@@ -199,6 +207,15 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
       activeRequestRef.current = null;
     };
   }, [refreshChatUnreadTotal, userId]);
+
+  useEffect(() => {
+    if (!canRead) return;
+    const reconcileAfterReconnect = () => {
+      void refreshChatUnreadTotal();
+    };
+    window.addEventListener("online", reconcileAfterReconnect);
+    return () => window.removeEventListener("online", reconcileAfterReconnect);
+  }, [canRead, refreshChatUnreadTotal]);
 
   useEffect(() => {
     if (!canRead) return;
@@ -251,6 +268,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
           ? roomUnreadCounts
           : EMPTY_ROOM_COUNTS,
         countLoading: identityMatches ? countLoading : false,
+        countReady: identityMatches ? countReady : false,
         refreshChatUnreadTotal,
         captureCounterGeneration,
         applyCounterSnapshot,
@@ -261,6 +279,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
       captureCounterGeneration,
       chatUnreadTotal,
       countLoading,
+      countReady,
       refreshChatUnreadTotal,
       roomUnreadCounts,
       userId,

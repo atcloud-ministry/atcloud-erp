@@ -92,6 +92,16 @@ test("a new user can submit registration and reach check-email", async ({
   await page.getByPlaceholder("Enter your first name").fill(user.firstName);
   await page.getByPlaceholder("Enter your last name").fill(user.lastName);
   await page.getByRole("combobox", { name: /Gender/ }).selectOption("male");
+  await page.getByLabel(/Birth Year/).fill("1990");
+  await page.getByLabel(/Phone Country/).selectOption("US");
+  await page.getByPlaceholder("Enter your phone number").fill("415 555 2671");
+  await page.getByLabel(/Country of Residence/).selectOption("US");
+  await page.getByLabel(/^State/).selectOption("US-CA");
+  await page.getByPlaceholder("Enter city").fill("San Francisco");
+  await page.getByLabel(/Employment Status/).selectOption("employed");
+  await page
+    .getByPlaceholder("Enter company or organization")
+    .fill("Example Co");
   await page.getByRole("button", { name: "Sign Up" }).click();
 
   await expect(page.getByText("We’ll keep your history")).toBeVisible();

@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.6
+- 版本：3.7
 - 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0–M4 已完成
-- 下一任务：M5-01（待确认）
+- 实施进度：M0–M5 已完成
+- 下一任务：M6-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -324,11 +324,12 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M5 — PWA 与 notifications
 
-- [ ] M5-01 实现 manifest、icons、Service Worker、offline 和 update flow。
-- [ ] M5-02 实现 Android/browser 与 iOS/iPadOS Home Screen install UX。
-- [ ] M5-03 实现 PushSubscription、VAPID、preferences 和 Room mute routing。
-- [ ] M5-04 实现 event routing、badges、deep links、login recovery 和 Email fallback。
-- [ ] M5-05 完成 web security headers、secret operations 和 real-device/browser tests。
+- [x] M5-01 实现 manifest、icons、Service Worker、offline 和 update flow。
+- [x] M5-02 实现 Android/browser 与 iOS/iPadOS Home Screen install UX。
+- [x] M5-03 实现 PushSubscription、VAPID、preferences 和 Room mute routing。
+- [x] M5-04 实现 event routing、badges、deep links、login recovery 和 Email fallback。
+- [x] M5-05 完成 web security headers、secret operations 和 browser/device-profile tests。
+  - 验证：backend unit 6,764、HTTP 445、MongoDB integration 1,882/1,883 与并行隔离项 standalone 3/3、frontend 2,205；standard E2E 3/3、PWA browser/device-profile matrix 16/16、production full-stack E2E 1/1；lint、type-check、production build、deployment guards 与独立审查通过。
 
 ### M6 — Program Rooms
 

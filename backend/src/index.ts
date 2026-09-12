@@ -22,6 +22,7 @@ import { readHttpBindHost } from "./config/httpBinding";
 import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature";
 import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
 import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
+import { assertWebPushConfiguration } from "./config/webPush";
 
 const log = createLogger("App");
 
@@ -291,6 +292,7 @@ const startServer = async () => {
     if (readAlumniNetworkReleaseAvailable()) {
       assertAlumniInvitationReleaseConfiguration();
     }
+    assertWebPushConfiguration();
 
     // Validate runtime concurrency constraints for in-memory locking
     enforceSingleInstanceIfNecessary();

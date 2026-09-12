@@ -154,6 +154,13 @@ export default function UserDropdown({
               Change Password
             </Link>
             <Link
+              to="/dashboard/notification-settings"
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              onClick={() => setDropdownOpen(false)}
+            >
+              Notification Settings
+            </Link>
+            <Link
               to="/dashboard/promo-codes"
               className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
               onClick={() => setDropdownOpen(false)}

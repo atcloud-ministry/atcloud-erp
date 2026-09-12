@@ -14,6 +14,7 @@ import {
 } from "../../contexts/AuthContext";
 import { authService } from "../../services/api";
 import * as welcomeMessageService from "../../utils/welcomeMessageService";
+import { unregisterPushBeforeLogout } from "../../services/webPushLifecycle";
 import { createDeferred } from "../fixtures/deferred";
 
 // Mock dependencies
@@ -32,6 +33,10 @@ vi.mock("../../utils/welcomeMessageService", () => ({
 
 vi.mock("../../utils/avatarUtils", () => ({
   getAvatarUrlWithCacheBust: vi.fn((url) => url || "/default-avatar.png"),
+}));
+
+vi.mock("../../services/webPushLifecycle", () => ({
+  unregisterPushBeforeLogout: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("AuthContext", () => {
@@ -136,7 +141,7 @@ describe("AuthContext", () => {
     it("removes invalid token on mount", async () => {
       localStorage.setItem("authToken", "invalid-token");
       vi.mocked(authService.getProfile).mockRejectedValue(
-        new Error("Invalid token")
+        Object.assign(new Error("Invalid token"), { status: 401 })
       );
 
       const { result } = renderHook(() => useAuth(), {
@@ -149,6 +154,30 @@ describe("AuthContext", () => {
 
       expect(localStorage.getItem("authToken")).toBeNull();
       expect(result.current.currentUser).toBeNull();
+      expect(unregisterPushBeforeLogout).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the token and exposes retry state after a temporary profile failure", async () => {
+      localStorage.setItem("authToken", "still-valid-token");
+      vi.mocked(authService.getProfile)
+        .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        .mockResolvedValueOnce(mockUser);
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.initializationError).toMatch(/try again/i);
+      });
+      expect(localStorage.getItem("authToken")).toBe("still-valid-token");
+      expect(result.current.currentUser).toBeNull();
+
+      await act(async () => result.current.retryInitialization());
+
+      expect(result.current.initializationError).toBeNull();
+      expect(result.current.currentUser?.id).toBe("user123");
+      expect(localStorage.getItem("authToken")).toBe("still-valid-token");
     });
 
     it("converts backend user format to frontend AuthUser format", async () => {
@@ -420,6 +449,22 @@ describe("AuthContext", () => {
   });
 
   describe("Logout", () => {
+    it("best-effort removes only this browser's Push installation before logout", async () => {
+      vi.mocked(authService.logout).mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => result.current.logout());
+
+      expect(unregisterPushBeforeLogout).toHaveBeenCalledOnce();
+      expect(
+        vi.mocked(unregisterPushBeforeLogout).mock.invocationCallOrder[0],
+      ).toBeLessThan(vi.mocked(authService.logout).mock.invocationCallOrder[0]);
+    });
+
     it("clears user state on logout", async () => {
       localStorage.setItem("authToken", "valid-token");
       vi.mocked(authService.getProfile).mockResolvedValue(mockUser);

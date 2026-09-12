@@ -140,6 +140,16 @@ export {
   ChatSenderSnapshot,
   IChatMessage,
 } from "./ChatMessage";
+export {
+  default as PushSubscription,
+  IPushSubscription,
+  PUSH_SUBSCRIPTION_COLLECTION,
+} from "./PushSubscription";
+export {
+  default as NotificationPreference,
+  INotificationPreference,
+  NOTIFICATION_PREFERENCE_COLLECTION,
+} from "./NotificationPreference";
 export { initializeAlumniDataModels } from "./initializeAlumniDataModels";
 export {
   ACCOUNT_DELETION_RETENTION_DAYS,

@@ -1,10 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/Cloud-browsertag.png" />
+    <!-- CSP must precede every resource-loading element. Vite injects the policy. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="__CONTENT_SECURITY_POLICY__"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/pwa-icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="@Cloud" />
     <!-- Preconnects for Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,12 +25,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <!-- CSP policy - injected by Vite from the configured API origin -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="__CONTENT_SECURITY_POLICY__"
-    />
-    <title>@Cloud Events</title>
+    <title>@Cloud Events &amp; Community</title>
   </head>
   <body>
     <div id="root"></div>

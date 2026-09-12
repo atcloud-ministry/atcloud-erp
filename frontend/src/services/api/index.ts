@@ -25,6 +25,8 @@ export * from "./alumniDirectory.api";
 export * from "./alumniHelp.api";
 export * from "./conversations.api";
 export * from "./conversations.contracts";
+export * from "./pushNotifications.api";
+export * from "./pushNotifications.contracts";
 export * from "./files.api";
 export * from "./notifications.api";
 export * from "./systemMessages.api";

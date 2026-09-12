@@ -6,6 +6,8 @@ import ProfileCompletionNotice from "../components/profile/ProfileCompletionNoti
 import { useAuth } from "../hooks/useAuth";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
+import AuthInitializationError from "../components/common/AuthInitializationError";
+import { useOptionalNotifications } from "../contexts/NotificationContext";
 
 /**
  * Routes that unauthenticated "guest" visitors may access.
@@ -28,13 +30,29 @@ function isGuestAllowedRoute(pathname: string): boolean {
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { currentUser, isLoading } = useAuth();
+  const {
+    currentUser,
+    isLoading,
+    initializationError,
+    retryInitialization,
+  } = useAuth();
   const chatUnreadTotal = useOptionalChatRooms()?.chatUnreadTotal ?? 0;
+  const systemMessageUnreadCount =
+    useOptionalNotifications()?.systemMessageUnreadCount ?? 0;
   const location = useLocation();
 
   // Show loading spinner while checking authentication
   if (isLoading) {
     return <LoadingSpinner />;
+  }
+
+  if (initializationError) {
+    return (
+      <AuthInitializationError
+        message={initializationError}
+        onRetry={retryInitialization}
+      />
+    );
   }
 
   const isGuest = !currentUser;
@@ -75,6 +93,7 @@ export default function DashboardLayout() {
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           chatUnreadTotal={chatUnreadTotal}
+          systemMessageUnreadCount={systemMessageUnreadCount}
         />
 
         {/* Scrollable Main Content */}

@@ -25,6 +25,7 @@ import {
   alumniHelpActionCountService,
   type AlumniHelpActionCountReader,
 } from "./AlumniHelpActionCountService";
+import { enqueueAlumniHelpExternalNotification } from "./AlumniHelpExternalNotification";
 
 export const ALUMNI_HELP_WORKFLOW_TOPIC = "alumni.help.workflow" as const;
 export const ALUMNI_HELP_WORKFLOW_PAYLOAD_VERSION = 1 as const;
@@ -400,16 +401,31 @@ export async function enqueueAlumniHelpWorkflowNotifications(
         ? { outcomeSubmissionId, outcomeRevision }
         : {}),
     };
-    records.push(
-      await outbox.enqueueInTransaction({
-        topic: ALUMNI_HELP_WORKFLOW_TOPIC,
-        dedupeKey: `alumni-help:${timelineEventId}:${recipientUserId}`,
-        payloadVersion: ALUMNI_HELP_WORKFLOW_PAYLOAD_VERSION,
-        payload,
-        correlationId: input.correlationId,
-        session: input.session,
-      }),
-    );
+    const workflowRecord = await outbox.enqueueInTransaction({
+      topic: ALUMNI_HELP_WORKFLOW_TOPIC,
+      dedupeKey: `alumni-help:${timelineEventId}:${recipientUserId}`,
+      payloadVersion: ALUMNI_HELP_WORKFLOW_PAYLOAD_VERSION,
+      payload,
+      correlationId: input.correlationId,
+      session: input.session,
+    });
+    records.push(workflowRecord);
+    if (presentation === "system_message") {
+      await enqueueAlumniHelpExternalNotification(
+        {
+          workflowEventId: workflowRecord.eventId,
+          recipientUserId,
+          requestId,
+          requestRevision,
+          timelineEventId,
+          eventType,
+          occurredAt,
+          session: input.session,
+          correlationId: input.correlationId,
+        },
+        outbox,
+      );
+    }
   }
   return Object.freeze(records);
 }

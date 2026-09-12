@@ -3,6 +3,22 @@ import type { ApiResponse, AuthTokens } from "./types";
 import { sanitizeBaseURL, API_BASE_URL } from "./config";
 import { socketService } from "../../socketService";
 
+type HttpError = Error & { status?: number };
+
+function httpError(message: string, status: number): HttpError {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
+
+function errorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return null;
+  }
+  const status = Number((error as { status?: unknown }).status);
+  return Number.isInteger(status) ? status : null;
+}
+
 /**
  * Base API client with core request handling, authentication, and error management.
  * This class should be extended by domain-specific API modules.
@@ -121,21 +137,33 @@ export class BaseApiClient {
             }
 
             if (response.ok) return data;
-          } catch {
-            // Refresh failed; clear token
-            localStorage.removeItem("authToken");
-            // Only show session-expired modal if user was previously authenticated.
-            // Guests (no token before request) should get a silent rejection.
-            if (hadTokenBeforeRequest) {
-              handleSessionExpired();
+          } catch (refreshError) {
+            const refreshStatus = errorStatus(refreshError);
+            if (refreshStatus === 401 || refreshStatus === 403) {
+              localStorage.removeItem("authToken");
+              // Only show session-expired modal if user was previously authenticated.
+              // Guests (no token before request) should get a silent rejection.
+              if (hadTokenBeforeRequest) {
+                handleSessionExpired();
+              }
+              return Promise.reject(
+                httpError(
+                  hadTokenBeforeRequest
+                    ? "Session expired"
+                    : "Authentication required",
+                  refreshStatus,
+                ),
+              );
             }
-            return Promise.reject(
-              new Error(
-                hadTokenBeforeRequest
-                  ? "Session expired"
-                  : "Authentication required",
-              ),
-            );
+
+            // A refresh transport failure or 5xx does not prove the refresh
+            // credential is invalid. Keep the access token so startup can
+            // present an offline/retry state instead of forcing a new login.
+            const retryError = new Error(
+              "Unable to verify your session. Check your connection and try again.",
+            ) as HttpError;
+            if (refreshStatus !== null) retryError.status = refreshStatus;
+            return Promise.reject(retryError);
           }
         }
 
@@ -203,10 +231,11 @@ export class BaseApiClient {
             handleSessionExpired();
           }
           return Promise.reject(
-            new Error(
+            httpError(
               hadTokenBeforeRequest
                 ? "Session expired"
                 : "Authentication required",
+              401,
             ),
           );
         }
@@ -233,14 +262,25 @@ export class BaseApiClient {
       method: "POST",
       credentials: "include",
     });
-    const raw: unknown = await resp.json();
+    let raw: unknown;
+    try {
+      raw = await resp.json();
+    } catch {
+      if (!resp.ok) {
+        throw httpError(
+          resp.statusText || `HTTP ${resp.status}`,
+          resp.status,
+        );
+      }
+      throw new Error("Token refresh returned an invalid response");
+    }
     const data = raw as Partial<ApiResponse<AuthTokens>> &
       Partial<AuthTokens> & {
         data?: Partial<AuthTokens>;
         message?: string;
       };
     if (!resp.ok) {
-      throw new Error(data?.message || `HTTP ${resp.status}`);
+      throw httpError(data?.message || `HTTP ${resp.status}`, resp.status);
     }
     const token = data.accessToken || data?.data?.accessToken;
     if (token) {

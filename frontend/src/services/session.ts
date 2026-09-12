@@ -2,11 +2,28 @@
 // Shows a clear prompt and redirects to login once.
 
 import { getHashRouteUrl } from "../utils/hashRouting";
+import { isSafeInternalRedirectPath } from "../utils/loginRedirect";
 import { socketService } from "./socketService";
 
 let sessionPromptShown = false;
 
 export const LOGIN_HASH_ROUTE = getHashRouteUrl("/login");
+
+function captureCurrentHashRoute(): void {
+  try {
+    const hash = window.location.hash;
+    const candidate = hash.startsWith("#/") ? hash.slice(1) : null;
+    if (
+      candidate &&
+      candidate !== "/login" &&
+      isSafeInternalRedirectPath(candidate)
+    ) {
+      sessionStorage.setItem("returnUrl", candidate);
+    }
+  } catch {
+    // Storage and location access can be unavailable in hardened browsers.
+  }
+}
 
 // Lightweight pub/sub so components (e.g., a top-level listener) can show a custom modal
 type SessionExpiredListener = () => void;
@@ -23,6 +40,7 @@ export function onSessionExpired(listener: SessionExpiredListener) {
 export function handleSessionExpired(): void {
   if (sessionPromptShown) return;
   sessionPromptShown = true;
+  captureCurrentHashRoute();
 
   try {
     localStorage.removeItem("authToken");

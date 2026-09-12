@@ -66,6 +66,7 @@ export const AUTHORIZATION_ACTIONS = {
   CONVERSATION_SEND_OR_REPLAY: "conversation.send_or_replay",
   CONVERSATION_UPDATE_STATE: "conversation.update_state",
   CONVERSATION_SUBSCRIBE_REALTIME: "conversation.subscribe_realtime",
+  NOTIFICATION_SETTINGS_MANAGE: "notification_settings.manage",
   WORKER_EXECUTE: "worker.execute",
 } as const;
 

@@ -319,6 +319,22 @@ const defaultPolicies: ReadonlyMap<string, AuthorizationPolicy> = new Map<
     (request) => authorizeConversationAccess(request, true),
   ],
   [
+    AUTHORIZATION_ACTIONS.NOTIFICATION_SETTINGS_MANAGE,
+    (request: AuthorizationRequest) => {
+      const principal = userPrincipal(request);
+      if (!principal) return deny("principal_source_mismatch");
+      if (
+        request.resource?.type !== "notification_settings" ||
+        !request.resource.id
+      ) {
+        return deny("resource_required", true);
+      }
+      return request.resource.id === principal.userId
+        ? allow()
+        : deny("not_resource_member", true);
+    },
+  ],
+  [
     AUTHORIZATION_ACTIONS.WORKER_EXECUTE,
     (request: AuthorizationRequest) => {
       if (request.principal.kind !== "service" || request.source !== "worker") {

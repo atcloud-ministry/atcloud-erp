@@ -55,6 +55,18 @@ vi.mock("../../../src/models/ShortLink", () => ({
   },
 }));
 
+vi.mock("../../../src/models/PushSubscription", () => ({
+  default: {
+    deleteMany: vi.fn(),
+  },
+}));
+
+vi.mock("../../../src/models/NotificationPreference", () => ({
+  default: {
+    deleteMany: vi.fn(),
+  },
+}));
+
 vi.mock(
   "../../../src/services/authorization/ResourceAuthorizationInvalidationService",
   () => ({
@@ -85,6 +97,8 @@ import Message from "../../../src/models/Message";
 import PromoCode from "../../../src/models/PromoCode";
 import Program from "../../../src/models/Program";
 import ShortLink from "../../../src/models/ShortLink";
+import PushSubscription from "../../../src/models/PushSubscription";
+import NotificationPreference from "../../../src/models/NotificationPreference";
 import fs from "fs/promises";
 import { UserDeletionService } from "../../../src/services/UserDeletionService";
 import { resourceAuthorizationInvalidationService } from "../../../src/services/authorization/ResourceAuthorizationInvalidationService";
@@ -189,7 +203,24 @@ describe("UserDeletionService", () => {
         expect(PromoCode.deleteMany).toHaveBeenCalled();
         expect(Program.updateMany).toHaveBeenCalled();
         expect(ShortLink.deleteMany).toHaveBeenCalled();
+        expect(PushSubscription.deleteMany).toHaveBeenCalledWith({
+          userId: new mongoose.Types.ObjectId(mockUserId),
+        });
+        expect(NotificationPreference.deleteMany).toHaveBeenCalledWith({
+          userId: new mongoose.Types.ObjectId(mockUserId),
+        });
         expect(User.findByIdAndDelete).toHaveBeenCalledWith(mockUserId);
+        expect(
+          vi.mocked(PushSubscription.deleteMany).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(User.findByIdAndDelete).mock.invocationCallOrder[0]
+        );
+        expect(
+          vi.mocked(NotificationPreference.deleteMany).mock
+            .invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(User.findByIdAndDelete).mock.invocationCallOrder[0]
+        );
         expect(socketService.disconnectUser).toHaveBeenCalledTimes(4);
         expect(socketService.disconnectUser).toHaveBeenNthCalledWith(
           1,

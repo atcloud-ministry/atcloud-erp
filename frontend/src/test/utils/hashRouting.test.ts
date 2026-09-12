@@ -59,6 +59,17 @@ describe("hash routing helpers", () => {
     ).toBe("/#/dashboard/admin/users");
   });
 
+  it("rescues direct Chat Room notification links", () => {
+    expect(
+      getDirectPathHashRouteReplacement({
+        pathname: "/dashboard/chat-rooms/507f1f77bcf86cd799439011",
+        search: "?source=push",
+      }),
+    ).toBe(
+      "/#/dashboard/chat-rooms/507f1f77bcf86cd799439011?source=push",
+    );
+  });
+
   it("maps legacy admin email links to User Management without retaining PII", () => {
     expect(
       getDirectPathHashRouteReplacement({

@@ -33,7 +33,9 @@ import ConversationMember from "../../../src/models/ConversationMember";
 import IdempotencyRecord from "../../../src/models/IdempotencyRecord";
 import NotificationOutbox from "../../../src/models/NotificationOutbox";
 import User from "../../../src/models/User";
+import { ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC } from "../../../src/services/alumni/AlumniHelpExternalNotification";
 import { AlumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
+import { ALUMNI_HELP_WORKFLOW_TOPIC } from "../../../src/services/alumni/AlumniHelpWorkflowDeliveryHandler";
 import { AlumniOutcomeDeadlineService } from "../../../src/services/alumni/AlumniOutcomeDeadlineService";
 import {
   WORKER_RUN_TRIGGERS,
@@ -332,7 +334,16 @@ describe("M3 Alumni Help service integration", () => {
         targetId: requestId,
       }),
     ).toBe(1);
-    expect(await NotificationOutbox.countDocuments({})).toBe(4);
+    expect(
+      await NotificationOutbox.countDocuments({
+        topic: ALUMNI_HELP_WORKFLOW_TOPIC,
+      }),
+    ).toBe(4);
+    expect(
+      await NotificationOutbox.countDocuments({
+        topic: ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC,
+      }),
+    ).toBe(2);
     const persistedSideEffects = JSON.stringify({
       audit: await AuditLog.find({}).lean(),
       outbox: await NotificationOutbox.find({}).lean(),
@@ -504,10 +515,18 @@ describe("M3 Alumni Help service integration", () => {
     });
     expect(
       await NotificationOutbox.countDocuments({
+        topic: ALUMNI_HELP_WORKFLOW_TOPIC,
         "payload.eventType": "outcome_submit",
         "payload.requestId": created.request.id,
       }),
     ).toBe(2);
+    expect(
+      await NotificationOutbox.countDocuments({
+        topic: ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC,
+        "payload.eventType": "outcome_submit",
+        "payload.requestId": created.request.id,
+      }),
+    ).toBe(1);
   });
 
   it("accepts all seven approved help outcome combinations with fixed 480-hour deadlines", async () => {

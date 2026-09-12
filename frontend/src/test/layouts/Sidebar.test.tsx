@@ -298,6 +298,31 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(link).toHaveTextContent("99+");
     });
 
+    it("shows the authoritative System Messages unread badge", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter>
+          <Sidebar
+            systemMessageUnreadCount={6}
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(
+        screen.getByRole("link", {
+          name: "System Messages, 6 unread messages",
+        }),
+      ).toHaveTextContent("6");
+    });
+
     it("adds Administration and User Management for account managers", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Administrator"),

@@ -208,6 +208,13 @@ describe("UserDropdown", () => {
       );
     });
 
+    it("displays Notification Settings link", () => {
+      const link = screen.getByText("Notification Settings");
+      expect(link.closest("a")?.getAttribute("href")).toBe(
+        "/dashboard/notification-settings"
+      );
+    });
+
     it("displays My Promo Codes link", () => {
       const promoCodesLink = screen.getByText("My Promo Codes");
       expect(promoCodesLink).toBeDefined();

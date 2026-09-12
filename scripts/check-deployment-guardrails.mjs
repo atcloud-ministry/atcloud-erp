@@ -193,6 +193,7 @@ function checkRenderTemplateContract() {
     ["MONGO_TRANSACTIONS_REQUIRED", "true"],
     ["NOTIFICATION_OUTBOX_ENABLED", "true"],
     ["ALUMNI_NETWORK_RELEASE_AVAILABLE", "false"],
+    ["WEB_PUSH_ENABLED", "false"],
   ]) {
     const keyPattern = new RegExp(
       `^[ \\t]*- key:\\s*${key}\\s*$`,
@@ -283,6 +284,10 @@ function checkRenderTemplateContract() {
       "the Alumni Network deployment ceiling must default to disabled.",
     ],
     [
+      /key:\s*WEB_PUSH_ENABLED\s*\n\s*value:\s*false/,
+      "Web Push must default to disabled until backend-only VAPID secrets are provisioned.",
+    ],
+    [
       /key:\s*JWT_ACCESS_EXPIRE\s*\n\s*value:\s*3h/,
       "access-token expiry must use the TokenService environment key.",
     ],
@@ -315,6 +320,93 @@ function checkRenderTemplateContract() {
   }
 }
 
+function checkPwaDeliveryContract() {
+  const renderYaml = read("render.yaml");
+  const frontendService = renderServiceBlock(renderYaml, "atcloud-frontend");
+  const backendEnvExample = read("backend/.env.example");
+  const frontendEnvExample = read("frontend/.env.example");
+  const frontendCsp = read("frontend/src/config/contentSecurityPolicy.ts");
+  const frontendVite = read("frontend/vite.config.ts");
+
+  for (const setting of [
+    "WEB_PUSH_ENABLED=false",
+    "VAPID_SUBJECT=",
+    "VAPID_PUBLIC_KEY=",
+    "VAPID_PRIVATE_KEY=",
+  ]) {
+    if (!backendEnvExample.includes(setting)) {
+      fail(`backend/.env.example: missing Web Push setting ${setting}.`);
+    }
+  }
+
+  if (
+    frontendEnvExample.includes("VAPID_PRIVATE_KEY") ||
+    frontendService.includes("VAPID_PRIVATE_KEY") ||
+    /VITE_[A-Z0-9_]*VAPID/.test(frontendEnvExample)
+  ) {
+    fail(
+      "Web Push: the VAPID private key must remain backend-only and must never use a VITE_ variable.",
+    );
+  }
+
+  for (const setting of [
+    "VAPID_SUBJECT",
+    "VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
+  ]) {
+    if (!renderYaml.includes(`# - ${setting}`)) {
+      fail(
+        `render.yaml backend service: document ${setting} as a manually provisioned Render setting.`,
+      );
+    }
+  }
+
+  for (const directive of [
+    '["worker-src", "\'self\'"]',
+    '["manifest-src", "\'self\'"]',
+  ]) {
+    if (!frontendCsp.includes(directive)) {
+      fail(`frontend CSP: missing ${directive}.`);
+    }
+  }
+
+  if (
+    !frontendCsp.includes("getProductionBackendOrigins") ||
+    !frontendCsp.includes('url.protocol === "https:"') ||
+    !frontendCsp.includes("allowExplicitLoopback = false") ||
+    !frontendCsp.includes('url.hostname === "127.0.0.1"') ||
+    !frontendCsp.includes(
+      "getProductionBackendOrigins(apiUrl, allowExplicitLoopback)",
+    ) ||
+    !frontendVite.includes("isGuardedFullstackLoopbackBuild") ||
+    !frontendVite.includes("FULLSTACK_E2E_BACKEND_URL") ||
+    !frontendVite.includes("FULLSTACK_E2E_FRONTEND_URL") ||
+    !frontendVite.includes("FULLSTACK_E2E_MONGODB_URI")
+  ) {
+    fail(
+      "frontend CSP: production connections must use HTTPS, with numeric loopback limited to the guarded full-stack E2E build.",
+    );
+  }
+
+  for (const [pathName, header, value] of [
+    ["/*", "X-Content-Type-Options", "nosniff"],
+    ["/*", "Referrer-Policy", "strict-origin-when-cross-origin"],
+    ["/*", "X-Frame-Options", "SAMEORIGIN"],
+    ["/*", "Strict-Transport-Security", "max-age=31536000; includeSubDomains"],
+    ["/*", "Permissions-Policy", "camera=(), geolocation=(), microphone=()"],
+    ["/assets/*", "Cache-Control", "public, max-age=31536000, immutable"],
+    ["/sw.js", "Cache-Control", "no-cache, no-store, must-revalidate"],
+    ["/manifest.json", "Cache-Control", "no-cache, no-store, must-revalidate"],
+  ]) {
+    const rule = `- path: ${pathName}\n        name: ${header}\n        value: ${value}`;
+    if (!frontendService.includes(rule)) {
+      fail(
+        `render.yaml frontend service: missing static header ${header} for ${pathName}.`,
+      );
+    }
+  }
+}
+
 function checkProductionBuildDependencies() {
   const npmrc = read(".npmrc");
   const includesDevDependencies = npmrc
@@ -333,6 +425,7 @@ checkInternalHardNavigations();
 checkAvatarAndUploadContracts();
 checkRenderTemplateContract();
 checkProductionBuildDependencies();
+checkPwaDeliveryContract();
 
 if (failures.length > 0) {
   console.error("Deployment guardrail check failed:\n");

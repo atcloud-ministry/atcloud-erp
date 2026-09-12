@@ -1,6 +1,7 @@
+import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { Navigate, useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { loginSchema } from "../schemas/loginSchema";
 import type {
   LoginFormData,
@@ -18,11 +19,16 @@ import { useLogin } from "../hooks/useLogin";
 import { useForgotPassword } from "../hooks/useForgotPassword";
 import { useAuthForm } from "../hooks/useAuthForm";
 import { useAuth } from "../hooks/useAuth";
-import { getRedirectParam } from "../utils/loginRedirect";
+import {
+  consumeStoredLoginRedirect,
+  resolvePostLoginRedirect,
+} from "../utils/loginRedirect";
 
 export default function Login() {
   const { currentUser } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const redirectStartedRef = useRef(false);
 
   const {
     isSubmitting,
@@ -39,6 +45,29 @@ export default function Login() {
   const { showForgotPassword, showForgotPasswordForm, showLoginForm } =
     useAuthForm();
 
+  useEffect(() => {
+    if (!currentUser) {
+      redirectStartedRef.current = false;
+      return;
+    }
+    if (redirectStartedRef.current) return;
+    redirectStartedRef.current = true;
+
+    const stateUnknown: unknown = location.state;
+    const state =
+      typeof stateUnknown === "object" && stateUnknown !== null
+        ? (stateUnknown as {
+            from?: { pathname?: string; search?: string; hash?: string };
+          })
+        : null;
+    const target = resolvePostLoginRedirect({
+      search: location.search,
+      from: state?.from,
+      storedReturnUrl: consumeStoredLoginRedirect(),
+    });
+    navigate(target, { replace: true });
+  }, [currentUser, location.search, location.state, navigate]);
+
   const {
     register,
     handleSubmit,
@@ -48,34 +77,16 @@ export default function Login() {
     defaultValues: { emailOrUsername: "", password: "", rememberMe: false },
   });
 
-  // If user is already authenticated, redirect them away from login page
-  // This handles the race condition where login succeeds but navigation doesn't complete
   if (currentUser) {
-    // Check for redirect query param first
-    const redirectParam = getRedirectParam(location.search);
-    if (redirectParam) {
-      return <Navigate to={redirectParam} replace />;
-    }
-
-    // Check for return URL in sessionStorage
-    const returnUrl = sessionStorage.getItem("returnUrl");
-    if (returnUrl) {
-      sessionStorage.removeItem("returnUrl");
-      return <Navigate to={returnUrl} replace />;
-    }
-
-    // Check for state.from (set by ProtectedRoute)
-    const state = location.state as { from?: { pathname?: string } } | null;
-    if (state?.from?.pathname) {
-      return <Navigate to={state.from.pathname} replace />;
-    }
-
-    // Default: go to dashboard
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <main className="min-h-screen bg-gray-50" aria-busy="true">
+        <p className="sr-only">Redirecting after login…</p>
+      </main>
+    );
   }
 
   const onSubmit = async (data: LoginFormData) => {
-    await handleLogin(data); // redirect handled internally based on location.state.from
+    await handleLogin(data);
   };
 
   const onForgotPasswordSubmit = async (data: ForgotPasswordFormData) => {

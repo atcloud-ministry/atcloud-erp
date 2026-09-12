@@ -7,6 +7,8 @@ import Message from "../models/Message";
 import PromoCode from "../models/PromoCode";
 import Program from "../models/Program";
 import ShortLink from "../models/ShortLink";
+import PushSubscription from "../models/PushSubscription";
+import NotificationPreference from "../models/NotificationPreference";
 import { CachePatterns } from "./infrastructure/CacheService";
 import { resourceAuthorizationInvalidationService } from "./authorization/ResourceAuthorizationInvalidationService";
 import { socketService } from "./infrastructure/SocketService";
@@ -259,12 +261,21 @@ export class UserDeletionService {
         }
       }
 
-      // 16. Finally, delete the user record
+      // 16. Remove per-account notification delivery data before the account.
+      // Push endpoints and encryption keys are secrets and must not survive a
+      // permanent account deletion; preferences must not become orphaned.
+      const deletedUserId = new mongoose.Types.ObjectId(userId);
+      await Promise.all([
+        PushSubscription.deleteMany({ userId: deletedUserId }),
+        NotificationPreference.deleteMany({ userId: deletedUserId }),
+      ]);
+
+      // 17. Finally, delete the user record
       await User.findByIdAndDelete(userId);
       socketService.disconnectUser(userId);
       report.deletedData.userRecord = true;
 
-      // 17. Update statistics for affected events
+      // 18. Update statistics for affected events
       const affectedEvents = await Event.find({
         _id: {
           $in: eventsCreatedByUser.map((e) => e._id),
@@ -278,7 +289,7 @@ export class UserDeletionService {
         );
       }
 
-      // 18. Invalidate all relevant caches after user deletion
+      // 19. Invalidate all relevant caches after user deletion
       await CachePatterns.invalidateUserCache(userId);
       await CachePatterns.invalidateAllUserCaches(); // For user listings
       await CachePatterns.invalidateAnalyticsCache(); // For user count analytics
