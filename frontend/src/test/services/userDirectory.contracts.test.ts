@@ -51,20 +51,15 @@ describe("user directory response contracts", () => {
     ).toEqual({ ...communityMember, role: "Leader" });
   });
 
-  it("rejects contact PII added to a CommunityMemberDTO", () => {
+  it.each([
+    ["email", "must-not-leak@example.com"],
+    ["phone", "+12065550100"],
+    ["birthYear", 1990],
+  ])("rejects %s added to a CommunityMemberDTO", (field, value) => {
     expect(() =>
       decodeCommunityMember({
         ...communityMember,
-        email: "must-not-leak@example.com",
-      }),
-    ).toThrow(/only keys/);
-  });
-
-  it("rejects registration PII added to a CommunityMemberDTO", () => {
-    expect(() =>
-      decodeCommunityMember({
-        ...communityMember,
-        birthYear: 1990,
+        [field]: value,
       }),
     ).toThrow(/only keys/);
   });

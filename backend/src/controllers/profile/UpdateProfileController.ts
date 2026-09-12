@@ -9,6 +9,10 @@ import {
   containsRegistrationProfileUpdate,
   validateMergedRegistrationProfile,
 } from "../../services/RegistrationProfileService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
 import { serializeSelfUser } from "../../serializers/userReadSerializers";
 
 interface UpdateProfileRequest {
@@ -82,85 +86,108 @@ export default class UpdateProfileController {
         return;
       }
 
-      const updateData = selectSelfServiceProfileFields(req.body);
+      const requestedUpdate = selectSelfServiceProfileFields(req.body);
+      const write = await mongoTransactionService.run(async (session) => {
+        // Reload for every retry so validation and projection generation share
+        // one transaction snapshot.
+        const oldUser = await User.findById(req.user!._id)
+          .select("+birthYear")
+          .session(session);
+        if (!oldUser) return { kind: "not_found" } as const;
 
-      // Store old @Cloud values for change detection
-      const oldUser = await User.findById(req.user._id).select("+birthYear");
-      if (!oldUser) {
+        const updateData = { ...requestedUpdate };
+        const oldIsAtCloudLeader = oldUser.isAtCloudLeader;
+        const oldRoleInAtCloud = oldUser.roleInAtCloud;
+        const oldAvatarUrl = oldUser.avatar;
+
+        const nextIsAtCloudLeader =
+          updateData.isAtCloudLeader ?? oldUser.isAtCloudLeader;
+        const nextRoleInAtCloud =
+          updateData.roleInAtCloud ?? oldUser.roleInAtCloud;
+
+        if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+          return { kind: "role_required" } as const;
+        }
+
+        if (updateData.isAtCloudLeader === false) {
+          updateData.roleInAtCloud = undefined;
+        }
+
+        const registrationProfileResult = containsRegistrationProfileUpdate(
+          updateData,
+        )
+          ? validateMergedRegistrationProfile(oldUser, updateData)
+          : undefined;
+        if (registrationProfileResult && !registrationProfileResult.success) {
+          return {
+            kind: "registration_invalid",
+            issues: registrationProfileResult.issues,
+          } as const;
+        }
+
+        if (updateData.gender && updateData.gender !== oldUser.gender) {
+          updateData.avatar =
+            updateData.gender === "male"
+              ? "https://i.pravatar.cc/300?img=12"
+              : "https://i.pravatar.cc/300?img=47";
+        }
+
+        Object.assign(oldUser, updateData);
+        if (registrationProfileResult?.success) {
+          applyCanonicalRegistrationProfile(
+            oldUser,
+            registrationProfileResult.value,
+          );
+        }
+        const updatedUser = await oldUser.save({ session });
+        await synchronizeExistingAlumniProfileProjection(updatedUser, session);
+        return {
+          kind: "updated",
+          updatedUser,
+          oldIsAtCloudLeader,
+          oldRoleInAtCloud,
+          oldAvatarUrl,
+        } as const;
+      });
+
+      if (write.kind === "not_found") {
         res.status(404).json({
           success: false,
           message: "User not found.",
         });
         return;
       }
-
-      const oldIsAtCloudLeader = oldUser.isAtCloudLeader;
-      const oldRoleInAtCloud = oldUser.roleInAtCloud;
-      const oldAvatarUrl = oldUser.avatar;
-
-      const nextIsAtCloudLeader =
-        updateData.isAtCloudLeader ?? oldUser.isAtCloudLeader;
-      const nextRoleInAtCloud =
-        updateData.roleInAtCloud ?? oldUser.roleInAtCloud;
-
-      // @Cloud co-worker validation: the merged state must include a role.
-      if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+      if (write.kind === "role_required") {
         res.status(400).json({
           success: false,
           message: "@Cloud co-worker must have a role specified.",
         });
         return;
       }
-
-      // Clear roleInAtCloud if isAtCloudLeader is set to false.
-      if (updateData.isAtCloudLeader === false) {
-        updateData.roleInAtCloud = undefined;
-      }
-
-      const registrationProfileResult = containsRegistrationProfileUpdate(
-        updateData,
-      )
-        ? validateMergedRegistrationProfile(oldUser, updateData)
-        : undefined;
-      if (registrationProfileResult && !registrationProfileResult.success) {
+      if (write.kind === "registration_invalid") {
         res.status(400).json({
           success: false,
-          message: registrationProfileResult.issues
+          message: write.issues
             .map((issue) => `${issue.field}: ${issue.message}`)
             .join("; "),
-          errors: registrationProfileResult.issues,
+          errors: write.issues,
         });
         return;
       }
+      const {
+        updatedUser,
+        oldIsAtCloudLeader,
+        oldRoleInAtCloud,
+        oldAvatarUrl,
+      } = write;
 
-      // Handle gender change: Update avatar to default based on new gender
-      if (updateData.gender && updateData.gender !== oldUser.gender) {
-        // Set default avatar based on gender
-        const defaultAvatar =
-          updateData.gender === "male"
-            ? "https://i.pravatar.cc/300?img=12"
-            : "https://i.pravatar.cc/300?img=47";
-
-        updateData.avatar = defaultAvatar;
-
-        // Cleanup old avatar file (async)
-        if (oldAvatarUrl && oldAvatarUrl !== defaultAvatar) {
-          cleanupOldAvatar(String(oldUser._id), oldAvatarUrl).catch((error) => {
+      if (oldAvatarUrl && oldAvatarUrl !== updatedUser.avatar) {
+        cleanupOldAvatar(String(updatedUser._id), oldAvatarUrl).catch(
+          (error) => {
             console.error("Failed to cleanup old avatar:", error);
-          });
-        }
-      }
-
-      // Persist a hydrated document so conditional schema validation and
-      // pre-validation canonicalization cannot be bypassed by query updates.
-      Object.assign(oldUser, updateData);
-      if (registrationProfileResult?.success) {
-        applyCanonicalRegistrationProfile(
-          oldUser,
-          registrationProfileResult.value,
+          },
         );
       }
-      const updatedUser = await oldUser.save();
 
       // Check if @Cloud role changed and send notification
       const newIsAtCloudLeader = updatedUser.isAtCloudLeader;

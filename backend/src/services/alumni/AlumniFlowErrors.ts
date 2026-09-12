@@ -9,8 +9,19 @@ export type AlumniFlowErrorCode =
   | "ALUMNI_INVITATION_NOT_FOUND"
   | "ALUMNI_INVITATION_REVISION_CONFLICT"
   | "ALUMNI_INVITATION_UNAVAILABLE"
+  | "ALUMNI_PROFILE_NOT_FOUND"
+  | "ALUMNI_PROFILE_REVISION_CONFLICT"
+  | "ALUMNI_PROFILE_STATE_CONFLICT"
+  | "ALUMNI_PROFILE_CONSENT_VERSION_INVALID"
+  | "ALUMNI_PROFILE_NOT_PUBLISHABLE"
   | "ALUMNI_COMMIT_UNCERTAIN"
   | "ALUMNI_OPERATION_UNAVAILABLE";
+
+export interface AlumniProfileReadinessIssue {
+  readonly field: string;
+  readonly code: string;
+  readonly message: string;
+}
 
 export class AlumniFlowError extends Error {
   readonly name = "AlumniFlowError";
@@ -38,4 +49,14 @@ export function alumniInvitationUnavailable(): AlumniFlowError {
     404,
     "The alumni invitation is unavailable.",
   );
+}
+
+export class AlumniProfileNotPublishableError extends AlumniFlowError {
+  constructor(public readonly issues: readonly AlumniProfileReadinessIssue[]) {
+    super(
+      "ALUMNI_PROFILE_NOT_PUBLISHABLE",
+      422,
+      "The alumni profile is not ready to publish.",
+    );
+  }
 }

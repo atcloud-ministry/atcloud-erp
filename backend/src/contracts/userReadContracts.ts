@@ -122,10 +122,31 @@ export interface DirectoryDetailDTO extends DirectoryCardDTO {
   bio: string | null;
 }
 
+export interface AlumniProfilePublishReadinessIssueDTO {
+  field: string;
+  code: string;
+  message: string;
+}
+
+export interface AlumniProfilePublishReadinessDTO {
+  ready: boolean;
+  issues: AlumniProfilePublishReadinessIssueDTO[];
+}
+
+export interface AlumniProfilePublicationConsentDTO {
+  version: string;
+  text: string;
+}
+
 export interface OwnAlumniProfileDTO extends DirectoryDetailDTO {
   publishStatus: "draft" | "published" | "withdrawn";
   consentVersion: string | null;
+  hasCurrentPublicationConsent: boolean;
+  publicationConsent: AlumniProfilePublicationConsentDTO;
+  publishReadiness: AlumniProfilePublishReadinessDTO;
+  revision: number;
   publishedAt: string | null;
+  withdrawnAt: string | null;
   updatedAt: string | null;
 }
 

@@ -5,20 +5,25 @@ import { useRoleStats } from "./useRoleStats";
 import { useCommunityStats } from "./useUsersApi";
 import { useAuth } from "./useAuth";
 import { useManagementFilters } from "./useManagementFilters";
+import type { ManagementDirectoryScope } from "./useManagementFilters";
 
 /**
  * Enhanced management hook that combines search/filter functionality
  * with the existing management capabilities.
  */
-export function useEnhancedManagement() {
+export function useEnhancedManagement(scope?: ManagementDirectoryScope) {
   // Get current user
   const { currentUser } = useAuth();
 
   // Get actual current user role from auth context
   const currentUserRole: SystemAuthorizationLevel =
     currentUser?.role || "Participant";
-  const isAdminView =
-    currentUserRole === "Super Admin" || currentUserRole === "Administrator";
+  const resolvedScope: ManagementDirectoryScope =
+    scope ??
+    (currentUserRole === "Super Admin" || currentUserRole === "Administrator"
+      ? "admin"
+      : "community");
+  const isAdminView = resolvedScope === "admin";
 
   // Use the enhanced filtering hook for user data
   const {
@@ -31,7 +36,7 @@ export function useEnhancedManagement() {
     handleFiltersChange,
     handlePageChange,
     handleRefresh,
-  } = useManagementFilters(isAdminView ? "admin" : "community");
+  } = useManagementFilters(resolvedScope);
 
   // Convert filtered users to management User type
   const users: User[] = useMemo(() => {
@@ -111,6 +116,7 @@ export function useEnhancedManagement() {
     users,
     communityMembers: communityMembers as CommunityMemberDTO[],
     isAdminView,
+    scope: resolvedScope,
     currentUserRole,
     roleStats,
     roleStatsLoading: backendStatsLoading,

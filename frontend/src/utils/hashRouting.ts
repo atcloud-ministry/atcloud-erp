@@ -12,11 +12,16 @@ export const getAbsoluteHashRouteUrl = (
 
 const DIRECT_HASH_ROUTE_PATTERNS: RegExp[] = [
   /^\/login\/?$/i,
+  /^\/dashboard\/management\/?$/i,
+  /^\/dashboard\/community(?:\/.*)?$/i,
+  /^\/dashboard\/admin\/users\/?$/i,
   /^\/dashboard\/event\/[^/]+\/?$/i,
   /^\/dashboard\/programs\/[^/]+\/?$/i,
   /^\/p\/[^/]+\/?$/i,
   /^\/s\/[^/]+\/?$/i,
 ];
+
+const LEGACY_ADMIN_USERS_PATTERN = /^\/admin\/users(?:\/[^/]+)?\/?$/i;
 
 export const getDirectPathHashRouteReplacement = (location: {
   pathname: string;
@@ -25,6 +30,12 @@ export const getDirectPathHashRouteReplacement = (location: {
 }): string | null => {
   if (location.hash || location.pathname === "/") {
     return null;
+  }
+
+  if (LEGACY_ADMIN_USERS_PATTERN.test(location.pathname)) {
+    return getHashRouteUrl(
+      `/dashboard/admin/users${location.search || ""}`,
+    );
   }
 
   const shouldRewrite = DIRECT_HASH_ROUTE_PATTERNS.some((pattern) =>

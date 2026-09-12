@@ -82,7 +82,8 @@ export default function DashboardLayout() {
           {/** Allow wider content specifically on Management page to fit all table columns */}
           <div
             className={`flex-1 p-4 sm:p-6 pb-0 ${
-              location.pathname.startsWith("/dashboard/management")
+              location.pathname.startsWith("/dashboard/management") ||
+              location.pathname.startsWith("/dashboard/admin/users")
                 ? "max-w-[1280px] xl:max-w-[1360px] 2xl:max-w-[1440px]"
                 : "max-w-7xl"
             } mx-auto w-full`}

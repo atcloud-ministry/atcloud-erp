@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.3
+- 版本：3.4
 - 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0、M1、M2-01 与 M2-02 已完成
-- 下一任务：M2-03（待确认）
+- 实施进度：M0、M1 与 M2 已完成
+- 下一任务：M3-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -292,10 +292,14 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
   - 验证：backend unit 6,514、HTTP 401、MongoDB integration 1,799、frontend 1,968；lint、type-check、production build、deployment guards 与独立审查通过。
 - [x] M2-02 实现 roster CSV dry-run、matching、review、invitation、claim 和 rerun。
   - 验证：backend unit 6,602、HTTP 412、MongoDB integration 1,831、frontend 1,968；lint、type-check、production build、production full-stack E2E、deployment guards 与独立审查通过。
-- [ ] M2-03 实现 profile edit、preview、consent、publish、withdraw 和 offering settings。
-- [ ] M2-04 实现 Community navigation、routes、redirects、Members 和 User Management entry。
-- [ ] M2-05 实现 Directory API/UI、card/detail、search/filter 和 pagination。
-- [ ] M2-06 完成 import、permission、DTO、search、responsive 和 performance tests。
+- [x] M2-03 实现 profile edit、preview、consent、publish、withdraw 和 offering settings。
+  - 验证：profile targeted backend unit 10、HTTP 5、MongoDB integration 7、frontend 33 全部通过。
+- [x] M2-04 实现 Community navigation、routes、redirects、Members 和 User Management entry。
+  - 验证：navigation、route、permission 与 DTO targeted frontend 40 全部通过。
+- [x] M2-05 实现 Directory API/UI、card/detail、search/filter 和 pagination。
+  - 验证：Directory targeted backend unit 6、HTTP 4、MongoDB integration 10、frontend 21；500-profile p95 gate 通过。
+- [x] M2-06 完成 import、permission、DTO、search、responsive 和 performance tests。
+  - 验证：backend unit 6,621、HTTP 421、MongoDB integration 1,848、frontend 2,044；lint、type-check、production build、deployment guards、production full-stack E2E 与独立审查通过。
 
 ### M3 — Alumni Help 与 outcomes
 

@@ -234,7 +234,11 @@ export default function UserProfile() {
               The user profile you're looking for doesn't exist.
             </p>
             <Link
-              to="/dashboard/management"
+              to={
+                canEdit
+                  ? "/dashboard/admin/users"
+                  : "/dashboard/community/members"
+              }
               className="text-blue-600 hover:text-blue-800 mt-4 inline-block"
             >
               ← Back to {canEdit ? "Administration" : "Community"}
@@ -286,7 +290,7 @@ export default function UserProfile() {
                 </div>
               )}
               <Link
-                to="/dashboard/management"
+                to="/dashboard/community/members"
                 className="text-blue-600 hover:text-blue-800"
               >
                 ← Back to Community

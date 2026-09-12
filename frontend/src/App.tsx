@@ -13,6 +13,11 @@ import { RuntimeConfigProvider } from "./contexts/RuntimeConfigContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
+import {
+  AlumniNetworkReadableRoute,
+  LegacyManagementEntry,
+  UserManagementAccessRoute,
+} from "./components/common/AlumniNetworkRouteGuards";
 
 const Home = lazy(() => import("./pages/Home"));
 const SignUp = lazy(() => import("./pages/SignUp"));
@@ -44,6 +49,14 @@ const CreateNewProgram = lazy(() => import("./pages/CreateNewProgram"));
 const EditProgram = lazy(() => import("./pages/EditProgram"));
 const CreateEvent = lazy(() => import("./pages/CreateEvent"));
 const Management = lazy(() => import("./pages/Management"));
+const CommunityLayout = lazy(() => import("./layouts/CommunityLayout"));
+const CommunityMembers = lazy(() => import("./pages/CommunityMembers"));
+const AdminUserManagement = lazy(() => import("./pages/AdminUserManagement"));
+const AlumniDirectory = lazy(() => import("./pages/AlumniDirectory"));
+const AlumniDirectoryDetail = lazy(
+  () => import("./pages/AlumniDirectoryDetail"),
+);
+const MyAlumniProfile = lazy(() => import("./pages/MyAlumniProfile"));
 const Profile = lazy(() => import("./pages/Profile"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
 const RequestPasswordChange = lazy(
@@ -282,7 +295,40 @@ function App() {
                       "Guest Expert",
                     ]}
                   >
-                    <Management />
+                    <LegacyManagementEntry>
+                      <Management />
+                    </LegacyManagementEntry>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="community"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <CommunityLayout />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="alumni" replace />} />
+                <Route path="alumni" element={<AlumniDirectory />} />
+                <Route path="alumni/me" element={<MyAlumniProfile />} />
+                <Route
+                  path="alumni/:profileId"
+                  element={<AlumniDirectoryDetail />}
+                />
+                <Route path="members" element={<CommunityMembers />} />
+              </Route>
+              <Route
+                path="admin/users"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <UserManagementAccessRoute>
+                        <AdminUserManagement />
+                      </UserManagementAccessRoute>
+                    </AlumniNetworkReadableRoute>
                   </ProtectedRoute>
                 }
               />
@@ -438,6 +484,14 @@ function App() {
               element={<EventDetailAccessRoute />}
             />
             <Route path="/logout" element={<Home />} />
+            <Route
+              path="/admin/users"
+              element={<Navigate to="/dashboard/admin/users" replace />}
+            />
+            <Route
+              path="/admin/users/:legacyIdentifier"
+              element={<Navigate to="/dashboard/admin/users" replace />}
+            />
             {/* Public events list page (unauthenticated) */}
             <Route path="/events" element={<PublicEventsList />} />
             {/* Public published event page (unauthenticated) */}

@@ -1,7 +1,13 @@
 import type { Response } from "express";
+import { AlumniDirectoryQueryValidationError } from "../../contracts/alumniDirectoryFlow";
+import { AlumniProfileFlowValidationError } from "../../contracts/alumniProfileFlow";
 import { AlumniRosterFlowValidationError } from "../../contracts/alumniRosterFlow";
 import { AlumniRosterCsvError } from "../../services/alumni/AlumniRosterCsvParser";
-import { isAlumniFlowError } from "../../services/alumni/AlumniFlowErrors";
+import {
+  AlumniProfileNotPublishableError,
+  isAlumniFlowError,
+  type AlumniProfileReadinessIssue,
+} from "../../services/alumni/AlumniFlowErrors";
 import {
   IdempotencyInProgressError,
   IdempotencyKeyConflictError,
@@ -25,6 +31,7 @@ interface PublicFailure {
   readonly code: string;
   readonly message: string;
   readonly context?: CsvStructuralContext;
+  readonly issues?: readonly AlumniProfileReadinessIssue[];
 }
 
 const ALUMNI_FLOW_PUBLIC_FAILURES: Readonly<
@@ -70,6 +77,26 @@ const ALUMNI_FLOW_PUBLIC_FAILURES: Readonly<
     code: "ALUMNI_INVITATION_UNAVAILABLE",
     message: "The alumni invitation is unavailable.",
   },
+  ALUMNI_PROFILE_NOT_FOUND: {
+    code: "ALUMNI_PROFILE_NOT_FOUND",
+    message: "The alumni profile was not found.",
+  },
+  ALUMNI_PROFILE_REVISION_CONFLICT: {
+    code: "ALUMNI_PROFILE_REVISION_CONFLICT",
+    message: "The alumni profile changed. Refresh it and try again.",
+  },
+  ALUMNI_PROFILE_STATE_CONFLICT: {
+    code: "ALUMNI_PROFILE_STATE_CONFLICT",
+    message: "The alumni profile is not in the required state.",
+  },
+  ALUMNI_PROFILE_CONSENT_VERSION_INVALID: {
+    code: "ALUMNI_PROFILE_CONSENT_VERSION_INVALID",
+    message: "The publication consent has changed. Refresh it and try again.",
+  },
+  ALUMNI_PROFILE_NOT_PUBLISHABLE: {
+    code: "ALUMNI_PROFILE_NOT_PUBLISHABLE",
+    message: "The alumni profile is not ready to publish.",
+  },
   ALUMNI_COMMIT_UNCERTAIN: {
     code: "ALUMNI_COMMIT_UNCERTAIN",
     message:
@@ -87,6 +114,7 @@ function respond(res: Response, failure: PublicFailure): void {
     message: failure.message,
     code: failure.code,
     ...(failure.context ? { context: failure.context } : {}),
+    ...(failure.issues ? { issues: failure.issues } : {}),
   });
 }
 
@@ -108,6 +136,23 @@ function csvStructuralContext(error: AlumniRosterCsvError) {
 }
 
 export function sendAlumniHttpError(res: Response, error: unknown): void {
+  if (error instanceof AlumniDirectoryQueryValidationError) {
+    respond(res, {
+      status: 400,
+      code: error.code,
+      message: "A valid alumni directory query is required.",
+    });
+    return;
+  }
+  if (error instanceof AlumniProfileFlowValidationError) {
+    respond(res, {
+      status: 400,
+      code: error.code,
+      message: "A valid alumni profile request is required.",
+    });
+    return;
+  }
+
   if (error instanceof AlumniRosterFlowValidationError) {
     respond(res, {
       status: 400,
@@ -140,6 +185,9 @@ export function sendAlumniHttpError(res: Response, error: unknown): void {
       message:
         publicFailure?.message ??
         "The alumni operation is temporarily unavailable.",
+      ...(error instanceof AlumniProfileNotPublishableError
+        ? { issues: error.issues }
+        : {}),
     });
     return;
   }

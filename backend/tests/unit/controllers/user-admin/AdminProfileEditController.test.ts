@@ -17,12 +17,26 @@ vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
 vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
   CachePatterns: { invalidateUserCache: vi.fn() },
 }));
+vi.mock(
+  "../../../../src/services/alumni/AlumniProfileProjectionSyncService",
+  () => ({ synchronizeExistingAlumniProfileProjection: vi.fn() }),
+);
+vi.mock(
+  "../../../../src/services/reliability/MongoTransactionService",
+  () => ({ mongoTransactionService: { run: vi.fn() } }),
+);
 
 import { User } from "../../../../src/models";
 import AuditLog from "../../../../src/models/AuditLog";
 import { cleanupOldAvatar } from "../../../../src/utils/avatarCleanup";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../../../src/services/alumni/AlumniProfileProjectionSyncService";
+import { mongoTransactionService } from "../../../../src/services/reliability/MongoTransactionService";
+
+const TRANSACTION_SESSION = { inTransaction: () => true };
 
 const BASE_PROFILE = {
   phone: "+12065550123",
@@ -57,9 +71,10 @@ function hydratedUser(overrides: Record<string, unknown> = {}) {
 }
 
 function mockFindById(result: Record<string, unknown> | null) {
-  const select = vi.fn().mockResolvedValue(result);
+  const session = vi.fn().mockResolvedValue(result);
+  const select = vi.fn().mockReturnValue({ session });
   vi.mocked(User.findById).mockReturnValue({ select } as never);
-  return select;
+  return { select, session };
 }
 
 describe("AdminProfileEditController", () => {
@@ -95,6 +110,13 @@ describe("AdminProfileEditController", () => {
     vi.mocked(CachePatterns.invalidateUserCache).mockResolvedValue(undefined);
     vi.mocked(AuditLog.create).mockResolvedValue({} as never);
     vi.mocked(cleanupOldAvatar).mockResolvedValue(true);
+    vi.mocked(mongoTransactionService.run).mockImplementation(
+      async (operation) =>
+        operation(TRANSACTION_SESSION as never, { attempt: 1, maxAttempts: 3 }),
+    );
+    vi.mocked(synchronizeExistingAlumniProfileProjection).mockResolvedValue(
+      false,
+    );
   });
 
   afterEach(() => consoleError.mockRestore());
@@ -134,9 +156,23 @@ describe("AdminProfileEditController", () => {
   );
 
   it("selects hidden birthYear while loading the hydrated target", async () => {
-    const select = mockFindById(null);
+    const { select, session } = mockFindById(null);
     await invoke();
     expect(select).toHaveBeenCalledWith("+birthYear");
+    expect(session).toHaveBeenCalledWith(TRANSACTION_SESSION);
+  });
+
+  it("saves and synchronizes an existing alumni projection atomically", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = { company: "Next Company" };
+    await invoke();
+
+    expect(target.save).toHaveBeenCalledWith({ session: TRANSACTION_SESSION });
+    expect(synchronizeExistingAlumniProfileProjection).toHaveBeenCalledWith(
+      target,
+      TRANSACTION_SESSION,
+    );
   });
 
   it("returns 400 for a non-boolean isAtCloudLeader without throwing", async () => {

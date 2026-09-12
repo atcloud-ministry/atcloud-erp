@@ -17,6 +17,11 @@ vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => mockUseAuth(),
 }));
 
+const mockUseRuntimeConfig = vi.fn();
+vi.mock("../../contexts/RuntimeConfigContext", () => ({
+  useRuntimeConfig: () => mockUseRuntimeConfig(),
+}));
+
 describe("Sidebar Component - Income History Link Visibility", () => {
   const mockSetSidebarOpen = vi.fn();
 
@@ -41,6 +46,12 @@ describe("Sidebar Component - Income History Link Visibility", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseRuntimeConfig.mockReturnValue({
+      status: "ready",
+      config: {
+        alumniNetwork: { mode: "off", readable: false, writable: false },
+      },
+    });
   });
 
   describe("Super Admin Role", () => {
@@ -218,6 +229,94 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       // Leader sees "Community" instead of "Management"
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
       expect(screen.getByText("Community")).toBeInTheDocument();
+    });
+  });
+
+  describe("Alumni Network navigation", () => {
+    beforeEach(() => {
+      mockUseRuntimeConfig.mockReturnValue({
+        status: "ready",
+        config: {
+          alumniNetwork: {
+            mode: "read_only",
+            readable: true,
+            writable: false,
+          },
+        },
+      });
+    });
+
+    it("shows the canonical Community entry to a member", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter initialEntries={["/dashboard/community/members"]}>
+          <Sidebar
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      const communityLink = screen.getByRole("link", { name: "Community" });
+      expect(communityLink).toHaveAttribute("href", "/dashboard/community");
+      expect(communityLink).toHaveClass("text-blue-700");
+      expect(screen.queryByText("Management")).not.toBeInTheDocument();
+    });
+
+    it("adds Administration and User Management for account managers", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Administrator"),
+        canManageUsers: true,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter>
+          <Sidebar
+            userRole="Administrator"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.getByText("Administration")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "User Management" })).toHaveAttribute(
+        "href",
+        "/dashboard/admin/users",
+      );
+      expect(screen.getByRole("link", { name: "Community" })).toHaveAttribute(
+        "href",
+        "/dashboard/community",
+      );
+      expect(screen.queryByText("Management")).not.toBeInTheDocument();
+    });
+
+    it("does not expose User Management without its permission", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Administrator"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter>
+          <Sidebar
+            userRole="Administrator"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+      expect(screen.queryByText("User Management")).not.toBeInTheDocument();
     });
   });
 

@@ -8,8 +8,13 @@ import UserSearchAndFilter from "../components/management/UserSearchAndFilter";
 import { Card, CardContent } from "../components/ui";
 import ConfirmationModal from "../components/common/ConfirmationModal";
 import UserDeleteModal from "../components/management/UserDeleteModal";
+import type { ManagementDirectoryScope } from "../hooks/useManagementFilters";
 
-export default function Management() {
+interface ManagementProps {
+  scope?: ManagementDirectoryScope;
+}
+
+export default function Management({ scope }: ManagementProps = {}) {
   // Enhanced management hook provides search/filter functionality
   const {
     users: enhancedUsers,
@@ -25,7 +30,7 @@ export default function Management() {
     // Search and filtering
     onFiltersChange,
     onPageChange: handleEnhancedPageChange,
-  } = useEnhancedManagement();
+  } = useEnhancedManagement(scope);
 
   // Original management hook provides action handling
   // Pass the enhancedUsers so handlers can find users correctly
@@ -61,6 +66,7 @@ export default function Management() {
         currentUserRole={currentUserRole}
         roleStats={roleStats}
         loadingStats={roleStatsLoading}
+        scope={scope}
       />
 
       {canBrowseWithFilters && (

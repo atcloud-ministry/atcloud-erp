@@ -52,6 +52,10 @@ import {
   alumniInputError,
   alumniInvitationUnavailable,
 } from "./AlumniFlowErrors";
+import {
+  ALUMNI_PROFILE_SEARCH_USER_PROJECTION,
+  buildAlumniProfileSearchProjection,
+} from "./AlumniProfileProjectionService";
 
 const INVITATION_PRIVATE_SELECTION = [
   "+contactEmail",
@@ -725,7 +729,9 @@ export class AlumniInvitationService {
           isActive: true,
           isVerified: true,
         })
-          .select("_id email isActive isVerified")
+          .select(
+            `_id email isActive isVerified ${ALUMNI_PROFILE_SEARCH_USER_PROJECTION}`,
+          )
           .session(session);
         if (!actor) throw alumniInvitationUnavailable();
 
@@ -856,6 +862,41 @@ export class AlumniInvitationService {
           );
         }
 
+        const verifiedAffiliations = await AlumniAffiliation.find({
+          alumniProfileId: profileId,
+          verificationStatus: "verified",
+          accountDeletionApprovedAt: null,
+        })
+          .select("programName cohortLabel")
+          .sort({ programName: 1, cohortLabel: 1, _id: 1 })
+          .session(session)
+          .lean();
+        const expectedProfileRevision = profile.revision;
+        profile.searchProjection = buildAlumniProfileSearchProjection({
+          user: actor,
+          profile,
+          affiliations: verifiedAffiliations,
+        });
+        profile.revision = expectedProfileRevision + 1;
+        await profile.validate();
+        const projected = await AlumniProfile.updateOne(
+          { _id: profileId, userId: actorId, revision: expectedProfileRevision },
+          {
+            $set: {
+              searchProjection: profile.searchProjection,
+              revision: profile.revision,
+            },
+          },
+          { session, runValidators: false },
+        );
+        if (projected.modifiedCount !== 1) {
+          throw new AlumniFlowError(
+            "ALUMNI_PROFILE_REVISION_CONFLICT",
+            409,
+            "The alumni profile revision has changed.",
+          );
+        }
+
         await AuditLogService.recordRequiredInTransaction(
           {
             action: "alumni_invitation.claimed",
@@ -871,6 +912,7 @@ export class AlumniInvitationService {
               profileId: profileId.toString(),
               affiliationsCreated,
               affiliationCount: claimed.affiliations.length,
+              profileRevision: profile.revision,
               revision: claimed.revision,
             },
           },

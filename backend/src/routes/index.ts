@@ -35,6 +35,7 @@ import readinessRoutes from "./readiness";
 import adminAlumniImportRoutes from "./admin/alumniImports";
 import adminAlumniInvitationRoutes from "./admin/alumniInvitations";
 import alumniInvitationRoutes from "./alumniInvitations";
+import directoryRoutes from "./directory";
 
 const router = Router();
 
@@ -75,6 +76,7 @@ router.use("/admin/users", adminUserRoutes);
 router.use("/admin/alumni-imports", adminAlumniImportRoutes);
 router.use("/admin/alumni-invitations", adminAlumniInvitationRoutes);
 router.use("/alumni-invitations", alumniInvitationRoutes);
+router.use("/directory", directoryRoutes);
 router.use("/user-options", userOptionsRoutes);
 
 // Health check endpoint

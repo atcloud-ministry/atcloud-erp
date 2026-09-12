@@ -21,6 +21,7 @@ import { reliabilityFoundationService } from "./services/reliability/Reliability
 import { readHttpBindHost } from "./config/httpBinding";
 import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature";
 import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
+import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
 
 const log = createLogger("App");
 
@@ -195,7 +196,7 @@ const connectDB = async () => {
     const mongoURI =
       process.env.MONGODB_URI || "mongodb://localhost:27017/atcloud-signup";
 
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, MONGODB_CONNECTION_OPTIONS);
     console.log("✅ Connected to MongoDB successfully");
     log.info("Connected to MongoDB successfully", undefined, {
       mongoURI: mongoURI.replace(/:\/\/.*@/, "://***@"),

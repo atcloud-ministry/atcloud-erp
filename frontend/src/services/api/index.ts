@@ -21,6 +21,7 @@ export * from "./purchases.api";
 export * from "./promoCodes.api";
 export * from "./users.api";
 export * from "./userDirectory.api";
+export * from "./alumniDirectory.api";
 export * from "./files.api";
 export * from "./notifications.api";
 export * from "./systemMessages.api";
@@ -31,6 +32,7 @@ export * from "./assignments.api";
 export * from "./donations.api";
 export * from "./refundRequests.api";
 export * from "./annualMemberships.api";
+export * from "./alumniInvitations.api";
 
 // Export full ApiClient for backward compatibility with code that uses apiClient instance
 export { apiClient, ApiClient } from "./apiClient";

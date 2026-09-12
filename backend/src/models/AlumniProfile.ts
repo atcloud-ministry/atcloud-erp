@@ -23,7 +23,6 @@ const MAX_SKILLS = 20;
 const MAX_BIO_CODE_POINTS = 2_000;
 const MAX_SEARCH_TEXT_CODE_POINTS = 4_000;
 const MAX_SEARCH_KEY_CODE_POINTS = 200;
-const MAX_COHORT_KEYS = 50;
 
 export interface AlumniHelpOfferings {
   careerAdvice: boolean;
@@ -165,7 +164,6 @@ const searchProjectionSchema = new Schema<AlumniProfileSearchProjection>(
       validate: {
         validator: (values: unknown) =>
           Array.isArray(values) &&
-          values.length <= MAX_COHORT_KEYS &&
           values.every((value) => validSearchKey(value)),
         message: "cohortKeys must contain normalized, bounded search values.",
       },

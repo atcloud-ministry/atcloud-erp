@@ -592,7 +592,9 @@ describe("M2-02 alumni invitation issue, reissue, and claim", () => {
       status: "claimed",
     });
     expect(replay).toEqual({ ...claimed, replayed: true });
-    const profile = await AlumniProfile.findOne({ userId: matchedUserId }).lean();
+    const profile = await AlumniProfile.findOne({ userId: matchedUserId })
+      .select("+searchProjection")
+      .lean();
     expect(profile).toMatchObject({
       publishStatus: "draft",
       helpOfferings: {
@@ -600,7 +602,18 @@ describe("M2-02 alumni invitation issue, reissue, and claim", () => {
         warmIntroduction: false,
         formalEmployeeReferral: false,
       },
+      revision: 1,
+      searchProjection: {
+        cohortKeys: [
+          "executive leadership",
+          "2030",
+          "executive leadership 2030",
+        ],
+      },
     });
+    expect(profile?.searchProjection.searchText).toContain(
+      "executive leadership",
+    );
     expect(String(profile?._id)).toBe(claimed.alumniProfileId);
 
     const verified = await AlumniAffiliation.findOne({

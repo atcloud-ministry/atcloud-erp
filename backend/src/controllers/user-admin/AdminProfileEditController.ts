@@ -14,6 +14,10 @@ import {
   containsRegistrationProfileUpdate,
   validateMergedRegistrationProfile,
 } from "../../services/RegistrationProfileService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
 
 interface AdminProfileEditRequest {
   avatar?: string;
@@ -93,56 +97,77 @@ export default class AdminProfileEditController {
         return;
       }
 
-      const targetUser = await User.findById(targetUserId).select("+birthYear");
-      if (!targetUser) {
+      const write = await mongoTransactionService.run(async (session) => {
+        const targetUser = await User.findById(targetUserId)
+          .select("+birthYear")
+          .session(session);
+        if (!targetUser) return { kind: "not_found" } as const;
+
+        const update = { ...edit };
+        const nextIsAtCloudLeader =
+          isAtCloudLeader ?? targetUser.isAtCloudLeader;
+        const nextRoleInAtCloud = roleInAtCloud ?? targetUser.roleInAtCloud;
+        if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+          return { kind: "role_required" } as const;
+        }
+
+        const oldValues = Object.fromEntries(
+          AUDITED_PROFILE_FIELDS.map((field) => [field, targetUser[field]]),
+        ) as Record<(typeof AUDITED_PROFILE_FIELDS)[number], unknown>;
+
+        const registrationProfileResult = containsRegistrationProfileUpdate(
+          update,
+        )
+          ? validateMergedRegistrationProfile(targetUser, update)
+          : undefined;
+        if (registrationProfileResult && !registrationProfileResult.success) {
+          return {
+            kind: "registration_invalid",
+            issues: registrationProfileResult.issues,
+          } as const;
+        }
+
+        if (isAtCloudLeader === false) {
+          update.roleInAtCloud = undefined;
+        }
+
+        Object.assign(targetUser, update);
+        if (registrationProfileResult?.success) {
+          applyCanonicalRegistrationProfile(
+            targetUser,
+            registrationProfileResult.value,
+          );
+        }
+        const updatedUser = await targetUser.save({ session });
+        await synchronizeExistingAlumniProfileProjection(updatedUser, session);
+        return { kind: "updated", updatedUser, oldValues, update } as const;
+      });
+
+      if (write.kind === "not_found") {
         res.status(404).json({
           success: false,
           message: "User not found.",
         });
         return;
       }
-
-      const nextIsAtCloudLeader =
-        isAtCloudLeader ?? targetUser.isAtCloudLeader;
-      const nextRoleInAtCloud = roleInAtCloud ?? targetUser.roleInAtCloud;
-      if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+      if (write.kind === "role_required") {
         res.status(400).json({
           success: false,
           message: "Role in @Cloud is required for @Cloud co-workers.",
         });
         return;
       }
-
-      const oldValues = Object.fromEntries(
-        AUDITED_PROFILE_FIELDS.map((field) => [field, targetUser[field]]),
-      ) as Record<(typeof AUDITED_PROFILE_FIELDS)[number], unknown>;
-
-      const registrationProfileResult = containsRegistrationProfileUpdate(edit)
-        ? validateMergedRegistrationProfile(targetUser, edit)
-        : undefined;
-      if (registrationProfileResult && !registrationProfileResult.success) {
+      if (write.kind === "registration_invalid") {
         res.status(400).json({
           success: false,
-          message: registrationProfileResult.issues
+          message: write.issues
             .map((issue) => `${issue.field}: ${issue.message}`)
             .join("; "),
-          errors: registrationProfileResult.issues,
+          errors: write.issues,
         });
         return;
       }
-
-      if (isAtCloudLeader === false) {
-        edit.roleInAtCloud = undefined;
-      }
-
-      Object.assign(targetUser, edit);
-      if (registrationProfileResult?.success) {
-        applyCanonicalRegistrationProfile(
-          targetUser,
-          registrationProfileResult.value,
-        );
-      }
-      const updatedUser = await targetUser.save();
+      const { updatedUser, oldValues, update } = write;
 
       if (
         avatar !== undefined &&
@@ -221,14 +246,14 @@ export default class AdminProfileEditController {
         },
         changes: {
           avatar: avatar !== undefined,
-          phone: edit.phone !== undefined,
-          birthYear: edit.birthYear !== undefined,
-          residenceCity: edit.residenceCity !== undefined,
-          residenceRegion: edit.residenceRegion !== undefined,
-          residenceCountryCode: edit.residenceCountryCode !== undefined,
-          employmentStatus: edit.employmentStatus !== undefined,
-          company: edit.company !== undefined,
-          occupation: edit.occupation !== undefined,
+          phone: update.phone !== undefined,
+          birthYear: update.birthYear !== undefined,
+          residenceCity: update.residenceCity !== undefined,
+          residenceRegion: update.residenceRegion !== undefined,
+          residenceCountryCode: update.residenceCountryCode !== undefined,
+          employmentStatus: update.employmentStatus !== undefined,
+          company: update.company !== undefined,
+          occupation: update.occupation !== undefined,
           isAtCloudLeader: isAtCloudLeader !== undefined,
           roleInAtCloud: roleInAtCloud !== undefined,
         },

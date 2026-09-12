@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import ConfirmLogoutModal from "../../components/common/ConfirmLogoutModal";
 import {
   CalendarDaysIcon,
@@ -23,6 +23,7 @@ import {
   HeartIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../../hooks/useAuth";
+import { useRuntimeConfig } from "../../contexts/RuntimeConfigContext";
 import {
   buildLoginRedirectUrl,
   getPathWithSearch,
@@ -33,6 +34,9 @@ interface NavigationItem {
   href?: string;
   icon: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
+  activePathPrefix?: string;
+  sectionLabel?: string;
+  sectionEnd?: boolean;
 }
 
 interface SidebarProps {
@@ -48,10 +52,15 @@ export default function Sidebar({
 }: SidebarProps) {
   const location = useLocation(); //获取当前路径
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { canManageUsers, logout } = useAuth();
+  const { config: runtimeConfig, status: runtimeConfigStatus } =
+    useRuntimeConfig();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const guestLoginHref = buildLoginRedirectUrl(getPathWithSearch(location));
+  const communityNavigationEnabled =
+    runtimeConfigStatus === "ready" &&
+    runtimeConfig.alumniNetwork.readable;
 
   const handleLogout = async () => {
     try {
@@ -138,6 +147,15 @@ export default function Sidebar({
       },
     ];
 
+    if (communityNavigationEnabled) {
+      baseItems.push({
+        name: "Community",
+        href: "/dashboard/community",
+        activePathPrefix: "/dashboard/community",
+        icon: UsersIcon,
+      });
+    }
+
     // Add Published Events for Super Admin, Administrator, and Leader
     if (
       userRole === "Super Admin" ||
@@ -174,8 +192,25 @@ export default function Sidebar({
           href: "/dashboard/income-history",
           icon: CreditCardIcon,
         },
-        { name: "Management", href: "/dashboard/management", icon: UsersIcon },
       );
+      if (communityNavigationEnabled) {
+        if (canManageUsers) {
+          baseItems.push({
+            name: "User Management",
+            href: "/dashboard/admin/users",
+            activePathPrefix: "/dashboard/admin/users",
+            icon: UsersIcon,
+            sectionLabel: "Administration",
+            sectionEnd: true,
+          });
+        }
+      } else {
+        baseItems.push({
+          name: "Management",
+          href: "/dashboard/management",
+          icon: UsersIcon,
+        });
+      }
     } else if (userRole === "Leader") {
       baseItems.push(
         {
@@ -188,22 +223,28 @@ export default function Sidebar({
           href: "/dashboard/configure-roles-templates",
           icon: DocumentDuplicateIcon,
         },
-        { name: "Community", href: "/dashboard/management", icon: UsersIcon },
       );
-    } else if (userRole === "Participant" || userRole === "Guest Expert") {
-      // Participants can now see Create Event (with on-page access notice) and Community
-      baseItems.push(
-        {
-          name: "Create Event",
-          href: "/dashboard/new-event",
-          icon: PlusIcon,
-        },
-        {
+      if (!communityNavigationEnabled) {
+        baseItems.push({
           name: "Community",
           href: "/dashboard/management",
           icon: UsersIcon,
-        },
-      );
+        });
+      }
+    } else if (userRole === "Participant" || userRole === "Guest Expert") {
+      // Participants can now see Create Event (with on-page access notice) and Community
+      baseItems.push({
+        name: "Create Event",
+        href: "/dashboard/new-event",
+        icon: PlusIcon,
+      });
+      if (!communityNavigationEnabled) {
+        baseItems.push({
+          name: "Community",
+          href: "/dashboard/management",
+          icon: UsersIcon,
+        });
+      }
     }
 
     // Add System Messages for all logged-in users
@@ -297,38 +338,49 @@ export default function Sidebar({
               const isActive = !!(
                 item.href &&
                 (location.pathname === item.href ||
+                  (item.activePathPrefix &&
+                    location.pathname.startsWith(
+                      `${item.activePathPrefix}/`,
+                    )) ||
                   (item.href === "/dashboard/emba-program" &&
                     location.pathname === "/dashboard"))
               );
 
               return (
-                <li key={item.name}>
-                  {item.href ? (
-                    <Link
-                      to={item.href}
-                      className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                        isActive
-                          ? "bg-blue-50 text-blue-700 border-r-2 border-blue-700"
-                          : "text-gray-700 hover:bg-gray-50"
-                      }`}
-                      onClick={() => setSidebarOpen(false)} // Close mobile menu on click
-                    >
-                      <Icon className="w-5 h-5 flex-shrink-0" />
-                      <span className="font-medium">{item.name}</span>
-                    </Link>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setSidebarOpen(false);
-                        item.onClick?.();
-                      }}
-                      className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
-                    >
-                      <Icon className="w-5 h-5 flex-shrink-0" />
-                      <span className="font-medium">{item.name}</span>
-                    </button>
+                <Fragment key={item.name}>
+                  {item.sectionLabel && (
+                    <li className="mt-4 border-t border-gray-200 px-4 pt-5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      {item.sectionLabel}
+                    </li>
                   )}
-                </li>
+                  <li className={item.sectionEnd ? "mb-4" : undefined}>
+                    {item.href ? (
+                      <Link
+                        to={item.href}
+                        className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                          isActive
+                            ? "bg-blue-50 text-blue-700 border-r-2 border-blue-700"
+                            : "text-gray-700 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setSidebarOpen(false)} // Close mobile menu on click
+                      >
+                        <Icon className="w-5 h-5 flex-shrink-0" />
+                        <span className="font-medium">{item.name}</span>
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setSidebarOpen(false);
+                          item.onClick?.();
+                        }}
+                        className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                      >
+                        <Icon className="w-5 h-5 flex-shrink-0" />
+                        <span className="font-medium">{item.name}</span>
+                      </button>
+                    )}
+                  </li>
+                </Fragment>
               );
             })}
           </ul>
