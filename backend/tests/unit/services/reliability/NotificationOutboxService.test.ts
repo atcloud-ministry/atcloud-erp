@@ -334,6 +334,66 @@ describe("NotificationOutboxService", () => {
     expect(metrics.snapshot().leasesRenewed).toBe(1);
   });
 
+  it("atomically defers a live claim without consuming its attempt", async () => {
+    const deferredAt = new Date(NOW.getTime() + 2_000);
+    model.findOneAndUpdate.mockResolvedValue(
+      document({
+        status: "pending",
+        attemptCount: 0,
+        nextAttemptAt: deferredAt,
+        revision: 2,
+      }),
+    );
+
+    const result = await service.deferClaim(claim());
+
+    expect(result).toMatchObject({
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: deferredAt,
+    });
+    const [filter, update] = model.findOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({
+      eventId: EVENT_ID,
+      status: "processing",
+      attemptCount: 1,
+      leaseToken: LEASE_TOKEN,
+      leaseOwner: "worker-1",
+      leaseExpiresAt: { $gt: NOW },
+    });
+    expect(update).toEqual({
+      $set: {
+        status: "pending",
+        nextAttemptAt: deferredAt,
+        updatedAt: NOW,
+      },
+      $unset: {
+        leaseToken: "",
+        leaseOwner: "",
+        leaseExpiresAt: "",
+        lastHeartbeatAt: "",
+      },
+      $inc: { attemptCount: -1, revision: 1 },
+    });
+    expect(update.$set).not.toHaveProperty("lastErrorCode");
+  });
+
+  it("cannot defer a claim whose attempt count could decrement below zero", async () => {
+    await expect(
+      service.deferClaim(claim({ attemptCount: 0 })),
+    ).rejects.toThrow("Deferred notification outbox claim is invalid");
+    expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("fences deferred claim release with the live lease", async () => {
+    model.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(service.deferClaim(claim())).rejects.toBeInstanceOf(
+      NotificationOutboxLeaseLostError,
+    );
+    expect(metrics.snapshot().leaseLost).toBe(1);
+  });
+
   it("rejects stale-token finalization", async () => {
     model.findOneAndUpdate.mockResolvedValue(null);
     await expect(service.finalizeDelivered(claim())).rejects.toBeInstanceOf(

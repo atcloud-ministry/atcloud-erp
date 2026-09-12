@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.2
-- 更新时间：2026-09-11
+- 版本：3.3
+- 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0、M1 与 M2-01 已完成
-- 下一任务：M2-02（待确认）
+- 实施进度：M0、M1、M2-01 与 M2-02 已完成
+- 下一任务：M2-03（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -290,7 +290,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 - [x] M2-01 实现 alumni profile、affiliation、invitation、import 和 consent models/indexes。
   - 验证：backend unit 6,514、HTTP 401、MongoDB integration 1,799、frontend 1,968；lint、type-check、production build、deployment guards 与独立审查通过。
-- [ ] M2-02 实现 roster CSV dry-run、matching、review、invitation、claim 和 rerun。
+- [x] M2-02 实现 roster CSV dry-run、matching、review、invitation、claim 和 rerun。
+  - 验证：backend unit 6,602、HTTP 412、MongoDB integration 1,831、frontend 1,968；lint、type-check、production build、production full-stack E2E、deployment guards 与独立审查通过。
 - [ ] M2-03 实现 profile edit、preview、consent、publish、withdraw 和 offering settings。
 - [ ] M2-04 实现 Community navigation、routes、redirects、Members 和 User Management entry。
 - [ ] M2-05 实现 Directory API/UI、card/detail、search/filter 和 pagination。
@@ -335,7 +336,7 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 ### G1 — Production release
 
 - [ ] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
-- [ ] G1-02 完成 production migration、alumni import dry-run 和 data verification。
+- [ ] G1-02 完成 production migration（含 affiliation canonical identity index replacement）、alumni import dry-run 和 data verification。
 - [ ] G1-03 完成 backup/restore、rollback、outbox/deadline/membership/Service Worker recovery。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。

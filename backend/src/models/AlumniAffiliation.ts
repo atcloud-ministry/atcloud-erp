@@ -214,8 +214,11 @@ alumniAffiliationSchema.pre(
 );
 
 alumniAffiliationSchema.index(
-  { alumniProfileId: 1, affiliationKey: 1 },
-  { unique: true, name: "uniq_alumni_affiliation_profile_key" },
+  { alumniProfileId: 1, programId: 1, affiliationKey: 1 },
+  {
+    unique: true,
+    name: "uniq_alumni_affiliation_profile_external_key",
+  },
 );
 alumniAffiliationSchema.index(
   { alumniProfileId: 1, programAffiliationKey: 1 },

@@ -3,6 +3,7 @@ import {
   ALUMNI_IMPORT_BATCH_STATUSES,
   ALUMNI_IMPORT_ROW_APPLICATION_STATUSES,
   ALUMNI_IMPORT_ROW_ELIGIBILITY_STATUSES,
+  ALUMNI_IMPORT_ROW_MATCH_METHODS,
   ALUMNI_IMPORT_ROW_MATCH_STATUSES,
   IMPORT_RAW_DATA_RETENTION_DAYS,
   IMPORT_SUMMARY_RETENTION_MONTHS,
@@ -17,6 +18,7 @@ import {
   type AlumniImportBatchStatus,
   type AlumniImportRowApplicationStatus,
   type AlumniImportRowEligibilityStatus,
+  type AlumniImportRowMatchMethod,
   type AlumniImportRowMatchStatus,
 } from "../contracts/alumniDirectoryData";
 
@@ -59,6 +61,7 @@ export interface AlumniImportRowResult {
   rowNumber: number;
   rowKey: string;
   matchStatus: AlumniImportRowMatchStatus;
+  matchMethod: AlumniImportRowMatchMethod;
   matchedUserId?: mongoose.Types.ObjectId;
   candidateUserIds: mongoose.Types.ObjectId[];
   eligibilityStatus: AlumniImportRowEligibilityStatus;
@@ -207,6 +210,11 @@ const rowResultSchema = new Schema<AlumniImportRowResult>(
     matchStatus: {
       type: String,
       enum: ALUMNI_IMPORT_ROW_MATCH_STATUSES,
+      required: true,
+    },
+    matchMethod: {
+      type: String,
+      enum: ALUMNI_IMPORT_ROW_MATCH_METHODS,
       required: true,
     },
     matchedUserId: { type: Schema.Types.ObjectId, ref: "User" },
@@ -480,6 +488,33 @@ alumniImportBatchSchema.pre(
         this.invalidate(
           "rowResults",
           "Unmatched and invalid rows cannot reference matching users.",
+        );
+      }
+      if (
+        result.matchStatus === "matched" &&
+        !["exact_email", "manual"].includes(result.matchMethod)
+      ) {
+        this.invalidate(
+          "rowResults",
+          "Matched rows require exact-email or manual match provenance.",
+        );
+      }
+      if (
+        result.matchStatus === "unmatched" &&
+        !["none", "manual"].includes(result.matchMethod)
+      ) {
+        this.invalidate(
+          "rowResults",
+          "Unmatched rows require none or manual match provenance.",
+        );
+      }
+      if (
+        ["ambiguous", "invalid"].includes(result.matchStatus) &&
+        result.matchMethod !== "none"
+      ) {
+        this.invalidate(
+          "rowResults",
+          "Ambiguous and invalid rows cannot contain match provenance.",
         );
       }
 

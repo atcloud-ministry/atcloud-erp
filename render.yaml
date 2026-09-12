@@ -28,7 +28,7 @@ services:
       - key: MONGO_TRANSACTIONS_REQUIRED
         value: true
       - key: NOTIFICATION_OUTBOX_ENABLED
-        value: false
+        value: true
       - key: ALUMNI_NETWORK_RELEASE_AVAILABLE
         value: false
       - key: JWT_ACCESS_EXPIRE
@@ -40,6 +40,8 @@ services:
       # - JWT_ACCESS_SECRET (generate secure random string)
       # - JWT_REFRESH_SECRET (generate secure random string)
       # - SESSION_SECRET (generate secure random string)
+      # - ALUMNI_CONTACT_LOOKUP_KEY_V1 (32 random bytes, unpadded base64url)
+      # - ALUMNI_INVITATION_TOKEN_KEY_V1 (different 32 random bytes, unpadded base64url)
       # - FRONTEND_URL (your frontend deployment URL)
       # - SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM (email config)
 

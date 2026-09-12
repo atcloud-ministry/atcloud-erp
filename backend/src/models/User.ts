@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { USER_PERSISTED_EMAIL_PATTERN } from "../contracts/userEmail";
 import bcrypt from "bcryptjs";
 import {
   EMPLOYMENT_STATUSES,
@@ -131,7 +132,7 @@ const userSchema: Schema = new Schema(
       trim: true,
       lowercase: true,
       match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+        USER_PERSISTED_EMAIL_PATTERN,
         "Please provide a valid email address",
       ],
     },

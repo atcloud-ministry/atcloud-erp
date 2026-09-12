@@ -31,6 +31,8 @@ export interface AlumniInvitationAffiliation {
   affiliationKey: string;
   sourceImportBatchId: mongoose.Types.ObjectId;
   sourceRowNumber: number;
+  reviewedAt: Date;
+  reviewedBy: mongoose.Types.ObjectId;
 }
 
 export interface IAlumniInvitation extends Document {
@@ -47,6 +49,7 @@ export interface IAlumniInvitation extends Document {
   affiliations: AlumniInvitationAffiliation[];
   status: AlumniInvitationStatus;
   tokenHash?: string;
+  tokenVersion: number;
   issueCount: number;
   issuedAt: Date;
   tokenExpiresAt: Date;
@@ -105,6 +108,15 @@ const invitationAffiliationSchema = new Schema<AlumniInvitationAffiliation>(
           Number.isSafeInteger(value) && Number(value) >= 1,
         message: "sourceRowNumber must be a positive safe integer.",
       },
+    },
+    reviewedAt: {
+      type: Date,
+      required: true,
+    },
+    reviewedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
   },
   { _id: false, strict: "throw" },
@@ -201,6 +213,12 @@ const alumniInvitationSchema = new Schema<IAlumniInvitation>(
       match: SHA256_HEX_PATTERN,
       select: false,
     },
+    tokenVersion: {
+      type: Number,
+      required: true,
+      default: 1,
+      enum: [1],
+    },
     issueCount: {
       type: Number,
       required: true,
@@ -251,6 +269,12 @@ alumniInvitationSchema.pre(
       this.invalidate(
         "contactLookupVersion",
         "Invitation contactLookupVersion cannot change after creation.",
+      );
+    }
+    if (!this.isNew && this.isModified("tokenVersion")) {
+      this.invalidate(
+        "tokenVersion",
+        "Invitation tokenVersion cannot change after creation.",
       );
     }
     const lifecycleFields = [
@@ -362,10 +386,20 @@ alumniInvitationSchema.pre(
           cohortLabel: affiliation.cohortLabel,
         });
       }
+      if (
+        affiliation.reviewedAt instanceof Date &&
+        !Number.isNaN(affiliation.reviewedAt.getTime()) &&
+        affiliation.reviewedAt > this.issuedAt
+      ) {
+        this.invalidate(
+          "affiliations",
+          "Invitation affiliation review cannot occur after issuance.",
+        );
+      }
     }
-    const uniqueAffiliationKeys = new Set(
-      this.affiliations.map((affiliation) => affiliation.affiliationKey),
-    );
+    const externalAffiliationKeys = this.affiliations
+      .filter((affiliation) => !affiliation.programId)
+      .map((affiliation) => affiliation.affiliationKey);
     const programAffiliationKeys = this.affiliations
       .filter((affiliation) => Boolean(affiliation.programId))
       .map((affiliation) =>
@@ -375,7 +409,7 @@ alumniInvitationSchema.pre(
         }),
       );
     if (
-      uniqueAffiliationKeys.size !== this.affiliations.length ||
+      new Set(externalAffiliationKeys).size !== externalAffiliationKeys.length ||
       new Set(programAffiliationKeys).size !== programAffiliationKeys.length
     ) {
       this.invalidate(
@@ -551,6 +585,14 @@ alumniInvitationSchema.index(
   { sourceImportBatchIds: 1 },
   { name: "idx_alumni_invitation_source_batches" },
 );
+alumniInvitationSchema.index(
+  { status: 1, _id: -1 },
+  { name: "idx_alumni_invitation_admin_status" },
+);
+alumniInvitationSchema.index(
+  { sourceImportBatchIds: 1, _id: -1, status: 1 },
+  { name: "idx_alumni_invitation_admin_batch" },
+);
 
 function removePrivateInvitationFields(
   _document: unknown,
@@ -565,6 +607,8 @@ function removePrivateInvitationFields(
   delete mutable.contactLookupHash;
   delete mutable.activeContactLookupHash;
   delete mutable.tokenHash;
+  delete mutable.contactLookupVersion;
+  delete mutable.tokenVersion;
   delete mutable.sourceImportBatchIds;
   delete mutable.affiliations;
   delete mutable.matchedUserId;

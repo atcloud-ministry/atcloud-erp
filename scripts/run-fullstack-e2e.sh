@@ -196,11 +196,13 @@ export JWT_ACCESS_SECRET="fullstack-e2e-access-secret-never-use-outside-tests"
 export JWT_REFRESH_SECRET="fullstack-e2e-refresh-secret-never-use-outside-tests"
 export STRIPE_SECRET_KEY="sk_test_fullstack_e2e_placeholder"
 export SCHEDULER_ENABLED="false"
-export NOTIFICATION_OUTBOX_ENABLED="false"
+export NOTIFICATION_OUTBOX_ENABLED="true"
 export MONGO_TRANSACTIONS_REQUIRED="true"
 export SINGLE_INSTANCE_ENFORCE="true"
 export WEB_CONCURRENCY="1"
 export ALUMNI_NETWORK_RELEASE_AVAILABLE="true"
+export ALUMNI_CONTACT_LOOKUP_KEY_V1="ERERERERERERERERERERERERERERERERERERERERERE"
+export ALUMNI_INVITATION_TOKEN_KEY_V1="IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"
 
 if docker inspect "${MONGO_CONTAINER}" >/dev/null 2>&1; then
   mongo_existed_before=1

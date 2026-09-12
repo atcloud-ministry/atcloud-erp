@@ -19,6 +19,8 @@ import { TokenService } from "./middleware/auth";
 import { isSchedulerEnabled } from "./config/scheduler";
 import { reliabilityFoundationService } from "./services/reliability/ReliabilityFoundationService";
 import { readHttpBindHost } from "./config/httpBinding";
+import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature";
+import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
 
 const log = createLogger("App");
 
@@ -285,6 +287,9 @@ const startServer = async () => {
   try {
     // Never start production HTTP/Socket authentication with fallback secrets.
     TokenService.assertProductionConfiguration();
+    if (readAlumniNetworkReleaseAvailable()) {
+      assertAlumniInvitationReleaseConfiguration();
+    }
 
     // Validate runtime concurrency constraints for in-memory locking
     enforceSingleInstanceIfNecessary();

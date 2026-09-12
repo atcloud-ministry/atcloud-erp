@@ -101,6 +101,57 @@ describe("M0 durable outbox leases", () => {
     });
   });
 
+  it("defers a live claim without consuming its final allowed attempt", async () => {
+    let nowMs = Date.parse("2026-09-08T12:30:00.000Z");
+    const service = new NotificationOutboxService({
+      now: () => new Date(nowMs),
+      leaseToken: () => "abababab-abab-4bab-8bab-abababababab",
+      config: { leaseDurationMs: 10_000, baseBackoffMs: 2_000 },
+    });
+    const event = await service.enqueueStandalone({
+      topic: "m0.reliability",
+      dedupeKey: "runtime-gate-deferred",
+      payloadVersion: 1,
+      payload: { notificationId: "notification-deferred" },
+      maxAttempts: 1,
+    });
+    const claimed = await service.claimNext(
+      "worker-deferred",
+      SUPPORTED_DELIVERIES,
+    );
+    expect(claimed).not.toBeNull();
+    if (!claimed) throw new Error("Expected an outbox claim");
+    expect(claimed.attemptCount).toBe(1);
+
+    const deferred = await service.deferClaim(claimed);
+
+    expect(deferred).toMatchObject({
+      eventId: event.eventId,
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: new Date(nowMs + 2_000),
+      revision: 2,
+    });
+    expect(deferred.lastErrorCode ?? null).toBeNull();
+    expect(deferred.deadAt ?? null).toBeNull();
+    expect(deferred.leaseToken ?? null).toBeNull();
+    await expect(
+      service.claimNext("worker-deferred", SUPPORTED_DELIVERIES),
+    ).resolves.toBeNull();
+
+    nowMs += 2_000;
+    const reclaimed = await service.claimNext(
+      "worker-deferred",
+      SUPPORTED_DELIVERIES,
+    );
+    expect(reclaimed).toMatchObject({
+      eventId: event.eventId,
+      status: "processing",
+      attemptCount: 1,
+      revision: 3,
+    });
+  });
+
   it("reconciles an expired lease and fences its old token", async () => {
     let nowMs = Date.parse("2026-09-08T13:00:00.000Z");
     const clock = () => new Date(nowMs);

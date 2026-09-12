@@ -51,6 +51,15 @@ export const ALUMNI_IMPORT_ROW_MATCH_STATUSES = [
 export type AlumniImportRowMatchStatus =
   (typeof ALUMNI_IMPORT_ROW_MATCH_STATUSES)[number];
 
+export const ALUMNI_IMPORT_ROW_MATCH_METHODS = [
+  "exact_email",
+  "manual",
+  "none",
+] as const;
+
+export type AlumniImportRowMatchMethod =
+  (typeof ALUMNI_IMPORT_ROW_MATCH_METHODS)[number];
+
 export const ALUMNI_IMPORT_ROW_ELIGIBILITY_STATUSES = [
   "not_applicable",
   "pending_review",

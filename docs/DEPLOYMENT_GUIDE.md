@@ -25,6 +25,8 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/atcloud_signup_p
 JWT_ACCESS_SECRET=<64-char-random-string>
 JWT_REFRESH_SECRET=<64-char-random-string>
 SESSION_SECRET=<64-char-random-string>
+ALUMNI_CONTACT_LOOKUP_KEY_V1=<32-random-bytes-as-unpadded-base64url>
+ALUMNI_INVITATION_TOKEN_KEY_V1=<different-32-random-bytes-as-unpadded-base64url>
 ```
 
 **Application Configuration:**
@@ -39,7 +41,7 @@ BCRYPT_ROUNDS=12
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 MONGO_TRANSACTIONS_REQUIRED=true
-NOTIFICATION_OUTBOX_ENABLED=false
+NOTIFICATION_OUTBOX_ENABLED=true
 ```
 
 **Email Configuration:**
@@ -287,7 +289,7 @@ The backend Web Service serves HTTP and Socket.IO and runs scheduled work:
 - `SINGLE_INSTANCE_ENFORCE=true`
 - `WEB_CONCURRENCY=1`
 - `MONGO_TRANSACTIONS_REQUIRED=true`
-- `NOTIFICATION_OUTBOX_ENABLED=false`
+- `NOTIFICATION_OUTBOX_ENABLED=true`
 - Instances: 1
 
 Bootstrap logic summary:

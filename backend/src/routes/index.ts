@@ -32,6 +32,9 @@ import runtimeConfigRoutes from "./runtimeConfig";
 import featureControlRoutes from "./admin/featureControls";
 import recoveryControlRoutes from "./recoveryControls";
 import readinessRoutes from "./readiness";
+import adminAlumniImportRoutes from "./admin/alumniImports";
+import adminAlumniInvitationRoutes from "./admin/alumniInvitations";
+import alumniInvitationRoutes from "./alumniInvitations";
 
 const router = Router();
 
@@ -69,6 +72,9 @@ router.use("/donations", donationRoutes);
 router.use("/refund-requests", refundRequestRoutes);
 router.use("/community", communityRoutes);
 router.use("/admin/users", adminUserRoutes);
+router.use("/admin/alumni-imports", adminAlumniImportRoutes);
+router.use("/admin/alumni-invitations", adminAlumniInvitationRoutes);
+router.use("/alumni-invitations", alumniInvitationRoutes);
 router.use("/user-options", userOptionsRoutes);
 
 // Health check endpoint

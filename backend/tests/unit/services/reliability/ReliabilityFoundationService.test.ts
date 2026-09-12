@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationOutboxWorkerAuthorization } from "../../../../src/services/reliability/NotificationOutboxWorkerAuthorization";
 import { NotificationOutboxDeliveryRegistry } from "../../../../src/services/reliability/NotificationOutboxDeliveryRegistry";
 import {
+  createProductionNotificationOutboxDeliveryRegistry,
   ReliabilityFoundationOperationError,
   ReliabilityFoundationService,
   type ReliabilityFoundationDependencies,
@@ -99,6 +100,14 @@ function deferred(): {
 }
 
 describe("ReliabilityFoundationService", () => {
+  it("wires the alumni invitation email handler into the production registry", () => {
+    expect(
+      createProductionNotificationOutboxDeliveryRegistry().supportedDeliveries,
+    ).toEqual([
+      { topic: "alumni.invitation.email", payloadVersion: 1 },
+    ]);
+  });
+
   it("reads production environment at initialize time and builds a registered worker", async () => {
     process.env.NODE_ENV = "test";
     delete process.env.NOTIFICATION_OUTBOX_ENABLED;

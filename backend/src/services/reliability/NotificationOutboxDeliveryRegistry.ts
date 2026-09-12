@@ -11,6 +11,11 @@ export interface NotificationOutboxDeliveryContext {
 export interface NotificationOutboxDeliveryHandler {
   readonly topic: string;
   readonly payloadVersion: number;
+  /**
+   * Optional runtime kill switch. Returning false (or failing) keeps this
+   * handler registered for reconciliation while excluding it from claiming.
+   */
+  canClaim?(signal: AbortSignal): Promise<boolean>;
   /** Re-loads recipient/resource state and fails closed before any external I/O. */
   assertCanDeliver(
     event: ClaimedNotificationOutbox,
@@ -38,13 +43,17 @@ function validateHandler(
     handler.payloadVersion < 1 ||
     handler.payloadVersion > 1_000 ||
     typeof handler.assertCanDeliver !== "function" ||
-    typeof handler.deliver !== "function"
+    typeof handler.deliver !== "function" ||
+    (handler.canClaim !== undefined && typeof handler.canClaim !== "function")
   ) {
     throw new Error("Invalid notification outbox handler");
   }
   return Object.freeze({
     topic: handler.topic,
     payloadVersion: handler.payloadVersion,
+    ...(handler.canClaim
+      ? { canClaim: handler.canClaim.bind(handler) }
+      : {}),
     assertCanDeliver: handler.assertCanDeliver.bind(handler),
     deliver: handler.deliver.bind(handler),
   });
@@ -85,6 +94,35 @@ export class NotificationOutboxDeliveryRegistry {
 
   get supportedDeliveries(): readonly SupportedOutboxDelivery[] {
     return this.supported;
+  }
+
+  /**
+   * Returns the registered deliveries that may be claimed now. A handler's
+   * availability failure fails closed only for that handler. Caller aborts
+   * still propagate so shutdown and bounded worker checks cannot be swallowed.
+   */
+  async getClaimableDeliveries(
+    signal: AbortSignal,
+  ): Promise<readonly SupportedOutboxDelivery[]> {
+    signal.throwIfAborted();
+    const candidates = await Promise.all(
+      this.supported.map(async (delivery) => {
+        const handler = this.get(delivery.topic, delivery.payloadVersion);
+        if (!handler?.canClaim) return delivery;
+        try {
+          return (await handler.canClaim(signal)) === true ? delivery : null;
+        } catch (error) {
+          if (signal.aborted) throw signal.reason ?? error;
+          return null;
+        }
+      }),
+    );
+    signal.throwIfAborted();
+    return Object.freeze(
+      candidates.filter(
+        (delivery): delivery is SupportedOutboxDelivery => delivery !== null,
+      ),
+    );
   }
 
   get(

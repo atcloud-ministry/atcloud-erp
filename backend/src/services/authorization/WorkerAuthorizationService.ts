@@ -14,6 +14,7 @@ import { recordAuthorizationDenial } from "./AuthorizationAuditService";
 export const WORKER_SERVICE_KEYS = {
   EVENT_REMINDER: "event-reminder",
   ALUMNI_OUTCOME: "alumni-outcome",
+  ALUMNI_RETENTION: "alumni-retention",
   NOTIFICATION_OUTBOX: "notification-outbox",
   PROGRAM_MEMBERSHIP_RECONCILER: "program-membership-reconciler",
 } as const;
@@ -24,6 +25,7 @@ export type WorkerServiceKey =
 export const WORKER_CAPABILITIES = {
   EVENT_REMINDER_SEND: "event.reminder.send",
   ALUMNI_OUTCOME_AUTO_CONFIRM: "alumni.outcome.auto_confirm",
+  ALUMNI_RETENTION_PURGE: "alumni.retention.purge",
   NOTIFICATION_OUTBOX_DELIVER: "notification.outbox.deliver",
   NOTIFICATION_OUTBOX_RECONCILE: "notification.outbox.reconcile",
   PROGRAM_MEMBERSHIP_RECONCILE: "program.membership.reconcile",
@@ -48,6 +50,9 @@ export const WORKER_SERVICE_CAPABILITIES = Object.freeze({
   ]),
   [WORKER_SERVICE_KEYS.ALUMNI_OUTCOME]: Object.freeze([
     WORKER_CAPABILITIES.ALUMNI_OUTCOME_AUTO_CONFIRM,
+  ]),
+  [WORKER_SERVICE_KEYS.ALUMNI_RETENTION]: Object.freeze([
+    WORKER_CAPABILITIES.ALUMNI_RETENTION_PURGE,
   ]),
   [WORKER_SERVICE_KEYS.NOTIFICATION_OUTBOX]: Object.freeze([
     WORKER_CAPABILITIES.NOTIFICATION_OUTBOX_DELIVER,

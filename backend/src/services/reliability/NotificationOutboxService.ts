@@ -600,6 +600,50 @@ export class NotificationOutboxService {
     return toClaim(document);
   }
 
+  /**
+   * Releases a claim when a runtime delivery gate changes after the atomic
+   * claim. Reversing the claim increment prevents a kill switch from
+   * exhausting or dead-lettering an otherwise valid notification.
+   */
+  async deferClaim(
+    claim: ClaimedNotificationOutbox,
+  ): Promise<NotificationOutboxRecord> {
+    if (!Number.isSafeInteger(claim.attemptCount) || claim.attemptCount < 1) {
+      throw new Error("Deferred notification outbox claim is invalid");
+    }
+    const now = requireDate(this.now(), "clock");
+    const document = await this.model.findOneAndUpdate(
+      {
+        eventId: claim.eventId,
+        status: "processing",
+        attemptCount: claim.attemptCount,
+        leaseToken: claim.leaseToken,
+        leaseOwner: claim.leaseOwner,
+        leaseExpiresAt: { $gt: now },
+      },
+      {
+        $set: {
+          status: "pending",
+          nextAttemptAt: new Date(now.getTime() + this.config.baseBackoffMs),
+          updatedAt: now,
+        },
+        $unset: {
+          leaseToken: "",
+          leaseOwner: "",
+          leaseExpiresAt: "",
+          lastHeartbeatAt: "",
+        },
+        $inc: { attemptCount: -1, revision: 1 },
+      },
+      { new: true, runValidators: true },
+    );
+    if (!document) {
+      this.metrics.increment("leaseLost");
+      throw new NotificationOutboxLeaseLostError(claim.eventId);
+    }
+    return toRecord(document);
+  }
+
   async finalizeDelivered(
     claim: ClaimedNotificationOutbox,
   ): Promise<NotificationOutboxRecord> {

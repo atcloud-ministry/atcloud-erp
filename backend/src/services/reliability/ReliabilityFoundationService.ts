@@ -4,6 +4,7 @@ import {
 } from "../../config/reliability";
 import IdempotencyRecord from "../../models/IdempotencyRecord";
 import NotificationOutbox from "../../models/NotificationOutbox";
+import { alumniInvitationEmailDeliveryHandler } from "../alumni/AlumniInvitationEmailDeliveryHandler";
 import {
   mongoTransactionService,
   type MongoTransactionService,
@@ -82,6 +83,7 @@ type ReliabilityOutboxWorkerPort = Pick<
   | "leaseDurationMs"
   | "claimNext"
   | "renewLease"
+  | "deferClaim"
   | "finalizeDelivered"
   | "finalizeFailure"
   | "reconcile"
@@ -158,11 +160,17 @@ const DEFAULT_DEPENDENCIES = Object.freeze({
   isTransactionCapabilityRequired: () =>
     isMongoTransactionCapabilityRequired(),
   isOutboxEnabled: () => isNotificationOutboxEnabled(),
-  registryFactory: () => new NotificationOutboxDeliveryRegistry([]),
+  registryFactory: createProductionNotificationOutboxDeliveryRegistry,
   authorizerFactory: () => new NotificationOutboxWorkerAuthorization(),
   workerFactory: (input: ReliabilityFoundationWorkerFactoryInput) =>
     new NotificationOutboxWorker(input),
 });
+
+export function createProductionNotificationOutboxDeliveryRegistry(): NotificationOutboxDeliveryRegistry {
+  return new NotificationOutboxDeliveryRegistry([
+    alumniInvitationEmailDeliveryHandler,
+  ]);
+}
 
 /**
  * Coordinates the fail-closed startup contract for transaction capability,

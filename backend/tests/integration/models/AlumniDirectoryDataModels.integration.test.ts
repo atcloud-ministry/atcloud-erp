@@ -25,6 +25,7 @@ function invitationInput(options: {
 }) {
   const issuedAt = new Date("2030-08-31T12:00:00.000Z");
   const batchId = new mongoose.Types.ObjectId();
+  const reviewedBy = new mongoose.Types.ObjectId();
   return {
     sourceImportBatchIds: [batchId],
     contactEmail: options.email,
@@ -37,6 +38,8 @@ function invitationInput(options: {
         affiliationKey: hash("f"),
         sourceImportBatchId: batchId,
         sourceRowNumber: 2,
+        reviewedAt: new Date("2030-08-30T12:00:00.000Z"),
+        reviewedBy,
       },
     ],
     tokenHash: options.tokenHash,
@@ -121,7 +124,7 @@ describe("M2 alumni data model indexes", () => {
     expect(affiliation).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "uniq_alumni_affiliation_profile_key",
+          name: "uniq_alumni_affiliation_profile_external_key",
           unique: true,
         }),
         expect.objectContaining({
@@ -210,13 +213,11 @@ describe("M2 alumni data model indexes", () => {
     expectSingleDuplicateResult(outcomes);
   });
 
-  it("allows only one logical affiliation per profile", async () => {
+  it("allows only one external name-based affiliation per profile", async () => {
     const alumniProfileId = new mongoose.Types.ObjectId();
-    const programId = new mongoose.Types.ObjectId();
     const outcomes = await Promise.allSettled([
       AlumniAffiliation.create({
         alumniProfileId,
-        programId,
         programName: " EMBA   Mentor Circles ",
         cohortLabel: " 2022 ",
         affiliationKey: hash("a"),
@@ -229,6 +230,36 @@ describe("M2 alumni data model indexes", () => {
       }),
     ]);
     expectSingleDuplicateResult(outcomes);
+  });
+
+  it("keeps same-title linked Programs and an external affiliation distinct", async () => {
+    const alumniProfileId = new mongoose.Types.ObjectId();
+    const outcomes = await Promise.allSettled([
+      AlumniAffiliation.create({
+        alumniProfileId,
+        programId: new mongoose.Types.ObjectId(),
+        programName: "EMBA Mentor Circles",
+        cohortLabel: "2022",
+        affiliationKey: hash("a"),
+      }),
+      AlumniAffiliation.create({
+        alumniProfileId,
+        programId: new mongoose.Types.ObjectId(),
+        programName: "EMBA Mentor Circles",
+        cohortLabel: "2022",
+        affiliationKey: hash("b"),
+      }),
+      AlumniAffiliation.create({
+        alumniProfileId,
+        programName: "EMBA Mentor Circles",
+        cohortLabel: "2022",
+        affiliationKey: hash("c"),
+      }),
+    ]);
+
+    expect(outcomes.every((outcome) => outcome.status === "fulfilled")).toBe(
+      true,
+    );
   });
 
   it("deduplicates renamed affiliations linked to the same Program", async () => {
@@ -446,6 +477,7 @@ describe("M2 alumni data model indexes", () => {
           rowNumber: 2,
           rowKey: hash("b"),
           matchStatus: "unmatched",
+          matchMethod: "none",
           eligibilityStatus: "pending_review",
           applicationStatus: "pending",
         },
@@ -476,6 +508,7 @@ describe("M2 alumni data model indexes", () => {
           rowNumber: 2,
           rowKey: hash("b"),
           matchStatus: "unmatched",
+          matchMethod: "none",
           eligibilityStatus: "approved",
           reviewedAt: terminalAt,
           reviewedBy,

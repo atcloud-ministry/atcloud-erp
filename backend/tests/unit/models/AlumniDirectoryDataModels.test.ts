@@ -33,6 +33,7 @@ function activeInvitation(overrides: Record<string, unknown> = {}) {
   const issuedAt = new Date("2023-08-31T12:30:00.000Z");
   const lastInvitationSentAt = new Date(issuedAt);
   const sourceImportBatchId = new mongoose.Types.ObjectId();
+  const reviewedBy = new mongoose.Types.ObjectId();
   return new AlumniInvitation({
     sourceImportBatchIds: [sourceImportBatchId],
     contactEmail: "  ALUMNA@example.com ",
@@ -47,6 +48,8 @@ function activeInvitation(overrides: Record<string, unknown> = {}) {
         affiliationKey: HASH_B,
         sourceImportBatchId,
         sourceRowNumber: 2,
+        reviewedAt: new Date("2023-08-30T12:30:00.000Z"),
+        reviewedBy,
       },
     ],
     status: "active",
@@ -296,9 +299,9 @@ describe("AlumniAffiliation model", () => {
     expect(AlumniAffiliation.schema.indexes()).toEqual(
       expect.arrayContaining([
         [
-          { alumniProfileId: 1, affiliationKey: 1 },
+          { alumniProfileId: 1, programId: 1, affiliationKey: 1 },
           expect.objectContaining({
-            name: "uniq_alumni_affiliation_profile_key",
+            name: "uniq_alumni_affiliation_profile_external_key",
             unique: true,
           }),
         ],
@@ -351,6 +354,29 @@ describe("AlumniInvitation model", () => {
     invitation.contactLookupVersion = 2;
     await expect(invitation.validate()).rejects.toThrow(
       "contactLookupVersion cannot change",
+    );
+  });
+
+  it("keeps the token schema version fixed after creation", async () => {
+    const invitation = activeInvitation();
+    invitation.$isNew = false;
+    invitation.tokenVersion = 2;
+    await expect(invitation.validate()).rejects.toThrow(
+      "tokenVersion cannot change",
+    );
+  });
+
+  it("requires durable review provenance before invitation issuance", async () => {
+    const missingReviewer = activeInvitation();
+    missingReviewer.affiliations[0].reviewedBy = undefined as never;
+    await expect(missingReviewer.validate()).rejects.toThrow("reviewedBy");
+
+    const lateReview = activeInvitation();
+    lateReview.affiliations[0].reviewedAt = new Date(
+      "2023-09-01T12:30:00.000Z",
+    );
+    await expect(lateReview.validate()).rejects.toThrow(
+      "review cannot occur after issuance",
     );
   });
 
@@ -426,8 +452,28 @@ describe("AlumniInvitation model", () => {
       affiliationKey: HASH_C,
       sourceImportBatchId: first.sourceImportBatchId,
       sourceRowNumber: 3,
+      reviewedAt: first.reviewedAt,
+      reviewedBy: first.reviewedBy,
     });
     await expect(invitation.validate()).rejects.toThrow("must be unique");
+  });
+
+  it("keeps same-title invitation candidates for distinct canonical Programs", async () => {
+    const invitation = activeInvitation();
+    const first = invitation.affiliations[0];
+    first.programId = new mongoose.Types.ObjectId();
+    invitation.affiliations.push({
+      programId: new mongoose.Types.ObjectId(),
+      programName: "emba",
+      cohortLabel: "2022",
+      affiliationKey: HASH_C,
+      sourceImportBatchId: first.sourceImportBatchId,
+      sourceRowNumber: 3,
+      reviewedAt: first.reviewedAt,
+      reviewedBy: first.reviewedBy,
+    });
+
+    await expect(invitation.validate()).resolves.toBeUndefined();
   });
 
   it("defaults contact and token fields to excluded and removes them from JSON", () => {
@@ -447,6 +493,8 @@ describe("AlumniInvitation model", () => {
     expect(json).not.toHaveProperty("contactEmail");
     expect(json).not.toHaveProperty("contactLookupHash");
     expect(json).not.toHaveProperty("tokenHash");
+    expect(json).not.toHaveProperty("contactLookupVersion");
+    expect(json).not.toHaveProperty("tokenVersion");
     expect(json).not.toHaveProperty("affiliations");
   });
 
@@ -467,6 +515,18 @@ describe("AlumniInvitation model", () => {
           expect.objectContaining({
             name: "uniq_alumni_invitation_active_contact",
             unique: true,
+          }),
+        ],
+        [
+          { status: 1, _id: -1 },
+          expect.objectContaining({
+            name: "idx_alumni_invitation_admin_status",
+          }),
+        ],
+        [
+          { sourceImportBatchIds: 1, _id: -1, status: 1 },
+          expect.objectContaining({
+            name: "idx_alumni_invitation_admin_batch",
           }),
         ],
       ]),
@@ -500,6 +560,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 2,
           rowKey: HASH_B,
           matchStatus: "ambiguous",
+          matchMethod: "none",
           candidateUserIds: [new mongoose.Types.ObjectId()],
           eligibilityStatus: "pending_review",
           applicationStatus: "pending",
@@ -508,6 +569,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 3,
           rowKey: HASH_C,
           matchStatus: "invalid",
+          matchMethod: "none",
           eligibilityStatus: "not_applicable",
           applicationStatus: "pending",
         },
@@ -544,6 +606,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 2,
           rowKey: HASH_B,
           matchStatus: "unmatched",
+          matchMethod: "none",
           eligibilityStatus: "approved",
           applicationStatus: "applied",
           applicationUpdatedAt: new Date("2026-09-11T00:00:00.000Z"),
@@ -604,6 +667,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 2,
           rowKey: HASH_A,
           matchStatus: "matched",
+          matchMethod: "exact_email",
           matchedUserId,
           eligibilityStatus: "approved",
           reviewedAt,
@@ -615,6 +679,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 3,
           rowKey: HASH_B,
           matchStatus: "unmatched",
+          matchMethod: "manual",
           eligibilityStatus: "approved",
           reviewedAt,
           reviewedBy,
@@ -625,6 +690,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 4,
           rowKey: HASH_C,
           matchStatus: "ambiguous",
+          matchMethod: "none",
           candidateUserIds: [candidateUserId],
           eligibilityStatus: "rejected",
           reviewedAt,
@@ -636,6 +702,7 @@ describe("AlumniImportBatch model", () => {
           rowNumber: 5,
           rowKey: "d".repeat(64),
           matchStatus: "invalid",
+          matchMethod: "none",
           eligibilityStatus: "not_applicable",
           applicationStatus: "skipped",
           applicationUpdatedAt: appliedAt,

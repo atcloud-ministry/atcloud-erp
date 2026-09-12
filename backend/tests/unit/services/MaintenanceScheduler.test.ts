@@ -10,9 +10,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import GuestRegistration from "../../../src/models/GuestRegistration";
 import AuditLog from "../../../src/models/AuditLog";
 
+const alumniRetentionMocks = vi.hoisted(() => ({
+  runBounded: vi.fn(),
+}));
+
 // Mock the models
 vi.mock("../../../src/models/GuestRegistration");
 vi.mock("../../../src/models/AuditLog");
+vi.mock(
+  "../../../src/services/alumni/AlumniRetentionCleanupService",
+  () => ({
+    alumniRetentionCleanupService: alumniRetentionMocks,
+  }),
+);
 vi.mock("../../../src/services/LoggerService", () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -32,6 +42,12 @@ describe("MaintenanceScheduler", () => {
 
     purgeExpiredTokensMock = vi.fn().mockResolvedValue(undefined);
     purgeOldAuditLogsMock = vi.fn().mockResolvedValue({ deletedCount: 5 });
+    alumniRetentionMocks.runBounded.mockResolvedValue({
+      importCandidatesScanned: 0,
+      importBatchesPurged: 0,
+      invitationCandidatesScanned: 0,
+      invitationsPurged: 0,
+    });
 
     (GuestRegistration as any).purgeExpiredManageTokens =
       purgeExpiredTokensMock;
@@ -59,6 +75,16 @@ describe("MaintenanceScheduler", () => {
 
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(1);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(1);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "alumni-retention",
+            capabilities: ["alumni.retention.purge"],
+          }),
+        }),
+      );
     });
 
     it("should run purge every hour", async () => {
@@ -68,16 +94,22 @@ describe("MaintenanceScheduler", () => {
       await vi.advanceTimersByTimeAsync(10 * 1000);
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(1);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(1);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(1);
 
       // Fast-forward 1 hour
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(2);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(2);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trigger: "scheduled" }),
+      );
 
       // Fast-forward another hour
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(3);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(3);
+      expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(3);
     });
 
     it("should not start if already running", () => {
@@ -104,6 +136,17 @@ describe("MaintenanceScheduler", () => {
       // Fast-forward an hour - should not trigger purge
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(1); // Still 1
+    });
+
+    it("cancels the tracked startup cleanup before it can run", async () => {
+      scheduler.start();
+      scheduler.stop();
+
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+
+      expect(purgeExpiredTokensMock).not.toHaveBeenCalled();
+      expect(purgeOldAuditLogsMock).not.toHaveBeenCalled();
+      expect(alumniRetentionMocks.runBounded).not.toHaveBeenCalled();
     });
 
     it("should warn if trying to stop when not running", () => {

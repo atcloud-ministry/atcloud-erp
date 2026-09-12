@@ -8,6 +8,7 @@ import {
   type NotificationOutboxReconciliationResult,
   type NotificationOutboxService,
   type NotificationOutboxUnsupportedReconciliationResult,
+  type SupportedOutboxDelivery,
 } from "./NotificationOutboxService";
 import { NotificationOutboxDeliveryRegistry } from "./NotificationOutboxDeliveryRegistry";
 
@@ -39,6 +40,7 @@ export interface NotificationOutboxWorkerRunResult
   readonly deadLettered: number;
   readonly leaseLost: number;
   readonly abandoned: number;
+  readonly deferred: number;
 }
 
 type MutableNotificationOutboxWorkerRunResult = {
@@ -59,6 +61,7 @@ interface NotificationOutboxWorkerDependencies {
     | "leaseDurationMs"
     | "claimNext"
     | "renewLease"
+    | "deferClaim"
     | "finalizeDelivered"
     | "finalizeFailure"
     | "reconcile"
@@ -106,6 +109,14 @@ export class RetryableNotificationOutboxDeliveryError extends Error {
   constructor(public readonly code: string) {
     super(code);
     this.name = "RetryableNotificationOutboxDeliveryError";
+  }
+}
+
+/** A runtime delivery gate changed after claim; release without an attempt. */
+export class DeferredNotificationOutboxDeliveryError extends Error {
+  constructor(public readonly code: string) {
+    super(code);
+    this.name = "DeferredNotificationOutboxDeliveryError";
   }
 }
 
@@ -453,12 +464,15 @@ export class NotificationOutboxWorker {
       deadLettered: 0,
       leaseLost: 0,
       abandoned: 0,
+      deferred: 0,
     };
 
     while (result.claimed < this.config.batchSize && !this.stopping) {
+      const claimableDeliveries = await this.resolveClaimableDeliveries();
+      if (this.stopping) throw new NotificationOutboxWorkerStoppingError();
       const claim = await this.outbox.claimNext(
         this.workerId,
-        this.registry.supportedDeliveries,
+        claimableDeliveries,
       );
       if (!claim) break;
       result.claimed += 1;
@@ -476,7 +490,12 @@ export class NotificationOutboxWorker {
   private async deliverClaim(
     initialClaim: ClaimedNotificationOutbox,
   ): Promise<
-    "delivered" | "retried" | "deadLettered" | "leaseLost" | "abandoned"
+    | "delivered"
+    | "retried"
+    | "deadLettered"
+    | "leaseLost"
+    | "abandoned"
+    | "deferred"
   > {
     let claim = initialClaim;
     let leaseLost = false;
@@ -555,6 +574,17 @@ export class NotificationOutboxWorker {
         return "leaseLost";
       }
       if (this.stopping) return "abandoned";
+      if (error instanceof DeferredNotificationOutboxDeliveryError) {
+        try {
+          await this.outbox.deferClaim(claim);
+          return "deferred";
+        } catch (deferError) {
+          if (deferError instanceof NotificationOutboxLeaseLostError) {
+            return "leaseLost";
+          }
+          throw deferError;
+        }
+      }
       try {
         const finalized = await this.outbox.finalizeFailure(
           claim,
@@ -572,6 +602,32 @@ export class NotificationOutboxWorker {
       this.timers.clearInterval(heartbeat);
       if (this.activeDeliveryAbortController === abortController) {
         this.activeDeliveryAbortController = null;
+      }
+    }
+  }
+
+  private async resolveClaimableDeliveries(): Promise<
+    readonly SupportedOutboxDelivery[]
+  > {
+    const abortController = new AbortController();
+    this.activeRunAuthorizationAbortController = abortController;
+    const timeout = this.timers.setTimeout(() => {
+      abortController.abort(
+        new RetryableNotificationOutboxDeliveryError(
+          "WORKER_AVAILABILITY_TIMEOUT",
+        ),
+      );
+    }, this.config.authorizationTimeoutMs);
+    timeout.unref?.();
+    try {
+      return await raceWithAbort(
+        this.registry.getClaimableDeliveries(abortController.signal),
+        abortController.signal,
+      );
+    } finally {
+      this.timers.clearTimeout(timeout);
+      if (this.activeRunAuthorizationAbortController === abortController) {
+        this.activeRunAuthorizationAbortController = null;
       }
     }
   }

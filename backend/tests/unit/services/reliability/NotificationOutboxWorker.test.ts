@@ -9,6 +9,7 @@ import type {
   NotificationOutboxRecord,
 } from "../../../../src/services/reliability/NotificationOutboxService";
 import {
+  DeferredNotificationOutboxDeliveryError,
   NotificationOutboxWorker,
   PermanentNotificationOutboxDeliveryError,
   type NotificationOutboxWorkerAuthorizer,
@@ -102,6 +103,44 @@ describe("NotificationOutboxDeliveryRegistry", () => {
         ]),
     ).toThrow("Invalid notification outbox handler");
   });
+
+  it("keeps unavailable handlers supported for reconciliation but not claiming", async () => {
+    const enabled: NotificationOutboxDeliveryHandler = {
+      topic: "delivery.enabled",
+      payloadVersion: 1,
+      canClaim: vi.fn().mockResolvedValue(true),
+      assertCanDeliver: vi.fn(),
+      deliver: vi.fn(),
+    };
+    const disabled: NotificationOutboxDeliveryHandler = {
+      topic: "delivery.disabled",
+      payloadVersion: 1,
+      canClaim: vi.fn().mockResolvedValue(false),
+      assertCanDeliver: vi.fn(),
+      deliver: vi.fn(),
+    };
+    const failed: NotificationOutboxDeliveryHandler = {
+      topic: "delivery.failed",
+      payloadVersion: 1,
+      canClaim: vi.fn().mockRejectedValue(new Error("private config value")),
+      assertCanDeliver: vi.fn(),
+      deliver: vi.fn(),
+    };
+    const registry = new NotificationOutboxDeliveryRegistry([
+      enabled,
+      disabled,
+      failed,
+    ]);
+
+    expect(registry.supportedDeliveries).toEqual([
+      { topic: "delivery.enabled", payloadVersion: 1 },
+      { topic: "delivery.disabled", payloadVersion: 1 },
+      { topic: "delivery.failed", payloadVersion: 1 },
+    ]);
+    await expect(
+      registry.getClaimableDeliveries(new AbortController().signal),
+    ).resolves.toEqual([{ topic: "delivery.enabled", payloadVersion: 1 }]);
+  });
 });
 
 describe("NotificationOutboxWorker", () => {
@@ -109,6 +148,7 @@ describe("NotificationOutboxWorker", () => {
     leaseDurationMs: number;
     claimNext: ReturnType<typeof vi.fn>;
     renewLease: ReturnType<typeof vi.fn>;
+    deferClaim: ReturnType<typeof vi.fn>;
     finalizeDelivered: ReturnType<typeof vi.fn>;
     finalizeFailure: ReturnType<typeof vi.fn>;
     reconcile: ReturnType<typeof vi.fn>;
@@ -122,6 +162,7 @@ describe("NotificationOutboxWorker", () => {
       leaseDurationMs: 60_000,
       claimNext: vi.fn(),
       renewLease: vi.fn(),
+      deferClaim: vi.fn(),
       finalizeDelivered: vi.fn(),
       finalizeFailure: vi.fn(),
       reconcile: vi.fn().mockResolvedValue({
@@ -212,6 +253,43 @@ describe("NotificationOutboxWorker", () => {
     expect(outbox.claimNext).not.toHaveBeenCalled();
   });
 
+  it("does not claim unavailable handlers while reconciling them as supported", async () => {
+    handler = { ...handler, canClaim: vi.fn().mockResolvedValue(false) };
+
+    const result = await worker().runOnce();
+
+    expect(outbox.reconcileUnsupportedDeliveries).toHaveBeenCalledWith(
+      [{ topic: "system_message.created", payloadVersion: 1 }],
+      24 * 60 * 60_000,
+      10,
+    );
+    expect(outbox.claimNext).toHaveBeenCalledWith("worker-1", []);
+    expect(outbox.claimNext).toHaveBeenCalledOnce();
+    expect(handler.assertCanDeliver).not.toHaveBeenCalled();
+    expect(handler.deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ claimed: 0, deferred: 0 });
+  });
+
+  it("bounds a hanging handler availability check before any claim", async () => {
+    vi.useFakeTimers();
+    try {
+      handler = {
+        ...handler,
+        canClaim: vi.fn(() => new Promise<boolean>(() => undefined)),
+      };
+      const run = worker(undefined, { authorizationTimeoutMs: 100 }).runOnce();
+      const rejection = expect(run).rejects.toMatchObject({
+        code: "WORKER_AVAILABILITY_TIMEOUT",
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      await rejection;
+      expect(outbox.claimNext).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds a hanging run-level authorization", async () => {
     vi.useFakeTimers();
     try {
@@ -283,6 +361,27 @@ describe("NotificationOutboxWorker", () => {
       }),
     );
     expect(result.retried).toBe(1);
+  });
+
+  it("releases a post-claim runtime deferral without consuming an attempt", async () => {
+    const event = claim({ attemptCount: 3, maxAttempts: 3 });
+    outbox.claimNext.mockResolvedValueOnce(event).mockResolvedValueOnce(null);
+    vi.mocked(handler.assertCanDeliver).mockRejectedValue(
+      new DeferredNotificationOutboxDeliveryError(
+        "ALUMNI_NETWORK_NOT_WRITABLE",
+      ),
+    );
+    outbox.deferClaim.mockResolvedValue(
+      completed({ ...event, attemptCount: 2 }, "pending"),
+    );
+
+    const result = await worker().runOnce();
+
+    expect(handler.deliver).not.toHaveBeenCalled();
+    expect(outbox.deferClaim).toHaveBeenCalledWith(event);
+    expect(outbox.finalizeFailure).not.toHaveBeenCalled();
+    expect(outbox.finalizeDelivered).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ claimed: 1, deferred: 1, deadLettered: 0 });
   });
 
   it("persists permanent handler failures as dead", async () => {

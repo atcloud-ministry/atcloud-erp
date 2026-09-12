@@ -191,7 +191,7 @@ function checkRenderTemplateContract() {
     ["SINGLE_INSTANCE_ENFORCE", "true"],
     ["SCHEDULER_ENABLED", "true"],
     ["MONGO_TRANSACTIONS_REQUIRED", "true"],
-    ["NOTIFICATION_OUTBOX_ENABLED", "false"],
+    ["NOTIFICATION_OUTBOX_ENABLED", "true"],
     ["ALUMNI_NETWORK_RELEASE_AVAILABLE", "false"],
   ]) {
     const keyPattern = new RegExp(
@@ -271,8 +271,8 @@ function checkRenderTemplateContract() {
       "production must verify MongoDB transaction capability before serving traffic.",
     ],
     [
-      /key:\s*NOTIFICATION_OUTBOX_ENABLED\s*\n\s*value:\s*false/,
-      "durable outbox delivery must remain disabled until versioned handlers are registered.",
+      /key:\s*NOTIFICATION_OUTBOX_ENABLED\s*\n\s*value:\s*true/,
+      "durable outbox delivery must remain enabled after the versioned invitation handler is registered.",
     ],
     [
       /^[ \t]*healthCheckPath:\s*\/api\/readiness\s*$/m,
