@@ -267,6 +267,35 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(communityLink).toHaveAttribute("href", "/dashboard/community");
       expect(communityLink).toHaveClass("text-blue-700");
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Chat Rooms" })).toHaveAttribute(
+        "href",
+        "/dashboard/chat-rooms",
+      );
+    });
+
+    it("shows the accessible Chat Rooms unread badge capped at 99+", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter initialEntries={["/dashboard/chat-rooms/room-id"]}>
+          <Sidebar
+            chatUnreadTotal={143}
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      const link = screen.getByRole("link", {
+        name: "Chat Rooms, 143 unread messages",
+      });
+      expect(link).toHaveClass("text-blue-700");
+      expect(link).toHaveTextContent("99+");
     });
 
     it("adds Administration and User Management for account managers", () => {

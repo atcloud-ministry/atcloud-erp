@@ -3,7 +3,15 @@ import { Server as SocketIOServer } from "socket.io";
 import { Server as HTTPServer } from "http";
 import jwt from "jsonwebtoken";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
-import { Event, Purchase, User } from "../../../../src/models";
+import {
+  Conversation,
+  ConversationMember,
+  Event,
+  Purchase,
+  User,
+} from "../../../../src/models";
+import { createRuntimeConfigDTO } from "../../../../src/contracts/runtimeConfig";
+import { featureControlService } from "../../../../src/services/runtime/FeatureControlService";
 
 // Mock dependencies
 vi.mock("socket.io", () => ({
@@ -29,6 +37,12 @@ vi.mock("../../../../src/models", () => ({
   Purchase: {
     findOne: vi.fn(),
   },
+  Conversation: {
+    findOne: vi.fn(),
+  },
+  ConversationMember: {
+    findOne: vi.fn(),
+  },
 }));
 
 vi.mock("../../../../src/services/authorization/AuthorizationAuditService", () => ({
@@ -38,6 +52,7 @@ vi.mock("../../../../src/services/authorization/AuthorizationAuditService", () =
 const USER_ID = "507f1f77bcf86cd799439011";
 const NAMELESS_USER_ID = "507f1f77bcf86cd799439012";
 const EVENT_ID = "507f1f77bcf86cd799439013";
+const CONVERSATION_ID = "507f1f77bcf86cd799439014";
 const ACCESS_TOKEN_EXP = Math.floor(Date.now() / 1000) + 60 * 60;
 
 describe("SocketService", () => {
@@ -54,6 +69,7 @@ describe("SocketService", () => {
     (socketService as any).userAuthorizationRevisions = new Map();
     (socketService as any).resourceAuthorizationRevisions = new Map();
     (socketService as any).eventJoinGuards = new Map();
+    (socketService as any).conversationJoinGuards = new Map();
 
     // Setup mocks
     mockSocket = {
@@ -112,6 +128,33 @@ describe("SocketService", () => {
     vi.mocked(User.findById).mockResolvedValue(mockUser);
     vi.mocked(Event.findById).mockResolvedValue({ _id: EVENT_ID } as any);
     vi.clearAllMocks();
+    vi.spyOn(featureControlService, "getRuntimeConfig").mockResolvedValue(
+      createRuntimeConfigDTO("on", 1),
+    );
+    vi.mocked(Conversation.findOne).mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue({
+          _id: CONVERSATION_ID,
+          status: "current",
+        }),
+      }),
+    } as any);
+    vi.mocked(ConversationMember.findOne).mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue({
+          _id: "507f1f77bcf86cd799439015",
+          status: "active",
+          accessWindows: [
+            {
+              visibleFromSequence: 1,
+              visibleThroughSequence: null,
+              openedAt: new Date("2026-09-12T12:00:00.000Z"),
+              closedAt: null,
+            },
+          ],
+        }),
+      }),
+    } as any);
   });
 
   afterEach(() => {
@@ -504,6 +547,112 @@ describe("SocketService", () => {
       expect(setAfter).toBeDefined();
       expect(setAfter.size).toBe(1);
       expect(setAfter.has("socket456")).toBe(true);
+    });
+
+    it("tracks 250 simultaneous accounts with two isolated connections each", () => {
+      vi.useFakeTimers();
+      const sockets = Array.from({ length: 250 }, (_unused, userIndex) => {
+        const userId = `64f1${(userIndex + 1)
+          .toString(16)
+          .padStart(20, "0")}`;
+        return Array.from({ length: 2 }, (_unusedSocket, socketIndex) => ({
+          ...mockSocket,
+          id: `capacity-${userIndex}-${socketIndex}`,
+          userId,
+          authorizationRevision: 0,
+          tokenExpiresAt: ACCESS_TOKEN_EXP * 1000,
+          disconnected: false,
+          join: vi.fn(),
+          leave: vi.fn(),
+          disconnect: vi.fn(),
+          emit: vi.fn(),
+          on: vi.fn(),
+          broadcast: { emit: vi.fn() },
+        }));
+      }).flat();
+
+      sockets.forEach((socket) => connectionHandler(socket));
+
+      const authenticated = (socketService as any)
+        .authenticatedSockets as Map<string, unknown>;
+      const byUser = (socketService as any).userSockets as Map<
+        string,
+        Set<string>
+      >;
+      expect(authenticated.size).toBe(500);
+      expect(byUser.size).toBe(250);
+      expect([...byUser.values()].every((ids) => ids.size === 2)).toBe(true);
+      for (const socket of sockets) {
+        expect(socket.disconnect).not.toHaveBeenCalled();
+        expect(socket.join).toHaveBeenCalledWith(`user:${socket.userId}`);
+        expect(socket.join).toHaveBeenCalledTimes(1);
+      }
+
+      const targetUserId = sockets[0]!.userId;
+      mockIO.to.mockClear();
+      mockIO.emit.mockClear();
+      expect(
+        socketService.emitChatMessageToUser(targetUserId, CONVERSATION_ID, {
+          message: {
+            id: "64f100000000000000000021",
+            conversationId: CONVERSATION_ID,
+            sequence: 1,
+            sender: {
+              id: USER_ID,
+              displayName: "Capacity Sender",
+              avatar: null,
+            },
+            clientMessageId: "550e8400-e29b-41d4-a716-446655440000",
+            kind: "text",
+            content: "capacity message",
+            safeLink: null,
+            createdAt: "2026-09-12T12:00:00.000Z",
+          },
+        }),
+      ).toBe(true);
+      expect(mockIO.to).toHaveBeenCalledWith(`user:${targetUserId}`);
+      expect(mockIO.to).not.toHaveBeenCalledWith(
+        `user:${sockets[2]!.userId}`,
+      );
+    });
+
+    it("keeps at most five account connections and closes the oldest", () => {
+      const sockets = Array.from({ length: 6 }, (_, index) => ({
+        ...mockSocket,
+        id: `account-socket-${index + 1}`,
+        userId: "user123",
+        authorizationRevision: 0,
+        tokenExpiresAt: ACCESS_TOKEN_EXP * 1000,
+        disconnected: false,
+        join: vi.fn(),
+        leave: vi.fn(),
+        disconnect: vi.fn(),
+        emit: vi.fn(),
+        on: vi.fn(),
+        broadcast: { emit: vi.fn() },
+      }));
+
+      sockets.forEach((socket) => connectionHandler(socket));
+
+      expect(sockets[0].disconnect).toHaveBeenCalledWith(true);
+      expect(sockets[0].emit).toHaveBeenCalledWith("connection_limit", {
+        limit: 5,
+        disconnectedAt: expect.any(String),
+      });
+      for (const socket of sockets.slice(1)) {
+        expect(socket.disconnect).not.toHaveBeenCalled();
+      }
+      const tracked = (socketService as any).userSockets.get("user123");
+      expect([...tracked]).toEqual([
+        "account-socket-2",
+        "account-socket-3",
+        "account-socket-4",
+        "account-socket-5",
+        "account-socket-6",
+      ]);
+      expect(
+        (socketService as any).authenticatedSockets.has("account-socket-1"),
+      ).toBe(false);
     });
 
     it("should handle status updates", () => {
@@ -1131,6 +1280,122 @@ describe("SocketService", () => {
       expect(ack).toHaveBeenCalledWith({
         ok: false,
         code: "INVALID_EVENT_ID",
+      });
+    });
+  });
+
+  describe("conversation room management", () => {
+    beforeEach(() => {
+      socketService.initialize(mockHttpServer);
+      mockSocket.userId = USER_ID;
+    });
+
+    it("joins only after a fresh active access-window authorization", async () => {
+      const ack = vi.fn();
+
+      await socketService.handleJoinConversationRoom(
+        mockSocket,
+        CONVERSATION_ID,
+        ack,
+      );
+
+      expect(Conversation.findOne).toHaveBeenCalled();
+      expect(ConversationMember.findOne).toHaveBeenCalled();
+      expect(mockSocket.join).toHaveBeenCalledWith(
+        `conversation:${CONVERSATION_ID}`,
+      );
+      expect(ack).toHaveBeenCalledWith({
+        ok: true,
+        conversationId: CONVERSATION_ID,
+      });
+    });
+
+    it("conceals a missing or history-only membership", async () => {
+      vi.mocked(ConversationMember.findOne).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue({
+            _id: "507f1f77bcf86cd799439015",
+            status: "history_only",
+            accessWindows: [
+              {
+                visibleFromSequence: 1,
+                visibleThroughSequence: 8,
+                openedAt: new Date("2026-09-12T12:00:00.000Z"),
+                closedAt: new Date("2026-09-12T13:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      } as any);
+      const ack = vi.fn();
+
+      await socketService.handleJoinConversationRoom(
+        mockSocket,
+        CONVERSATION_ID,
+        ack,
+      );
+
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "CONVERSATION_NOT_FOUND",
+      });
+    });
+
+    it("fails closed before member lookup when runtime is off", async () => {
+      vi.mocked(featureControlService.getRuntimeConfig).mockResolvedValue(
+        createRuntimeConfigDTO("off", 2),
+      );
+      const ack = vi.fn();
+
+      await socketService.handleJoinConversationRoom(
+        mockSocket,
+        CONVERSATION_ID,
+        ack,
+      );
+
+      expect(Conversation.findOne).not.toHaveBeenCalled();
+      expect(ConversationMember.findOne).not.toHaveBeenCalled();
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "AUTHORIZATION_FAILED",
+      });
+    });
+
+    it("rejects malformed conversation IDs without querying state", async () => {
+      const ack = vi.fn();
+
+      await socketService.handleJoinConversationRoom(
+        mockSocket,
+        "../admin",
+        ack,
+      );
+
+      expect(User.findById).not.toHaveBeenCalled();
+      expect(Conversation.findOne).not.toHaveBeenCalled();
+      expect(mockSocket.join).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledWith({
+        ok: false,
+        code: "INVALID_CONVERSATION_ID",
+      });
+    });
+
+    it("leaves only the canonical conversation room", () => {
+      const ack = vi.fn();
+
+      socketService.handleLeaveConversationRoom(
+        mockSocket,
+        CONVERSATION_ID.toUpperCase(),
+        ack,
+      );
+
+      expect(mockSocket.leave).toHaveBeenCalledWith(
+        `conversation:${CONVERSATION_ID}`,
+      );
+      expect(ack).toHaveBeenCalledWith({
+        ok: true,
+        conversationId: CONVERSATION_ID,
       });
     });
   });

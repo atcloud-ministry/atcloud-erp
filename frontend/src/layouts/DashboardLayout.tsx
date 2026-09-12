@@ -5,6 +5,7 @@ import { Footer } from "../components/common";
 import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
 import { useAuth } from "../hooks/useAuth";
 import LoadingSpinner from "../components/common/LoadingSpinner";
+import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
 
 /**
  * Routes that unauthenticated "guest" visitors may access.
@@ -28,6 +29,7 @@ function isGuestAllowedRoute(pathname: string): boolean {
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { currentUser, isLoading } = useAuth();
+  const chatUnreadTotal = useOptionalChatRooms()?.chatUnreadTotal ?? 0;
   const location = useLocation();
 
   // Show loading spinner while checking authentication
@@ -72,6 +74,7 @@ export default function DashboardLayout() {
           userRole={isGuest ? "guest" : currentUser.role}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
+          chatUnreadTotal={chatUnreadTotal}
         />
 
         {/* Scrollable Main Content */}

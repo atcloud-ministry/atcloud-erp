@@ -21,6 +21,7 @@ import {
   deriveAlumniAffiliationKey,
   MILLISECONDS_PER_DAY,
 } from "../../../src/contracts/alumniDirectoryData";
+import { conversationPurgeAt } from "../../../src/contracts/chatRooms";
 import AlumniAffiliation from "../../../src/models/AlumniAffiliation";
 import AlumniHelpOutcomeSubmission from "../../../src/models/AlumniHelpOutcomeSubmission";
 import AlumniHelpRequest from "../../../src/models/AlumniHelpRequest";
@@ -612,6 +613,38 @@ describe("M3 Alumni Help service integration", () => {
       new Date(latest.dueAt),
     );
     expect(closed.request).toMatchObject({ status: "closed" });
+    const archivedRoom = await Conversation.findById(
+      closed.request.conversationId,
+    )
+      .lean()
+      .orFail();
+    const expectedRoomPurgeAt = conversationPurgeAt(closedAt, null);
+    expect(archivedRoom).toMatchObject({
+      status: "archived",
+      lastSequence: 0,
+      archivedAt: closedAt,
+      purgeAt: expectedRoomPurgeAt,
+    });
+    const archivedMembers = await ConversationMember.find({
+      conversationId: archivedRoom._id,
+    })
+      .sort({ _id: 1 })
+      .lean();
+    expect(archivedMembers).toHaveLength(2);
+    for (const archivedMember of archivedMembers) {
+      expect(archivedMember).toMatchObject({
+        status: "history_only",
+        unreadCount: 0,
+        purgeAt: expectedRoomPurgeAt,
+        accessWindows: [
+          expect.objectContaining({
+            visibleFromSequence: 1,
+            visibleThroughSequence: 0,
+            closedAt,
+          }),
+        ],
+      });
+    }
     const retainedOutcomes = await AlumniHelpOutcomeSubmission.find({
       helpRequestId: created.request.id,
     })

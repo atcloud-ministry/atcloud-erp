@@ -106,6 +106,7 @@ describe("ReliabilityFoundationService", () => {
     ).toEqual([
       { topic: "alumni.invitation.email", payloadVersion: 1 },
       { topic: "alumni.help.workflow", payloadVersion: 1 },
+      { topic: "chat.message.persisted", payloadVersion: 1 },
     ]);
   });
 

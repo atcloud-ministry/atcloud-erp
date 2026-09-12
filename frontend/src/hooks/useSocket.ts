@@ -12,6 +12,9 @@ interface UseSocketOptions {
 /** React lifecycle adapter for the application-wide socket service. */
 export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
   const [connected, setConnected] = useState(socketService.isConnected);
+  const [connectionLimited, setConnectionLimited] = useState(
+    socketService.connectionStatus?.connectionLimited ?? false,
+  );
   const [socket, setSocket] = useState<Socket | null>(socketService.socket);
 
   const token =
@@ -33,6 +36,9 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
     const nextSocket = socketService.connect(token, url);
     setSocket(nextSocket);
     setConnected(nextSocket.connected);
+    setConnectionLimited(
+      socketService.connectionStatus?.connectionLimited ?? false,
+    );
     return nextSocket;
   }, [token, url]);
 
@@ -40,6 +46,7 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
     socketService.disconnect();
     setSocket(null);
     setConnected(false);
+    setConnectionLimited(false);
   }, []);
 
   const onEventUpdate = useCallback(
@@ -52,14 +59,23 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
     if (!token) {
       setSocket(null);
       setConnected(false);
+      setConnectionLimited(false);
       return;
     }
 
     const handleConnect = () => {
       setSocket(socketService.socket);
       setConnected(true);
+      setConnectionLimited(false);
     };
     const handleDisconnect = () => {
+      setConnected(false);
+      setConnectionLimited(
+        socketService.connectionStatus?.connectionLimited ?? false,
+      );
+    };
+    const handleConnectionLimit = () => {
+      setConnectionLimited(true);
       setConnected(false);
     };
 
@@ -71,6 +87,10 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
       "disconnect",
       handleDisconnect,
     );
+    const stopListeningForConnectionLimit = socketService.on(
+      "connection_limit",
+      handleConnectionLimit,
+    );
     const releaseConnection = socketService.acquire(token, url);
 
     setSocket(socketService.socket);
@@ -79,6 +99,7 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
     return () => {
       stopListeningForConnect();
       stopListeningForDisconnect();
+      stopListeningForConnectionLimit();
       releaseConnection();
     };
   }, [token, url]);
@@ -86,6 +107,7 @@ export function useSocket({ baseUrl, authToken }: UseSocketOptions = {}) {
   return {
     socket,
     connected,
+    connectionLimited,
     connect,
     disconnect,
     onEventUpdate,

@@ -1,4 +1,11 @@
-import { Event, Program, Purchase } from "../../models";
+import {
+  Conversation,
+  ConversationMember,
+  Event,
+  Program,
+  Purchase,
+} from "../../models";
+import { hasOpenAccessWindow } from "../../contracts/chatRooms";
 import {
   hasPermission,
   Permission,
@@ -191,6 +198,57 @@ async function authorizeProgramManage(
   return classRepPurchase ? allow() : deny("not_resource_member");
 }
 
+async function authorizeConversationAccess(
+  request: AuthorizationRequest,
+  currentAccessRequired: boolean,
+): Promise<AuthorizationDecision> {
+  const principal = userPrincipal(request);
+  if (!principal) return deny("principal_source_mismatch");
+  if (request.resource?.type !== "conversation" || !request.resource.id) {
+    return deny("resource_required", true);
+  }
+  if (!/^[a-f\d]{24}$/i.test(request.resource.id)) {
+    return deny("resource_not_found", true);
+  }
+
+  const now = new Date();
+  const [conversation, member] = await Promise.all([
+    Conversation.findOne({
+      _id: request.resource.id,
+      $or: [
+        { purgeAt: { $exists: false } },
+        { purgeAt: null },
+        { purgeAt: { $gt: now } },
+      ],
+    })
+      .select("_id status")
+      .lean(),
+    ConversationMember.findOne({
+      conversationId: request.resource.id,
+      userId: principal.userId,
+      $or: [
+        { purgeAt: { $exists: false } },
+        { purgeAt: null },
+        { purgeAt: { $gt: now } },
+      ],
+    })
+      .select("_id status accessWindows")
+      .lean(),
+  ]);
+  if (!conversation || !member) {
+    return deny("resource_not_found", true);
+  }
+  if (
+    currentAccessRequired &&
+    (conversation.status !== "current" ||
+      member.status !== "active" ||
+      !hasOpenAccessWindow(member.accessWindows ?? []))
+  ) {
+    return deny("not_resource_member", true);
+  }
+  return allow();
+}
+
 const defaultPolicies: ReadonlyMap<string, AuthorizationPolicy> = new Map<
   string,
   AuthorizationPolicy
@@ -240,6 +298,26 @@ const defaultPolicies: ReadonlyMap<string, AuthorizationPolicy> = new Map<
   [AUTHORIZATION_ACTIONS.EVENT_MANAGE, authorizeEventManage],
   [AUTHORIZATION_ACTIONS.EVENT_SUBSCRIBE_REALTIME, authorizeEventSubscription],
   [AUTHORIZATION_ACTIONS.PROGRAM_MANAGE, authorizeProgramManage],
+  [
+    AUTHORIZATION_ACTIONS.CONVERSATION_READ,
+    (request) => authorizeConversationAccess(request, false),
+  ],
+  [
+    AUTHORIZATION_ACTIONS.CONVERSATION_SEND,
+    (request) => authorizeConversationAccess(request, true),
+  ],
+  [
+    AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
+    (request) => authorizeConversationAccess(request, false),
+  ],
+  [
+    AUTHORIZATION_ACTIONS.CONVERSATION_UPDATE_STATE,
+    (request) => authorizeConversationAccess(request, true),
+  ],
+  [
+    AUTHORIZATION_ACTIONS.CONVERSATION_SUBSCRIBE_REALTIME,
+    (request) => authorizeConversationAccess(request, true),
+  ],
   [
     AUTHORIZATION_ACTIONS.WORKER_EXECUTE,
     (request: AuthorizationRequest) => {

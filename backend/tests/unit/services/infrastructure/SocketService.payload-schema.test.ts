@@ -15,6 +15,7 @@ describe("SocketService payload schema", () => {
     (socketService as any).userSockets = new Map();
     (socketService as any).resourceAuthorizationRevisions = new Map();
     (socketService as any).eventJoinGuards = new Map();
+    (socketService as any).conversationJoinGuards = new Map();
 
     mockIO = {
       emit: vi.fn(),
@@ -68,6 +69,112 @@ describe("SocketService payload schema", () => {
       requestId: "507f1f77bcf86cd799439012",
       requestRevision: 4,
       helpActionRequiredCount: 2,
+      timestamp: expect.any(String),
+    });
+  });
+
+  it("emits chat content only to a freshly selected canonical user room", () => {
+    const userId = "507F1F77BCF86CD799439011";
+    const conversationId = "507F1F77BCF86CD799439012";
+    const result = socketService.emitChatMessageToUser(
+      userId,
+      conversationId,
+      {
+        message: {
+          id: "507f1f77bcf86cd799439013",
+          conversationId: conversationId.toLowerCase(),
+          sequence: 4,
+          kind: "text",
+          sender: {
+            id: "507f1f77bcf86cd799439014",
+            displayName: "Amy Chen",
+            avatar: null,
+          },
+          content: "Hello",
+          safeLink: null,
+          clientMessageId: "550e8400-e29b-41d4-a716-446655440000",
+          createdAt: "2026-09-12T12:00:00.000Z",
+        },
+      },
+    );
+
+    expect(result).toBe(true);
+    expect(mockIO.to).toHaveBeenCalledWith(
+      "user:507f1f77bcf86cd799439011",
+    );
+    expect(mockIO.to).not.toHaveBeenCalledWith(
+      "conversation:507f1f77bcf86cd799439012",
+    );
+    expect(mockIO.emit).toHaveBeenCalledWith("chat_message", {
+      message: expect.objectContaining({ sequence: 4, content: "Hello" }),
+      timestamp: expect.any(String),
+    });
+  });
+
+  it("refuses invalid or oversized chat message envelopes", () => {
+    const userId = "507f1f77bcf86cd799439011";
+    const conversationId = "507f1f77bcf86cd799439012";
+    const base = {
+      id: "507f1f77bcf86cd799439013",
+      conversationId,
+      sequence: 4,
+      kind: "text" as const,
+      sender: {
+        id: "507f1f77bcf86cd799439014",
+        displayName: "Amy Chen",
+        avatar: null,
+      },
+      safeLink: null,
+      clientMessageId: "550e8400-e29b-41d4-a716-446655440000",
+      createdAt: "2026-09-12T12:00:00.000Z",
+    };
+
+    expect(
+      socketService.emitChatMessageToUser("invalid", conversationId, {
+        message: { ...base, content: "Hello" },
+      }),
+    ).toBe(false);
+    expect(() =>
+      socketService.emitChatMessageToUser(userId, conversationId, {
+        message: {
+          ...base,
+          content: "Hello",
+          safeLink: undefined,
+        } as never,
+      }),
+    ).not.toThrow();
+    expect(
+      socketService.emitChatMessageToUser(userId, conversationId, {
+        message: {
+          ...base,
+          sender: { ...base.sender, avatar: "a".repeat(2_048) },
+          content: "😀".repeat(4_000),
+        },
+      }),
+    ).toBe(false);
+    expect(mockIO.emit).not.toHaveBeenCalled();
+  });
+
+  it("emits authoritative chat unread counters only to the member account", () => {
+    const result = socketService.emitChatUnreadUpdate(
+      "507F1F77BCF86CD799439011",
+      {
+        conversationId: "507F1F77BCF86CD799439012",
+        roomUnreadCount: 4,
+        chatUnreadTotal: 12,
+        lastReadSequence: 8,
+      },
+    );
+
+    expect(result).toBe(true);
+    expect(mockIO.to).toHaveBeenCalledWith(
+      "user:507f1f77bcf86cd799439011",
+    );
+    expect(mockIO.emit).toHaveBeenCalledWith("chat_unread_update", {
+      conversationId: "507f1f77bcf86cd799439012",
+      roomUnreadCount: 4,
+      chatUnreadTotal: 12,
+      lastReadSequence: 8,
       timestamp: expect.any(String),
     });
   });

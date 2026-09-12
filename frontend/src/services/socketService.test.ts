@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventUpdate } from "../types/realtime";
 import {
+  ConversationRoomJoinError,
+  decodeConnectionLimitPayload,
   SocketRoomJoinError,
   SocketServiceFrontend,
   type SocketRoomAck,
@@ -16,6 +18,10 @@ const fakeIo = vi.hoisted(() => {
     disconnectCalls = 0;
     emitted: Array<{ event: string; args: unknown[] }> = [];
     joinAcks: SocketRoomAck[] = [];
+    conversationJoinAcks: Array<
+      | { ok: true; conversationId: string }
+      | { ok: false; code: "AUTHORIZATION_FAILED" | "RATE_LIMITED" }
+    > = [];
     deferJoinAcks = false;
     pendingJoinAcks: Array<{
       eventId: string;
@@ -46,6 +52,17 @@ const fakeIo = vi.hoisted(() => {
         } else {
           ack?.(this.joinAcks.shift() ?? { ok: true, eventId });
         }
+      } else if (event === "join_conversation_room") {
+        const conversationId = args[0] as string;
+        const ack = args[1] as
+          | ((result: unknown) => void)
+          | undefined;
+        ack?.(
+          this.conversationJoinAcks.shift() ?? {
+            ok: true,
+            conversationId,
+          },
+        );
       }
       return this;
     }
@@ -189,6 +206,52 @@ describe("SocketServiceFrontend", () => {
     expect(service.connectionStatus.joinedRooms).toEqual([]);
   });
 
+  it("reference-counts conversation rooms and rejoins them after reconnect", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+
+    await service.joinConversationRoom("conversation-1");
+    await service.joinConversationRoom("conversation-1");
+    expect(socket.emittedCount("join_conversation_room")).toBe(1);
+    expect(service.connectionStatus.joinedConversationRooms).toEqual([
+      "conversation-1",
+    ]);
+
+    service.leaveConversationRoom("conversation-1");
+    expect(socket.emittedCount("leave_conversation_room")).toBe(0);
+    socket.serverEmit("disconnect", "transport close");
+    socket.serverEmit("connect");
+    expect(socket.emittedCount("join_conversation_room")).toBe(2);
+
+    service.leaveConversationRoom("conversation-1");
+    expect(socket.emittedCount("leave_conversation_room")).toBe(1);
+    expect(service.connectionStatus.joinedConversationRooms).toEqual([]);
+  });
+
+  it("does not retain a conversation room after a live authorization denial", async () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+    socket.conversationJoinAcks.push({
+      ok: false,
+      code: "AUTHORIZATION_FAILED",
+    });
+
+    await expect(
+      service.joinConversationRoom("conversation-1"),
+    ).rejects.toMatchObject({
+      name: "ConversationRoomJoinError",
+      conversationId: "conversation-1",
+      code: "AUTHORIZATION_FAILED",
+    });
+    expect(service.connectionStatus.joinedConversationRooms).toEqual([]);
+    expect(service.connectionStatus.pendingConversationRooms).toEqual([]);
+    expect(ConversationRoomJoinError).toBeDefined();
+  });
+
   it("re-authenticates after the server disconnects sockets for an authorization change", async () => {
     const service = new SocketServiceFrontend();
     const release = service.acquire("token", "https://socket.test");
@@ -203,6 +266,70 @@ describe("SocketServiceFrontend", () => {
     expect(service.connectionStatus.pendingRooms).toEqual(["event-1"]);
     service.leaveEventRoom("event-1");
     release();
+  });
+
+  it("does not reconnect a socket evicted by the per-account connection limit", () => {
+    const service = new SocketServiceFrontend();
+    const limited = vi.fn();
+    service.on("connection_limit", limited);
+    service.acquire("token", "https://socket.test");
+    const socket = fakeIo.sockets[0];
+    socket.serverEmit("connect");
+
+    socket.serverEmit("connection_limit", {
+      limit: 5,
+      disconnectedAt: "2026-09-13T12:00:00.000Z",
+    });
+    socket.serverEmit("disconnect", "io server disconnect");
+
+    expect(limited).toHaveBeenCalledWith({
+      limit: 5,
+      disconnectedAt: "2026-09-13T12:00:00.000Z",
+    });
+    expect(socket.connectCalls).toBe(0);
+    expect(service.connectionStatus).toMatchObject({
+      connected: false,
+      connecting: false,
+      connectionLimited: true,
+    });
+
+    service.connect("token", "https://socket.test");
+    expect(socket.connectCalls).toBe(0);
+  });
+
+  it("strictly validates the connection-limit control payload", () => {
+    expect(
+      decodeConnectionLimitPayload({
+        limit: 5,
+        disconnectedAt: "2026-09-13T12:00:00.000Z",
+      }),
+    ).toEqual({
+      limit: 5,
+      disconnectedAt: "2026-09-13T12:00:00.000Z",
+    });
+    expect(() =>
+      decodeConnectionLimitPayload({
+        limit: 5,
+        disconnectedAt: "not-a-date",
+      }),
+    ).toThrow(/Invalid connection_limit payload/);
+    expect(() =>
+      decodeConnectionLimitPayload({
+        limit: 5,
+        disconnectedAt: "2026-09-13T12:00:00.000Z",
+        userId: "should-not-cross-the-boundary",
+      }),
+    ).toThrow(/Invalid connection_limit payload/);
+  });
+
+  it("keeps retrying transient outages until an explicit terminal signal", () => {
+    const service = new SocketServiceFrontend();
+    service.connect("token", "https://socket.test");
+
+    expect(fakeIo.io).toHaveBeenCalledWith(
+      "https://socket.test",
+      expect.objectContaining({ reconnectionAttempts: Infinity }),
+    );
   });
 
   it("waits for a refreshed token after token-expiry disconnect", async () => {

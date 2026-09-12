@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.5
+- 版本：3.6
 - 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0、M1、M2 与 M3 已完成
-- 下一任务：M4-01（待确认）
+- 实施进度：M0–M4 已完成
+- 下一任务：M5-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -314,12 +314,13 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M4 — Chat Rooms
 
-- [ ] M4-01 实现 conversation、member、message、sequence 和 access-window models/indexes。
-- [ ] M4-02 实现 Room list/detail/history/send/read/mute APIs。
-- [ ] M4-03 实现 persist/outbox/ack/Socket pipeline、retry 和 REST recovery。
-- [ ] M4-04 实现 per-room unread、`chatUnreadTotal` 和 counter reconciliation。
-- [ ] M4-05 实现 Chat Rooms navigation、对话泡泡 icon 和 responsive UI。
-- [ ] M4-06 完成 sanitization、rate limit、retention、two-client、reconnect、ACL 和 load tests。
+- [x] M4-01 实现 conversation、member、message、sequence 和 access-window models/indexes。
+- [x] M4-02 实现 Room list/detail/history/send/read/mute APIs。
+- [x] M4-03 实现 persist/outbox/ack/Socket pipeline、retry 和 REST recovery。
+- [x] M4-04 实现 per-room unread、`chatUnreadTotal` 和 counter reconciliation。
+- [x] M4-05 实现 Chat Rooms navigation、对话泡泡 icon 和 responsive UI。
+- [x] M4-06 完成 sanitization、rate limit、retention、two-client、reconnect、ACL 和 load tests。
+  - 验证：backend unit 6,714、HTTP 442、MongoDB integration full 1,874/1,875（并行隔离偶发项 standalone 13/13）、frontend 2,124；真实 two-client transport/reconnect/ACL、approved capacity load、production full-stack E2E、lint、type-check、production build、deployment guards 与独立审查通过。
 
 ### M5 — PWA 与 notifications
 

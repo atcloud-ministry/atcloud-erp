@@ -45,6 +45,10 @@ const RELIABILITY_ERROR_RESPONSES: Readonly<
     statusCode: 503,
     message: "The write result is uncertain. Retry with the same idempotency key.",
   },
+  CHAT_MESSAGE_PAYLOAD_TOO_LARGE: {
+    statusCode: 413,
+    message: "The chat message payload is too large.",
+  },
 });
 
 function logUnhandledError(error: unknown): void {

@@ -6,6 +6,7 @@ import IdempotencyRecord from "../../models/IdempotencyRecord";
 import NotificationOutbox from "../../models/NotificationOutbox";
 import { alumniInvitationEmailDeliveryHandler } from "../alumni/AlumniInvitationEmailDeliveryHandler";
 import { alumniHelpWorkflowDeliveryHandler } from "../alumni/AlumniHelpWorkflowDeliveryHandler";
+import { chatMessageDeliveryHandler } from "../chat/ChatMessageDeliveryHandler";
 import {
   mongoTransactionService,
   type MongoTransactionService,
@@ -171,6 +172,7 @@ export function createProductionNotificationOutboxDeliveryRegistry(): Notificati
   return new NotificationOutboxDeliveryRegistry([
     alumniInvitationEmailDeliveryHandler,
     alumniHelpWorkflowDeliveryHandler,
+    chatMessageDeliveryHandler,
   ]);
 }
 

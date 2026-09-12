@@ -13,6 +13,7 @@ import {
   ClipboardDocumentListIcon,
   ComputerDesktopIcon,
   ChatBubbleLeftRightIcon,
+  ChatBubbleOvalLeftEllipsisIcon,
   RectangleStackIcon,
   AcademicCapIcon,
   GlobeAltIcon,
@@ -37,18 +38,21 @@ interface NavigationItem {
   activePathPrefix?: string;
   sectionLabel?: string;
   sectionEnd?: boolean;
+  badgeCount?: number;
 }
 
 interface SidebarProps {
   userRole: string;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  chatUnreadTotal?: number;
 }
 
 export default function Sidebar({
   userRole,
   sidebarOpen,
   setSidebarOpen,
+  chatUnreadTotal = 0,
 }: SidebarProps) {
   const location = useLocation(); //获取当前路径
   const navigate = useNavigate();
@@ -153,6 +157,13 @@ export default function Sidebar({
         href: "/dashboard/community",
         activePathPrefix: "/dashboard/community",
         icon: UsersIcon,
+      });
+      baseItems.push({
+        name: "Chat Rooms",
+        href: "/dashboard/chat-rooms",
+        activePathPrefix: "/dashboard/chat-rooms",
+        icon: ChatBubbleOvalLeftEllipsisIcon,
+        badgeCount: chatUnreadTotal,
       });
     }
 
@@ -357,6 +368,11 @@ export default function Sidebar({
                     {item.href ? (
                       <Link
                         to={item.href}
+                        aria-label={
+                          item.badgeCount && item.badgeCount > 0
+                            ? `${item.name}, ${item.badgeCount} unread messages`
+                            : undefined
+                        }
                         className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
                           isActive
                             ? "bg-blue-50 text-blue-700 border-r-2 border-blue-700"
@@ -366,6 +382,17 @@ export default function Sidebar({
                       >
                         <Icon className="w-5 h-5 flex-shrink-0" />
                         <span className="font-medium">{item.name}</span>
+                        {item.badgeCount !== undefined &&
+                          item.badgeCount > 0 && (
+                            <span
+                              aria-hidden="true"
+                              className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
+                            >
+                              {item.badgeCount > 99
+                                ? "99+"
+                                : item.badgeCount}
+                            </span>
+                          )}
                       </Link>
                     ) : (
                       <button
@@ -384,6 +411,13 @@ export default function Sidebar({
               );
             })}
           </ul>
+          <span aria-live="polite" className="sr-only">
+            {chatUnreadTotal > 0
+              ? `${chatUnreadTotal} unread Chat Room ${
+                  chatUnreadTotal === 1 ? "message" : "messages"
+                }.`
+              : "No unread Chat Room messages."}
+          </span>
         </div>
       </nav>
       <ConfirmLogoutModal

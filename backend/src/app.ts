@@ -33,6 +33,10 @@ import RequestMonitorService from "./middleware/RequestMonitorService";
 import ErrorHandlerMiddleware from "./middleware/errorHandler";
 import { requestCorrelation } from "./middleware/requestCorrelation";
 import { operationalMonitoringService } from "./services/operations/OperationalMonitoringService";
+import {
+  CHAT_HTTP_PAYLOAD_MAX_BYTES,
+  ChatRoomPayloadTooLargeError,
+} from "./contracts/chatRoomFlow";
 
 // Load environment variables
 dotenv.config();
@@ -81,7 +85,33 @@ app.use("/api/notifications", systemMessagesLimiter);
 
 // Stripe webhook endpoint needs raw body - must be before JSON parser
 // In test environment, use JSON parser instead to make testing easier
-const jsonParser = express.json({ limit: "10mb" });
+const CHAT_MESSAGE_POST_PATH =
+  /^\/api\/conversations\/[^/?#]+\/messages\/?(?:[?#]|$)/u;
+const isChatMessagePost = (req: {
+  readonly method?: string;
+  readonly url?: string;
+}): boolean =>
+  req.method === "POST" && CHAT_MESSAGE_POST_PATH.test(req.url ?? "");
+const jsonParser = express.json({
+  limit: "10mb",
+  // A chat-message POST is JSON-only and always passes through this parser,
+  // regardless of a forged/missing Content-Type. This lets `verify` enforce
+  // the approved raw 16 KiB envelope for chunked as well as fixed-length
+  // requests before another body parser can consume it.
+  type: (req) => {
+    if (isChatMessagePost(req)) return true;
+    const contentType = req.headers["content-type"]
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase();
+    return contentType === "application/json";
+  },
+  verify: (req, _res, body) => {
+    if (isChatMessagePost(req) && body.byteLength > CHAT_HTTP_PAYLOAD_MAX_BYTES) {
+      throw new ChatRoomPayloadTooLargeError();
+    }
+  },
+});
 if (process.env.NODE_ENV === "test") {
   app.use("/api/webhooks/stripe", jsonParser);
 } else {

@@ -123,10 +123,23 @@ export {
 export {
   default as ConversationMember,
   CONVERSATION_MEMBER_COLLECTION,
+  CONVERSATION_MEMBER_ROLES,
   CONVERSATION_MEMBER_STATUSES,
+  ConversationAccessWindow,
+  ConversationMemberRole,
   ConversationMemberStatus,
   IConversationMember,
 } from "./ConversationMember";
+export {
+  default as ChatMessage,
+  CHAT_MESSAGE_COLLECTION,
+  CHAT_MESSAGE_FIELD_LIMITS,
+  CHAT_MESSAGE_KINDS,
+  ChatMessageKind,
+  ChatSafeLink,
+  ChatSenderSnapshot,
+  IChatMessage,
+} from "./ChatMessage";
 export { initializeAlumniDataModels } from "./initializeAlumniDataModels";
 export {
   ACCOUNT_DELETION_RETENTION_DAYS,

@@ -61,6 +61,11 @@ export const AUTHORIZATION_ACTIONS = {
   EVENT_MANAGE: "event.manage",
   EVENT_SUBSCRIBE_REALTIME: "event.subscribe_realtime",
   PROGRAM_MANAGE: "program.manage",
+  CONVERSATION_READ: "conversation.read",
+  CONVERSATION_SEND: "conversation.send",
+  CONVERSATION_SEND_OR_REPLAY: "conversation.send_or_replay",
+  CONVERSATION_UPDATE_STATE: "conversation.update_state",
+  CONVERSATION_SUBSCRIBE_REALTIME: "conversation.subscribe_realtime",
   WORKER_EXECUTE: "worker.execute",
 } as const;
 

@@ -388,11 +388,14 @@ export default function HelpRequestDetail() {
                 Help Room created
               </h2>
               <p className="mt-1 text-sm text-green-800">
-                Your private two-person Help Room is ready. Chat access will open when Chat Rooms launches.
+                Your private two-person Help Room is ready.
               </p>
-              <Button className="mt-3" disabled type="button">
+              <Link
+                className="mt-3 inline-flex min-h-11 items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                to={`/dashboard/chat-rooms/${encodeURIComponent(request.conversationId)}`}
+              >
                 Open Help Room
-              </Button>
+              </Link>
             </section>
           )}
 

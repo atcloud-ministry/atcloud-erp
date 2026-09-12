@@ -7,6 +7,7 @@ import AlumniHelpRequest from "./AlumniHelpRequest";
 import AlumniHelpOutcomeSubmission from "./AlumniHelpOutcomeSubmission";
 import Conversation from "./Conversation";
 import ConversationMember from "./ConversationMember";
+import ChatMessage from "./ChatMessage";
 import Message from "./Message";
 
 const ALUMNI_DATA_MODELS = [
@@ -19,6 +20,7 @@ const ALUMNI_DATA_MODELS = [
   AlumniHelpOutcomeSubmission,
   Conversation,
   ConversationMember,
+  ChatMessage,
   Message,
 ] as const;
 

@@ -16,6 +16,9 @@ const alumniRetentionMocks = vi.hoisted(() => ({
 const alumniOutcomeMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
+const chatUnreadMocks = vi.hoisted(() => ({
+  runBounded: vi.fn(),
+}));
 
 // Mock the models
 vi.mock("../../../src/models/GuestRegistration");
@@ -28,6 +31,9 @@ vi.mock(
 );
 vi.mock("../../../src/services/alumni/AlumniOutcomeDeadlineService", () => ({
   alumniOutcomeDeadlineService: alumniOutcomeMocks,
+}));
+vi.mock("../../../src/services/chat/ChatUnreadReconciliationService", () => ({
+  chatUnreadReconciliationService: chatUnreadMocks,
 }));
 vi.mock("../../../src/services/LoggerService", () => ({
   createLogger: vi.fn(() => ({
@@ -60,6 +66,14 @@ describe("MaintenanceScheduler", () => {
       racedOrUnavailable: 0,
       remainingOverdue: 0,
       paused: false,
+    });
+    chatUnreadMocks.runBounded.mockResolvedValue({
+      candidatesScanned: 0,
+      reconciled: 0,
+      corrected: 0,
+      racedOrUnavailable: 0,
+      hasMore: false,
+      capacityPerRun: 500,
     });
 
     (GuestRegistration as any).purgeExpiredManageTokens =
@@ -98,6 +112,15 @@ describe("MaintenanceScheduler", () => {
           }),
         }),
       );
+      expect(chatUnreadMocks.runBounded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "chat-unread-reconciler",
+            capabilities: ["chat.unread.reconcile"],
+          }),
+        }),
+      );
     });
 
     it("should run purge every hour", async () => {
@@ -108,12 +131,17 @@ describe("MaintenanceScheduler", () => {
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(1);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(1);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(chatUnreadMocks.runBounded).toHaveBeenCalledTimes(1);
 
       // Fast-forward 1 hour
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(2);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(2);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(chatUnreadMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(chatUnreadMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trigger: "scheduled" }),
+      );
       expect(alumniRetentionMocks.runBounded).toHaveBeenLastCalledWith(
         expect.objectContaining({ trigger: "scheduled" }),
       );
@@ -123,6 +151,7 @@ describe("MaintenanceScheduler", () => {
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(3);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(3);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(3);
+      expect(chatUnreadMocks.runBounded).toHaveBeenCalledTimes(3);
     });
 
     it("runs outcome recovery at startup and then once per minute", async () => {
@@ -186,6 +215,7 @@ describe("MaintenanceScheduler", () => {
       expect(purgeExpiredTokensMock).not.toHaveBeenCalled();
       expect(purgeOldAuditLogsMock).not.toHaveBeenCalled();
       expect(alumniRetentionMocks.runBounded).not.toHaveBeenCalled();
+      expect(chatUnreadMocks.runBounded).not.toHaveBeenCalled();
     });
 
     it("should warn if trying to stop when not running", () => {

@@ -9,6 +9,7 @@ import GuestRegistration from "../models/GuestRegistration";
 import AuditLog from "../models/AuditLog";
 import { alumniRetentionCleanupService } from "./alumni/AlumniRetentionCleanupService";
 import { alumniOutcomeDeadlineService } from "./alumni/AlumniOutcomeDeadlineService";
+import { chatUnreadReconciliationService } from "./chat/ChatUnreadReconciliationService";
 import {
   WORKER_RUN_TRIGGERS,
   WORKER_SERVICE_KEYS,
@@ -41,6 +42,7 @@ class MaintenanceScheduler {
       await this.purgeExpiredTokens();
       await this.purgeOldAuditLogs();
       await this.purgeAlumniRetentionData(WORKER_RUN_TRIGGERS.SCHEDULED);
+      await this.reconcileChatUnread(WORKER_RUN_TRIGGERS.SCHEDULED);
     }, 60 * 60 * 1000);
 
     this.intervals.push(hourly);
@@ -57,6 +59,7 @@ class MaintenanceScheduler {
       await this.purgeExpiredTokens();
       await this.purgeOldAuditLogs();
       await this.purgeAlumniRetentionData(WORKER_RUN_TRIGGERS.STARTUP);
+      await this.reconcileChatUnread(WORKER_RUN_TRIGGERS.STARTUP);
     }, 10 * 1000);
   }
 
@@ -193,6 +196,45 @@ class MaintenanceScheduler {
     log.info("Alumni outcome confirmation scheduled", undefined, {
       cadence: "every minute",
     });
+  }
+
+  private async reconcileChatUnread(trigger: WorkerRunTrigger) {
+    try {
+      const runContext = workerAuthorizationService.createRunContext(
+        WORKER_SERVICE_KEYS.CHAT_UNREAD,
+        trigger,
+      );
+      const result = await chatUnreadReconciliationService.runBounded(
+        runContext,
+      );
+      if (result.candidatesScanned > 0) {
+        log.info("Completed bounded chat unread reconciliation", undefined, {
+          candidatesScanned: result.candidatesScanned,
+          reconciled: result.reconciled,
+          corrected: result.corrected,
+          racedOrUnavailable: result.racedOrUnavailable,
+          hasMore: result.hasMore,
+          capacityPerRun: result.capacityPerRun,
+        });
+      }
+    } catch (error) {
+      const candidate = error as { name?: unknown; code?: unknown };
+      log.error(
+        "Failed to execute chat unread reconciliation",
+        new Error("Chat unread reconciliation failed"),
+        undefined,
+        {
+          errorName:
+            typeof candidate?.name === "string"
+              ? candidate.name
+              : "UnknownError",
+          ...(typeof candidate?.code === "string" ||
+          typeof candidate?.code === "number"
+            ? { errorCode: candidate.code }
+            : {}),
+        },
+      );
+    }
   }
 
   private async confirmDueAlumniOutcomes(trigger: WorkerRunTrigger) {

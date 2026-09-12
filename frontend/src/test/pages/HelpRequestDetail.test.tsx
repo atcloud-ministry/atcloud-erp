@@ -228,7 +228,10 @@ describe("HelpRequestDetail", () => {
     renderPage();
 
     expect(await screen.findByText("Help Room created")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open Help Room" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Open Help Room" })).toHaveAttribute(
+      "href",
+      `/dashboard/chat-rooms/${IDS.conversation}`,
+    );
     expect(screen.getByLabelText("Formal Employee Referral did not take place")).toBeInTheDocument();
     expect(screen.getByLabelText(/led to an interview, but not a hire/)).toBeInTheDocument();
     expect(screen.getByLabelText(/led to an interview and a hire/)).toBeInTheDocument();

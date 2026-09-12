@@ -1,4 +1,5 @@
 import mongoose, { type ClientSession } from "mongoose";
+import { conversationPurgeAt } from "../../contracts/chatRooms";
 import Conversation from "../../models/Conversation";
 import ConversationMember from "../../models/ConversationMember";
 
@@ -8,6 +9,17 @@ export interface EnsureAlumniHelpRoomInput {
   readonly providerId: mongoose.Types.ObjectId;
   readonly acceptedAt: Date;
   readonly session: ClientSession;
+}
+
+export interface ArchiveAlumniHelpRoomInput {
+  readonly conversationId: mongoose.Types.ObjectId;
+  readonly helpRequestId: mongoose.Types.ObjectId;
+  readonly archivedAt: Date;
+  readonly session: ClientSession;
+}
+
+function sameInstant(first: Date | null | undefined, second: Date): boolean {
+  return first instanceof Date && first.getTime() === second.getTime();
 }
 
 /**
@@ -32,6 +44,10 @@ export class AlumniHelpRoomProvisioner {
           status: "current",
           helpRequestId: input.helpRequestId,
           lastSequence: 0,
+          lastMessageId: null,
+          latestMessagePurgeAt: null,
+          archivedAt: null,
+          purgeAt: null,
           revision: 0,
           createdAt: input.acceptedAt,
           updatedAt: input.acceptedAt,
@@ -67,6 +83,21 @@ export class AlumniHelpRoomProvisioner {
                 role: "requester",
                 status: "active",
                 joinedAt: input.acceptedAt,
+                accessWindows: [
+                  {
+                    visibleFromSequence: 1,
+                    visibleThroughSequence: null,
+                    openedAt: input.acceptedAt,
+                    closedAt: null,
+                  },
+                ],
+                lastReadSequence: 0,
+                unreadCount: 0,
+                unreadReconciledThroughSequence: 0,
+                unreadReconciledAt: input.acceptedAt,
+                muted: false,
+                mutedAt: null,
+                purgeAt: null,
                 revision: 0,
               },
             },
@@ -86,6 +117,21 @@ export class AlumniHelpRoomProvisioner {
                 role: "provider",
                 status: "active",
                 joinedAt: input.acceptedAt,
+                accessWindows: [
+                  {
+                    visibleFromSequence: 1,
+                    visibleThroughSequence: null,
+                    openedAt: input.acceptedAt,
+                    closedAt: null,
+                  },
+                ],
+                lastReadSequence: 0,
+                unreadCount: 0,
+                unreadReconciledThroughSequence: 0,
+                unreadReconciledAt: input.acceptedAt,
+                muted: false,
+                mutedAt: null,
+                purgeAt: null,
                 revision: 0,
               },
             },
@@ -105,6 +151,105 @@ export class AlumniHelpRoomProvisioner {
     }
 
     return room._id;
+  }
+
+  /** Archive the room and both access histories inside the Help close transaction. */
+  async archiveInTransaction(
+    input: ArchiveAlumniHelpRoomInput,
+  ): Promise<void> {
+    const room = await Conversation.findOne({
+      _id: input.conversationId,
+      kind: "alumni_help",
+      helpRequestId: input.helpRequestId,
+    })
+      .session(input.session)
+      .lean()
+      .exec();
+    if (!room) throw new Error("The Alumni Help Room is unavailable.");
+
+    const purgeAt = conversationPurgeAt(
+      input.archivedAt,
+      room.latestMessagePurgeAt,
+    );
+    if (room.status === "current") {
+      const expectedRevision = room.revision;
+      const archived = await Conversation.updateOne(
+        {
+          _id: room._id,
+          kind: "alumni_help",
+          helpRequestId: input.helpRequestId,
+          status: "current",
+          revision: expectedRevision,
+        },
+        {
+          $set: {
+            status: "archived",
+            archivedAt: input.archivedAt,
+            purgeAt,
+            updatedAt: input.archivedAt,
+          },
+          $inc: { revision: 1 },
+        },
+        { session: input.session, runValidators: false },
+      );
+      if (archived.modifiedCount !== 1) {
+        throw new Error("The Alumni Help Room changed during archive.");
+      }
+    } else if (
+      !sameInstant(room.archivedAt, input.archivedAt) ||
+      !sameInstant(room.purgeAt, purgeAt)
+    ) {
+      throw new Error("The Alumni Help Room is already archived differently.");
+    }
+
+    const members = await ConversationMember.find({
+      conversationId: room._id,
+    })
+      .sort({ _id: 1 })
+      .session(input.session);
+    if (members.length !== 2) {
+      throw new Error("An Alumni Help Room must contain exactly two members.");
+    }
+    for (const member of members) {
+      const expectedRevision = member.revision;
+      let changed = false;
+      for (const window of member.accessWindows) {
+        if (window.visibleThroughSequence == null) {
+          window.visibleThroughSequence = room.lastSequence;
+          window.closedAt = input.archivedAt;
+          changed = true;
+        }
+      }
+      if (
+        member.status !== "history_only" ||
+        member.unreadCount !== 0 ||
+        !sameInstant(member.purgeAt, purgeAt)
+      ) {
+        changed = true;
+      }
+      if (!changed) continue;
+      member.status = "history_only";
+      member.unreadCount = 0;
+      member.purgeAt = purgeAt;
+      await member.validate();
+      const updated = await ConversationMember.updateOne(
+        { _id: member._id, revision: expectedRevision },
+        {
+          $set: {
+            accessWindows: member.accessWindows,
+            status: "history_only",
+            unreadCount: 0,
+            purgeAt,
+            updatedAt: input.archivedAt,
+          },
+          $inc: { revision: 1 },
+        },
+        { session: input.session, runValidators: false },
+      );
+      if (updated.modifiedCount !== 1) {
+        throw new Error("An Alumni Help Room member changed during archive.");
+      }
+    }
   }
 }
 

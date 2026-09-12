@@ -20,9 +20,21 @@ import type {
   BellNotificationUpdate,
   UnreadCountUpdate,
   AlumniHelpUpdate,
+  ChatMessageUpdate,
+  ChatUnreadUpdate,
+  ConversationRoomAck,
   ConnectedPayload,
   AuthExpiredPayload,
+  ConnectionLimitPayload,
 } from "@/types/realtime";
+import { featureControlService } from "../runtime/FeatureControlService";
+import {
+  CHAT_MESSAGE_MAX_SERIALIZED_PAYLOAD_BYTES,
+  UUID_PATTERN,
+  isValidChatMessagePayload,
+  isValidChatSafeLinkUrl,
+  isValidSafeLinkLabel,
+} from "../../contracts/chatRooms";
 
 export type SocketResourceType = "event" | "program" | "conversation";
 
@@ -41,6 +53,9 @@ interface AuthenticatedSocket extends Socket {
 const ADMIN_USERS_ROOM = "permission:manage_users";
 const EVENT_JOIN_WINDOW_MS = 60_000;
 const MAX_EVENT_JOINS_PER_WINDOW = 20;
+export const MAX_SOCKET_CONNECTIONS_PER_ACCOUNT = 5;
+const CONVERSATION_JOIN_WINDOW_MS = 60_000;
+const MAX_CONVERSATION_JOINS_PER_WINDOW = 60;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const VALID_PRESENCE_STATUSES = new Set(["online", "away", "busy"]);
 const VALID_RESOURCE_TYPES = new Set<SocketResourceType>([
@@ -59,6 +74,62 @@ const buildResourceRoom = (
   resourceId: string,
 ): string => `${resourceType}:${resourceId}`;
 
+function isCanonicalIsoInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function serializedPayloadFits(value: unknown): boolean {
+  try {
+    return (
+      Buffer.byteLength(JSON.stringify(value), "utf8") <=
+      CHAT_MESSAGE_MAX_SERIALIZED_PAYLOAD_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidChatMessageUpdate(
+  conversationId: string,
+  update: Omit<ChatMessageUpdate, "timestamp">,
+): boolean {
+  const message = update?.message;
+  const safeLink = message?.safeLink;
+  return Boolean(
+    normalizeObjectId(conversationId) &&
+      message &&
+      normalizeObjectId(message.id) &&
+      normalizeObjectId(message.conversationId) ===
+        normalizeObjectId(conversationId) &&
+      Number.isSafeInteger(message.sequence) &&
+      message.sequence >= 1 &&
+      (message.kind === "text" || message.kind === "announcement") &&
+      normalizeObjectId(message.sender?.id) &&
+      typeof message.sender.displayName === "string" &&
+      message.sender.displayName.length > 0 &&
+      message.sender.displayName.length <= 160 &&
+      (message.sender.avatar === null ||
+        (typeof message.sender.avatar === "string" &&
+          message.sender.avatar.length <= 2_048)) &&
+      isValidChatMessagePayload({
+        content: message.content,
+        safeLink: message.safeLink,
+      }) &&
+      (safeLink === null ||
+        (safeLink !== undefined &&
+          typeof safeLink === "object" &&
+          !Array.isArray(safeLink) &&
+          isValidChatSafeLinkUrl(safeLink.url) &&
+          typeof safeLink.label === "string" &&
+          isValidSafeLinkLabel(safeLink.label))) &&
+      typeof message.clientMessageId === "string" &&
+      UUID_PATTERN.test(message.clientMessageId) &&
+      isCanonicalIsoInstant(message.createdAt),
+  );
+}
+
 /**
  * Real-time WebSocket service for system messages and notifications
  * Handles instant updates for read status, deletions, and new messages
@@ -70,6 +141,10 @@ class SocketService {
   private userAuthorizationRevisions = new Map<string, number>();
   private resourceAuthorizationRevisions = new Map<string, number>();
   private eventJoinGuards = new Map<
+    string,
+    { attempts: number[]; inFlight: Set<string> }
+  >();
+  private conversationJoinGuards = new Map<
     string,
     { attempts: number[]; inFlight: Set<string> }
   >();
@@ -88,6 +163,7 @@ class SocketService {
     this.userAuthorizationRevisions.clear();
     this.resourceAuthorizationRevisions.clear();
     this.eventJoinGuards.clear();
+    this.conversationJoinGuards.clear();
     if (!io) return;
 
     await new Promise<void>((resolve) => {
@@ -212,6 +288,7 @@ class SocketService {
         clearTimeout(tokenExpiryTimer);
         this.authenticatedSockets.delete(authSocket.id);
         this.eventJoinGuards.delete(authSocket.id);
+        this.conversationJoinGuards.delete(authSocket.id);
 
         const userSocketSet = this.userSockets.get(authSocket.userId);
         if (userSocketSet) {
@@ -227,6 +304,8 @@ class SocketService {
           userId: authSocket.userId,
         });
       });
+
+      this.enforceAccountConnectionLimit(authSocket);
 
       // Handle status updates
       authSocket.on("update_status", (status: unknown) => {
@@ -268,6 +347,34 @@ class SocketService {
         this.handleLeaveEventRoom(authSocket, eventId, ack);
       });
 
+      authSocket.on(
+        "join_conversation_room",
+        (conversationId: unknown, ack?: ConversationRoomAck) => {
+          return this.handleJoinConversationRoom(
+            authSocket,
+            conversationId,
+            ack,
+          ).catch((error: unknown) => {
+            this.log.error(
+              "Unexpected conversation room join failure",
+              error instanceof Error ? error : undefined,
+              undefined,
+              { socketId: authSocket.id },
+            );
+            if (typeof ack === "function") {
+              ack({ ok: false, code: "AUTHORIZATION_FAILED" });
+            }
+          });
+        },
+      );
+
+      authSocket.on(
+        "leave_conversation_room",
+        (conversationId: unknown, ack?: ConversationRoomAck) => {
+          this.handleLeaveConversationRoom(authSocket, conversationId, ack);
+        },
+      );
+
       // Send initial connection confirmation
       const payload: ConnectedPayload = {
         message: "Real-time notifications enabled",
@@ -275,6 +382,34 @@ class SocketService {
       };
       authSocket.emit("connected", payload);
     });
+  }
+
+  private enforceAccountConnectionLimit(socket: AuthenticatedSocket): void {
+    const socketIds = this.userSockets.get(socket.userId);
+    if (!socketIds) return;
+
+    while (socketIds.size > MAX_SOCKET_CONNECTIONS_PER_ACCOUNT) {
+      const oldestSocketId = socketIds.values().next().value as string | undefined;
+      if (!oldestSocketId) break;
+      socketIds.delete(oldestSocketId);
+      const oldestSocket = this.authenticatedSockets.get(oldestSocketId);
+      this.authenticatedSockets.delete(oldestSocketId);
+      this.eventJoinGuards.delete(oldestSocketId);
+      this.conversationJoinGuards.delete(oldestSocketId);
+      if (oldestSocket && oldestSocket.id !== socket.id) {
+        this.log.info("Closing oldest Socket.IO connection at account limit", undefined, {
+          userId: socket.userId,
+          socketId: oldestSocketId,
+          limit: MAX_SOCKET_CONNECTIONS_PER_ACCOUNT,
+        });
+        const payload: ConnectionLimitPayload = {
+          limit: MAX_SOCKET_CONNECTIONS_PER_ACCOUNT,
+          disconnectedAt: new Date().toISOString(),
+        };
+        oldestSocket.emit("connection_limit", payload);
+        oldestSocket.disconnect(true);
+      }
+    }
   }
 
   /**
@@ -479,6 +614,72 @@ class SocketService {
     this.io
       .to(`user:${normalizedUserId}`)
       .emit("alumni_help_update", payload);
+  }
+
+  /**
+   * Emit a persisted message to one freshly authorized member's account room.
+   * Delivery deliberately does not trust a prior conversation-room join: an
+   * access window may have closed after that socket was admitted.
+   */
+  emitChatMessageToUser(
+    userId: string,
+    conversationId: string,
+    update: Omit<ChatMessageUpdate, "timestamp">,
+  ): boolean {
+    const normalizedUserId = normalizeObjectId(userId);
+    if (
+      !this.io ||
+      !normalizedUserId ||
+      !isValidChatMessageUpdate(conversationId, update)
+    ) {
+      return false;
+    }
+    const normalizedConversationId = normalizeObjectId(conversationId)!;
+    const payload: ChatMessageUpdate = {
+      message: update.message,
+      timestamp: new Date().toISOString(),
+    };
+    if (!serializedPayloadFits(payload)) {
+      this.log.warn("Refused oversized chat_message payload", undefined, {
+        conversationId: normalizedConversationId,
+        sequence: update.message.sequence,
+      });
+      return false;
+    }
+    this.io.to(`user:${normalizedUserId}`).emit("chat_message", payload);
+    return true;
+  }
+
+  /** Emit authoritative recipient-scoped Room and aggregate unread counters. */
+  emitChatUnreadUpdate(
+    userId: string,
+    update: Omit<ChatUnreadUpdate, "timestamp">,
+  ): boolean {
+    if (!this.io) return false;
+    const normalizedUserId = normalizeObjectId(userId);
+    const normalizedConversationId = normalizeObjectId(update.conversationId);
+    if (
+      !normalizedUserId ||
+      !normalizedConversationId ||
+      !Number.isSafeInteger(update.roomUnreadCount) ||
+      update.roomUnreadCount < 0 ||
+      !Number.isSafeInteger(update.chatUnreadTotal) ||
+      update.chatUnreadTotal < 0 ||
+      !Number.isSafeInteger(update.lastReadSequence) ||
+      update.lastReadSequence < 0
+    ) {
+      return false;
+    }
+    const payload: ChatUnreadUpdate = {
+      conversationId: normalizedConversationId,
+      roomUnreadCount: update.roomUnreadCount,
+      chatUnreadTotal: update.chatUnreadTotal,
+      lastReadSequence: update.lastReadSequence,
+      timestamp: new Date().toISOString(),
+    };
+    if (!serializedPayloadFits(payload)) return false;
+    this.io.to(`user:${normalizedUserId}`).emit("chat_unread_update", payload);
+    return true;
   }
 
   /**
@@ -776,6 +977,175 @@ class SocketService {
       socketId: socket.id,
     });
     acknowledge?.({ ok: true, eventId: normalizedEventId });
+  }
+
+  /** Authorize and join a private chat Room using fresh account/member state. */
+  async handleJoinConversationRoom(
+    socket: AuthenticatedSocket,
+    conversationId: unknown,
+    ack?: ConversationRoomAck,
+  ): Promise<void> {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedConversationId = normalizeObjectId(conversationId);
+    if (!normalizedConversationId) {
+      acknowledge?.({ ok: false, code: "INVALID_CONVERSATION_ID" });
+      return;
+    }
+    const authorizationRevision = this.getUserAuthorizationRevision(
+      socket.userId,
+    );
+    const resourceAuthorizationRevision =
+      this.getResourceAuthorizationRevision(
+        "conversation",
+        normalizedConversationId,
+      );
+    const guardResult = this.beginConversationJoin(
+      socket.id,
+      normalizedConversationId,
+    );
+    if (guardResult) {
+      acknowledge?.({ ok: false, code: guardResult });
+      return;
+    }
+
+    try {
+      const runtime = await featureControlService.getRuntimeConfig();
+      if (
+        runtime.data.alumniNetwork.readable !== true ||
+        (runtime.data.alumniNetwork.mode !== "on" &&
+          runtime.data.alumniNetwork.mode !== "read_only")
+      ) {
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+
+      const freshUser = await User.findById(
+        socket.userId,
+        "_id role isActive isVerified",
+      );
+      if (!freshUser || !freshUser.isActive || !freshUser.isVerified) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+      const principal = createUserAuthorizationPrincipal(freshUser);
+      if (!principal) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+
+      const authorizationRequest = {
+        source: "socket",
+        principal,
+        action: "conversation.subscribe_realtime",
+        resource: { type: "conversation", id: normalizedConversationId },
+      } as const;
+      const decision = await authorizationService.authorize(
+        authorizationRequest,
+      );
+      if (!decision.allowed) {
+        recordAuthorizationDenial(authorizationRequest, decision, socket.id);
+        acknowledge?.({
+          ok: false,
+          code:
+            decision.reasonCode === "resource_not_found" ||
+            decision.concealExistence
+              ? "CONVERSATION_NOT_FOUND"
+              : "AUTHORIZATION_FAILED",
+        });
+        return;
+      }
+
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision(
+            "conversation",
+            normalizedConversationId,
+          ) ||
+        socket.disconnected
+      ) {
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+
+      const room = buildResourceRoom(
+        "conversation",
+        normalizedConversationId,
+      );
+      await socket.join(room);
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision(
+            "conversation",
+            normalizedConversationId,
+          ) ||
+        socket.disconnected
+      ) {
+        await socket.leave(room);
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+      acknowledge?.({ ok: true, conversationId: normalizedConversationId });
+    } catch (error) {
+      this.log.error(
+        "Failed to authorize conversation room subscription",
+        error instanceof Error ? error : undefined,
+        undefined,
+        { userId: socket.userId, conversationId: normalizedConversationId },
+      );
+      acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+    } finally {
+      this.finishConversationJoin(socket.id, normalizedConversationId);
+    }
+  }
+
+  private beginConversationJoin(
+    socketId: string,
+    conversationId: string,
+  ): "RATE_LIMITED" | "REQUEST_IN_PROGRESS" | null {
+    const now = Date.now();
+    const guard = this.conversationJoinGuards.get(socketId) ?? {
+      attempts: [],
+      inFlight: new Set<string>(),
+    };
+    guard.attempts = guard.attempts.filter(
+      (timestamp) => now - timestamp < CONVERSATION_JOIN_WINDOW_MS,
+    );
+    if (guard.inFlight.has(conversationId)) return "REQUEST_IN_PROGRESS";
+    if (guard.attempts.length >= MAX_CONVERSATION_JOINS_PER_WINDOW) {
+      return "RATE_LIMITED";
+    }
+    guard.attempts.push(now);
+    guard.inFlight.add(conversationId);
+    this.conversationJoinGuards.set(socketId, guard);
+    return null;
+  }
+
+  private finishConversationJoin(
+    socketId: string,
+    conversationId: string,
+  ): void {
+    this.conversationJoinGuards.get(socketId)?.inFlight.delete(conversationId);
+  }
+
+  handleLeaveConversationRoom(
+    socket: AuthenticatedSocket,
+    conversationId: unknown,
+    ack?: ConversationRoomAck,
+  ): void {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedConversationId = normalizeObjectId(conversationId);
+    if (!normalizedConversationId) {
+      acknowledge?.({ ok: false, code: "INVALID_CONVERSATION_ID" });
+      return;
+    }
+    socket.leave(buildResourceRoom("conversation", normalizedConversationId));
+    acknowledge?.({ ok: true, conversationId: normalizedConversationId });
   }
 
   /** Disconnect all live sockets for a canonical user. */

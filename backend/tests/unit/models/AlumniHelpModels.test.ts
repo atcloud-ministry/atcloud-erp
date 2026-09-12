@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { describe, expect, it } from "vitest";
 import { ALUMNI_HELP_TERMS } from "../../../src/config/alumniHelpTerms";
+import { conversationPurgeAt } from "../../../src/contracts/chatRooms";
 import {
   acceptedHelpRequestPurgeAt,
   helpOutcomeDueAt,
@@ -324,10 +325,11 @@ describe("base Alumni Help Room models", () => {
     current.status = "archived";
     await expect(current.validate()).rejects.toThrow("archivedAt");
     current.archivedAt = new Date("2026-09-12T12:00:00.000Z");
+    current.purgeAt = conversationPurgeAt(current.archivedAt);
     await expect(current.validate()).resolves.toBeUndefined();
   });
 
-  it("declares one room per request and exactly one member per role/user", () => {
+  it("declares one room per request and one membership per room/user", () => {
     expect(Conversation.schema.indexes()).toEqual(
       expect.arrayContaining([
         [
@@ -343,8 +345,10 @@ describe("base Alumni Help Room models", () => {
           expect.objectContaining({ unique: true }),
         ],
         [
-          { conversationId: 1, role: 1 },
-          expect.objectContaining({ unique: true }),
+          { userId: 1, status: 1, unreadCount: 1, conversationId: 1 },
+          expect.objectContaining({
+            name: "idx_conversation_member_user_unread",
+          }),
         ],
       ]),
     );
@@ -356,6 +360,14 @@ describe("base Alumni Help Room models", () => {
       userId: new mongoose.Types.ObjectId(),
       role: "requester",
       joinedAt: new Date("2026-09-12T12:00:00.000Z"),
+      accessWindows: [
+        {
+          visibleFromSequence: 1,
+          visibleThroughSequence: null,
+          openedAt: new Date("2026-09-12T12:00:00.000Z"),
+          closedAt: null,
+        },
+      ],
     });
     await expect(member.validate()).resolves.toBeUndefined();
     expect(member.status).toBe("active");

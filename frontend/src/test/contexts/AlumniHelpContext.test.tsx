@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AlumniHelpProvider,
+  isAlumniHelpUpdatePayload,
   useAlumniHelp,
 } from "../../contexts/AlumniHelpContext";
 
@@ -82,5 +83,24 @@ describe("AlumniHelpProvider", () => {
       expect(screen.getByLabelText("Alumni Help action count")).toHaveTextContent("4"),
     );
     expect(mocks.getActionRequiredCount).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires the exact metadata-only Alumni Help event shape", () => {
+    const valid = {
+      requestId: "64b000000000000000000002",
+      requestRevision: 1,
+      helpActionRequiredCount: 0,
+      timestamp: "2026-09-13T12:00:00.000Z",
+    };
+    expect(isAlumniHelpUpdatePayload(valid)).toBe(true);
+    expect(isAlumniHelpUpdatePayload({ ...valid, message: "private text" })).toBe(
+      false,
+    );
+    expect(
+      isAlumniHelpUpdatePayload({
+        ...valid,
+        timestamp: "2026-09-13T05:00:00-07:00",
+      }),
+    ).toBe(false);
   });
 });

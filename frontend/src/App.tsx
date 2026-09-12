@@ -11,6 +11,7 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "./contexts/NotificationModalContext";
 import { RuntimeConfigProvider } from "./contexts/RuntimeConfigContext";
 import { AlumniHelpProvider } from "./contexts/AlumniHelpContext";
+import { ChatRoomsProvider } from "./contexts/ChatRoomsContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
@@ -60,6 +61,8 @@ const AlumniDirectoryDetail = lazy(
 const MyAlumniProfile = lazy(() => import("./pages/MyAlumniProfile"));
 const HelpRequests = lazy(() => import("./pages/HelpRequests"));
 const HelpRequestDetail = lazy(() => import("./pages/HelpRequestDetail"));
+const ChatRooms = lazy(() => import("./pages/ChatRooms"));
+const ChatRoom = lazy(() => import("./pages/ChatRoom"));
 const Profile = lazy(() => import("./pages/Profile"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
 const RequestPasswordChange = lazy(
@@ -147,7 +150,8 @@ function App() {
       <AuthProvider>
         <NotificationModalProvider>
           <NotificationProvider>
-            <AlumniHelpProvider>
+            <ChatRoomsProvider>
+              <AlumniHelpProvider>
               <SessionExpiredModal />
               <Suspense fallback={<LoadingSpinner size="lg" />}>
                 <Routes>
@@ -349,6 +353,26 @@ function App() {
                 element={<LegacyHelpRequestRedirect />}
               />
               <Route
+                path="chat-rooms"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <ChatRooms />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="chat-rooms/:conversationId"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <ChatRoom />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="admin/users"
                 element={
                   <ProtectedRoute>
@@ -530,7 +554,8 @@ function App() {
             <Route path="/s/:key" element={<ShortLinkRedirect />} />
                 </Routes>
               </Suspense>
-            </AlumniHelpProvider>
+              </AlumniHelpProvider>
+            </ChatRoomsProvider>
           </NotificationProvider>
         </NotificationModalProvider>
       </AuthProvider>

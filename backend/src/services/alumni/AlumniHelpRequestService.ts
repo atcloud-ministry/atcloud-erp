@@ -804,6 +804,13 @@ export class AlumniHelpRequestService {
               { $set: { purgeAt: request.purgeAt } },
               { session, runValidators: false },
             );
+            if (!request.conversationId) throw requestStateConflict();
+            await this.roomProvisioner.archiveInTransaction({
+              conversationId: request.conversationId,
+              helpRequestId: request._id,
+              archivedAt: now,
+              session,
+            });
           }
           await AuditLogService.recordRequiredInTransaction(
             {

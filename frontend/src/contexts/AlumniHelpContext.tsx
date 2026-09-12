@@ -14,7 +14,7 @@ import { alumniHelpService } from "../services/api";
 import { socketService } from "../services/socketService";
 import { useRuntimeConfig } from "./RuntimeConfigContext";
 
-interface AlumniHelpUpdatePayload {
+export interface AlumniHelpUpdatePayload {
   requestId: string;
   requestRevision: number;
   helpActionRequiredCount: number;
@@ -38,6 +38,13 @@ export function isAlumniHelpUpdatePayload(
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const update = value as Record<string, unknown>;
   return (
+    Object.keys(update).length === 4 &&
+    [
+      "requestId",
+      "requestRevision",
+      "helpActionRequiredCount",
+      "timestamp",
+    ].every((key) => Object.prototype.hasOwnProperty.call(update, key)) &&
     typeof update.requestId === "string" &&
     /^[a-f\d]{24}$/i.test(update.requestId) &&
     Number.isSafeInteger(update.requestRevision) &&
@@ -45,7 +52,8 @@ export function isAlumniHelpUpdatePayload(
     Number.isSafeInteger(update.helpActionRequiredCount) &&
     Number(update.helpActionRequiredCount) >= 0 &&
     typeof update.timestamp === "string" &&
-    !Number.isNaN(Date.parse(update.timestamp))
+    !Number.isNaN(Date.parse(update.timestamp)) &&
+    new Date(update.timestamp).toISOString() === update.timestamp
   );
 }
 
