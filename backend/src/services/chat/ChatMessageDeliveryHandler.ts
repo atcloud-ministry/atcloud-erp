@@ -35,15 +35,16 @@ interface ChatMessageDeliveryService {
     conversationId: string,
     sequence: number,
   ): Promise<readonly string[]>;
-  getMemberDeliveryState(
+  getMemberDeliveryStates(
     conversationId: string,
-    userId: string,
+    userIds: readonly string[],
     sequence: number,
-  ): Promise<{
+  ): Promise<readonly {
+    readonly userId: string;
     readonly roomUnreadCount: number;
     readonly lastReadSequence: number;
     readonly chatUnreadTotal: number;
-  } | null>;
+  }[]>;
 }
 
 interface ChatMessageSocketPort {
@@ -117,7 +118,10 @@ export class ChatMessageDeliveryHandler
     context: NotificationOutboxDeliveryContext,
   ): Promise<void> {
     await this.assertRuntimeReadable(context.signal);
-    await this.resolveDelivery(event, context.signal);
+    context.signal.throwIfAborted();
+    // Validate the durable envelope before delivery without duplicating the
+    // fresh database authorization that deliver performs immediately pre-emit.
+    parseChatMessagePersistedPayload(event.payload);
   }
 
   async deliver(
@@ -134,27 +138,31 @@ export class ChatMessageDeliveryHandler
     const socket = await this.resolveSocket();
     context.signal.throwIfAborted();
 
-    let eligibleRecipientFound = false;
-    for (const userId of delivery.recipientUserIds) {
-      let state;
-      try {
-        state = await this.rooms.getMemberDeliveryState(
-          delivery.conversationId,
-          userId,
-          delivery.message.sequence,
-        );
-      } catch {
-        throw new RetryableNotificationOutboxDeliveryError(
-          "CHAT_MESSAGE_COUNTER_READ_FAILED",
-        );
-      }
-      context.signal.throwIfAborted();
-      if (!state) continue;
-      eligibleRecipientFound = true;
+    let states;
+    try {
+      states = await this.rooms.getMemberDeliveryStates(
+        delivery.conversationId,
+        delivery.recipientUserIds,
+        delivery.message.sequence,
+      );
+    } catch {
+      throw new RetryableNotificationOutboxDeliveryError(
+        "CHAT_MESSAGE_COUNTER_READ_FAILED",
+      );
+    }
+    context.signal.throwIfAborted();
+    if (states.length === 0) {
+      permanent("CHAT_MESSAGE_RECIPIENT_UNAVAILABLE");
+    }
+    const candidateUserIds = new Set(delivery.recipientUserIds);
+    const emittedUserIds = new Set<string>();
+    for (const state of states) {
+      const userId = state.userId;
+      if (!candidateUserIds.has(userId) || emittedUserIds.has(userId)) continue;
+      emittedUserIds.add(userId);
 
-      // No await is permitted between the final recipient authorization read
-      // above and these account-room emits. A later recipient must never hold
-      // an already-authorized recipient's content in an in-memory batch.
+      // There is deliberately no await after the batch's final canonical
+      // authorization read and before any account-room emit.
       if (
         !socket.emitChatMessageToUser(
           userId,
@@ -179,7 +187,7 @@ export class ChatMessageDeliveryHandler
         );
       }
     }
-    if (!eligibleRecipientFound) {
+    if (emittedUserIds.size === 0) {
       permanent("CHAT_MESSAGE_RECIPIENT_UNAVAILABLE");
     }
   }
@@ -242,10 +250,14 @@ export class ChatMessageDeliveryHandler
     if (recipientUserIds.length === 0) {
       permanent("CHAT_MESSAGE_RECIPIENT_UNAVAILABLE");
     }
+    const uniqueRecipientUserIds = [...new Set(recipientUserIds)];
+    if (uniqueRecipientUserIds.length === 0) {
+      permanent("CHAT_MESSAGE_RECIPIENT_UNAVAILABLE");
+    }
     return Object.freeze({
       conversationId: payload.conversationId,
       message,
-      recipientUserIds: Object.freeze([...new Set(recipientUserIds)]),
+      recipientUserIds: Object.freeze(uniqueRecipientUserIds),
     });
   }
 }

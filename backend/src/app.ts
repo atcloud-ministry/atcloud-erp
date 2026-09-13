@@ -86,7 +86,7 @@ app.use("/api/notifications", systemMessagesLimiter);
 // Stripe webhook endpoint needs raw body - must be before JSON parser
 // In test environment, use JSON parser instead to make testing easier
 const CHAT_MESSAGE_POST_PATH =
-  /^\/api\/conversations\/[^/?#]+\/messages\/?(?:[?#]|$)/u;
+  /^\/api\/conversations\/[^/?#]+\/(?:messages|announcements)\/?(?:[?#]|$)/u;
 const isChatMessagePost = (req: {
   readonly method?: string;
   readonly url?: string;

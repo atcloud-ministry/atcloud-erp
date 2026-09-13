@@ -168,6 +168,10 @@ conversationSchema.index(
   { name: "idx_conversation_status_list" },
 );
 conversationSchema.index(
+  { kind: 1, status: 1, _id: 1 },
+  { name: "idx_program_conversation_membership_repair" },
+);
+conversationSchema.index(
   { purgeAt: 1 },
   { expireAfterSeconds: 0, name: "ttl_conversation_purge_at" },
 );

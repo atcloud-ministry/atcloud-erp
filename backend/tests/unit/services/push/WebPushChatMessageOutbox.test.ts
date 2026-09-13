@@ -2,6 +2,7 @@ import type { ClientSession } from "mongoose";
 import { describe, expect, it, vi } from "vitest";
 import {
   enqueueWebPushChatMessage,
+  enqueueWebPushChatMessagesBatch,
   parseWebPushChatMessagePayload,
 } from "../../../../src/services/push/WebPushChatMessageOutbox";
 import { PermanentNotificationOutboxDeliveryError } from "../../../../src/services/reliability/NotificationOutboxWorker";
@@ -53,5 +54,34 @@ describe("WebPushChatMessageOutbox", () => {
     expect(
       enqueueInTransaction.mock.calls.map(([input]) => input.payload.recipientUserId),
     ).toEqual([first, second]);
+  });
+
+  it("maps up to 100 recipients into one safe outbox batch", async () => {
+    const enqueueManyInTransaction = vi.fn().mockResolvedValue([]);
+    const session = {} as ClientSession;
+    const inputs = Array.from({ length: 100 }, (_, index) => ({
+      ...BASE,
+      recipientUserId: `507f1f77bcf86cd79943${index.toString(16).padStart(4, "0")}`,
+      session,
+    }));
+
+    await enqueueWebPushChatMessagesBatch(inputs, {
+      enqueueManyInTransaction,
+    } as never);
+
+    const events = enqueueManyInTransaction.mock.calls[0]?.[0];
+    expect(events).toHaveLength(100);
+    expect(new Set(events.map((event: { dedupeKey: string }) => event.dedupeKey)).size)
+      .toBe(100);
+    expect(events[0]).toMatchObject({
+      topic: "web_push.chat_message",
+      payloadVersion: 1,
+      session,
+    });
+    await expect(
+      enqueueWebPushChatMessagesBatch([...inputs, inputs[0]!], {
+        enqueueManyInTransaction,
+      } as never),
+    ).rejects.toThrow("must contain 1-100 recipients");
   });
 });

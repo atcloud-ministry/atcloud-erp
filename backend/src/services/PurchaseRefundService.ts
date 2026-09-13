@@ -2,6 +2,7 @@ import Program from "../models/Program";
 import type { IPurchase } from "../models/Purchase";
 import { buildDiscountRoleCountIncrement } from "../utils/programRoles";
 import { socketService } from "./infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "./programs/ProgramMembershipMutationSyncTrigger";
 
 export const REFUND_WINDOW_DAYS = 30;
 
@@ -236,6 +237,14 @@ export async function persistPurchaseUnenrollment(
     unenrolledAt,
   );
   await purchase.save();
+
+  const programId = getReferenceId(purchase.programId);
+  if (purchase.purchaseType === "program" && programId) {
+    programMembershipMutationSyncTrigger.programPurchaseChanged({
+      purchaseType: "program",
+      programId: String(programId),
+    });
+  }
 
   if (purchase.unenrolledAt) {
     const userId = getReferenceId(purchase.userId);

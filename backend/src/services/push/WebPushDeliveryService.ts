@@ -36,6 +36,7 @@ export interface WebPushNotificationPayload {
 export type PushRecipientRoute =
   | "delivered"
   | "muted"
+  | "recipient_unavailable"
   | "push_disabled"
   | "no_subscription"
   | "permanent_failure"
@@ -176,6 +177,7 @@ export class WebPushDeliveryService {
     readonly recipientUserId: string;
     readonly sequence: number;
     readonly payload: WebPushNotificationPayload;
+    readonly authorizeRecipient: () => Promise<boolean>;
     readonly signal?: AbortSignal;
   }): Promise<PushRecipientDeliveryResult> {
     const config = this.config();
@@ -353,6 +355,7 @@ export class WebPushDeliveryService {
       input.payload,
       config,
       input.signal,
+      input.authorizeRecipient,
     );
   }
 
@@ -570,6 +573,7 @@ export class WebPushDeliveryService {
     payload: WebPushNotificationPayload,
     config: Extract<ReturnType<typeof readWebPushConfiguration>, { enabled: true }>,
     signal?: AbortSignal,
+    authorizeRecipient?: () => Promise<boolean>,
   ): Promise<PushRecipientDeliveryResult> {
     const serializedPayload = boundedPayload(payload);
     const topic = webPushTopic(payload.tag);
@@ -582,6 +586,23 @@ export class WebPushDeliveryService {
       if (target.deliveredEventIds.includes(eventId)) {
         succeeded += 1;
         continue;
+      }
+      if (authorizeRecipient) {
+        // This is deliberately the last asynchronous authorization read before
+        // each provider request. Idempotent replay targets that require no
+        // request skip the read, but a revocation after one installation was
+        // notified still prevents delivery to later installations.
+        const recipientAuthorized = await authorizeRecipient();
+        signal?.throwIfAborted();
+        if (!recipientAuthorized) {
+          return result(
+            "recipient_unavailable",
+            attempted,
+            succeeded,
+            permanentFailures,
+            transientFailures,
+          );
+        }
       }
       attempted += 1;
       try {

@@ -5,6 +5,7 @@ import app from "../../../src/app";
 
 const ROOM_ID = "507f191e810c19729de860ea";
 const PATH = `/api/conversations/${ROOM_ID}/messages`;
+const ANNOUNCEMENT_PATH = `/api/conversations/${ROOM_ID}/announcements`;
 const CLIENT_MESSAGE_ID = "3f00aa31-36f0-4f05-8f4a-a362bf33a111";
 
 function paddedBody(): string {
@@ -24,9 +25,11 @@ afterEach(async () => {
 });
 
 describe("chat message raw HTTP size boundary", () => {
-  it("rejects a whitespace-padded JSON body before authentication", async () => {
+  it.each([PATH, ANNOUNCEMENT_PATH])(
+    "rejects a whitespace-padded JSON body before authentication at %s",
+    async (path) => {
     const response = await request(app)
-      .post(PATH)
+      .post(path)
       .set("Content-Type", "application/json")
       .send(paddedBody())
       .expect(413);
@@ -36,7 +39,8 @@ describe("chat message raw HTTP size boundary", () => {
       code: "CHAT_MESSAGE_PAYLOAD_TOO_LARGE",
       message: "The chat message payload exceeds 16 KiB.",
     });
-  });
+    },
+  );
 
   it.each(["text/plain", "application/x-www-form-urlencoded"])(
     "cannot bypass the raw boundary with forged %s content",

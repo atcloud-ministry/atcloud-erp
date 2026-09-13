@@ -75,10 +75,12 @@ interface NotificationOutboxWorkerDependencies {
   readonly timers?: NotificationOutboxWorkerTimers;
 }
 
+export const NOTIFICATION_OUTBOX_WORKER_DEFAULT_BATCH_SIZE = 100;
+
 const DEFAULT_CONFIG: NotificationOutboxWorkerConfig = Object.freeze({
   pollIntervalMs: 1_000,
   maxIdlePollIntervalMs: 30_000,
-  batchSize: 25,
+  batchSize: NOTIFICATION_OUTBOX_WORKER_DEFAULT_BATCH_SIZE,
   reconciliationLimit: 100,
   reconciliationIntervalMs: 60_000,
   unsupportedDeliveryGraceMs: 24 * 60 * 60_000,

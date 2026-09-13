@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   history: vi.fn(),
   send: vi.fn(),
+  publishAnnouncement: vi.fn(),
   markRead: vi.fn(),
   setMuted: vi.fn(),
   applyCounter: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../../services/api", async (importOriginal) => ({
     get: mocks.get,
     history: mocks.history,
     send: mocks.send,
+    publishAnnouncement: mocks.publishAnnouncement,
     markRead: mocks.markRead,
     setMuted: mocks.setMuted,
   },
@@ -126,6 +128,7 @@ const room = {
     unreadCount: 1,
     muted: false,
     canSend: true,
+    canAnnounce: false,
     accessMode: "read_write" as const,
   },
   archivedAt: null,
@@ -194,6 +197,20 @@ describe("ChatRoom page", () => {
       unreadCount: 0,
       chatUnreadTotal: 0,
     });
+    mocks.publishAnnouncement.mockResolvedValue({
+      message: {
+        ...firstMessage,
+        id: IDS.secondMessage,
+        sequence: 2,
+        kind: "announcement",
+        sender: me,
+        content: "Default announcement",
+        safeLink: null,
+        clientMessageId: "10000000-0000-4000-8000-000000000020",
+      },
+      roomUnreadCount: 0,
+      chatUnreadTotal: 0,
+    });
     mocks.setMuted.mockResolvedValue({
       conversationId: IDS.room,
       muted: true,
@@ -256,6 +273,130 @@ describe("ChatRoom page", () => {
     );
     await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(IDS.room, 1));
     await waitFor(() => expect(mocks.join).toHaveBeenCalledWith(IDS.room));
+  });
+
+  it("identifies a Program Room and its Past read-only access in detail", async () => {
+    mocks.get.mockResolvedValueOnce({
+      conversation: {
+        ...room,
+        kind: "program",
+        status: "current",
+        section: "past",
+        title: "EMBA 2026",
+        helpRequestId: null,
+        programId: "64b000000000000000000020",
+        counterpart: null,
+        viewer: {
+          ...room.viewer,
+          role: "mentee",
+          status: "history_only",
+          unreadCount: 0,
+          canSend: false,
+          accessMode: "read_only",
+        },
+      },
+      chatUnreadTotal: 0,
+    });
+    mocks.history.mockResolvedValueOnce(
+      history([], { roomUnreadCount: 0, chatUnreadTotal: 0 }),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "EMBA 2026" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Program Room · Past · Read-only")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+  });
+
+  it("uses only server canAnnounce to publish and retry a Program announcement", async () => {
+    const user = userEvent.setup();
+    const programRoom = {
+      ...room,
+      kind: "program" as const,
+      title: "EMBA 2026",
+      helpRequestId: null,
+      programId: "64b000000000000000000020",
+      counterpart: null,
+      viewer: {
+        ...room.viewer,
+        role: "mentee" as const,
+        canAnnounce: true,
+      },
+    };
+    mocks.get.mockResolvedValueOnce({
+      conversation: programRoom,
+      chatUnreadTotal: 0,
+    });
+    mocks.publishAnnouncement
+      .mockRejectedValueOnce(new Error("Announcement transport failed"))
+      .mockImplementationOnce(
+        async (
+          _roomId: string,
+          input: { clientMessageId: string; content: string },
+        ) => ({
+          message: {
+            ...firstMessage,
+            id: IDS.secondMessage,
+            sequence: 2,
+            kind: "announcement" as const,
+            sender: me,
+            content: input.content,
+            safeLink: null,
+            clientMessageId: input.clientMessageId,
+          },
+          roomUnreadCount: 0,
+          chatUnreadTotal: 0,
+        }),
+      );
+    renderPage();
+
+    await screen.findByRole("heading", { name: "EMBA 2026" });
+    await user.click(screen.getByRole("button", { name: "Post announcement" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Program announcement" }),
+      "Program starts tomorrow",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Publish announcement" }),
+    );
+
+    expect(await screen.findByText("Announcement transport failed")).toBeInTheDocument();
+    expect(screen.getByText("Program starts tomorrow")).toBeInTheDocument();
+    expect(screen.getByText(/· failed/u)).toBeInTheDocument();
+    const firstClientMessageId = mocks.publishAnnouncement.mock.calls[0][1]
+      .clientMessageId as string;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText(/· sent/u)).toBeInTheDocument();
+
+    expect(mocks.publishAnnouncement).toHaveBeenCalledTimes(2);
+    expect(mocks.publishAnnouncement.mock.calls[1][0]).toBe(IDS.room);
+    expect(mocks.publishAnnouncement.mock.calls[1][1]).toEqual({
+      clientMessageId: firstClientMessageId,
+      content: "Program starts tomorrow",
+    });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("does not expose announcement controls without the server capability", async () => {
+    mocks.get.mockResolvedValueOnce({
+      conversation: {
+        ...room,
+        kind: "program",
+        title: "EMBA 2026",
+        helpRequestId: null,
+        programId: "64b000000000000000000020",
+        counterpart: null,
+        viewer: { ...room.viewer, role: "mentor", canAnnounce: false },
+      },
+      chatUnreadTotal: 0,
+    });
+    renderPage();
+
+    await screen.findByRole("heading", { name: "EMBA 2026" });
+    expect(
+      screen.queryByRole("button", { name: "Post announcement" }),
+    ).toBeNull();
   });
 
   it("shows failed optimistic delivery and retries with the same clientMessageId", async () => {
@@ -928,6 +1069,7 @@ describe("ChatRoom page", () => {
   });
 
   it("keeps Past Rooms read-only without attempting a live subscription", async () => {
+    const user = userEvent.setup();
     mocks.get.mockResolvedValue({
       conversation: {
         ...room,
@@ -951,6 +1093,14 @@ describe("ChatRoom page", () => {
     expect(mocks.join).not.toHaveBeenCalled();
     expect(mocks.markRead).not.toHaveBeenCalled();
     expect(screen.queryByText(/Live updates are unavailable/)).not.toBeInTheDocument();
+    const mute = screen.getByRole("button", {
+      name: "Mute Room notifications",
+    });
+    expect(mute).toBeEnabled();
+    await user.click(mute);
+    await waitFor(() =>
+      expect(mocks.setMuted).toHaveBeenCalledWith(IDS.room, true),
+    );
   });
 
   it("moves an open Help Room to read-only when its Help Request closes", async () => {
@@ -987,6 +1137,114 @@ describe("ChatRoom page", () => {
     expect(await screen.findByText(/This Room is read-only/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.leave).toHaveBeenCalledWith(IDS.room));
+  });
+
+  it("refreshes an open Program Room to retained Past access after unenrollment", async () => {
+    const currentProgramRoom = {
+      ...room,
+      kind: "program" as const,
+      title: "EMBA 2026",
+      helpRequestId: null,
+      programId: "64b000000000000000000020",
+      counterpart: null,
+      viewer: {
+        ...room.viewer,
+        role: "mentor" as const,
+        canAnnounce: true,
+      },
+    };
+    const pastProgramRoom = {
+      ...currentProgramRoom,
+      section: "past" as const,
+      viewer: {
+        ...currentProgramRoom.viewer,
+        status: "history_only" as const,
+        unreadCount: 0,
+        canSend: false,
+        canAnnounce: false,
+        accessMode: "read_only" as const,
+      },
+    };
+    mocks.get.mockResolvedValueOnce({
+      conversation: currentProgramRoom,
+      chatUnreadTotal: 1,
+    });
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Post announcement" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(screen.getByText("Happy to help")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.handlers.has("disconnect")).toBe(true));
+
+    act(() => {
+      mocks.handlers.get("disconnect")?.("io server disconnect");
+    });
+    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Post announcement" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Happy to help")).toBeInTheDocument();
+
+    mocks.get
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Program Room projection is changing."), {
+          status: 404,
+        }),
+      )
+      .mockResolvedValueOnce({
+        conversation: pastProgramRoom,
+        chatUnreadTotal: 0,
+      });
+    await act(async () => {
+      mocks.handlers.get("connect")?.();
+    });
+
+    expect(
+      await screen.findByText("Program Room · Past · Read-only"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Happy to help")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(mocks.leave).toHaveBeenCalledWith(IDS.room));
+  });
+
+  it("keeps failed Program messages available across an ordinary network reconnect", async () => {
+    const user = userEvent.setup();
+    const currentProgramRoom = {
+      ...room,
+      kind: "program" as const,
+      title: "EMBA 2026",
+      helpRequestId: null,
+      programId: "64b000000000000000000020",
+      counterpart: null,
+      viewer: {
+        ...room.viewer,
+        role: "mentee" as const,
+      },
+    };
+    mocks.get.mockResolvedValue({
+      conversation: currentProgramRoom,
+      chatUnreadTotal: 1,
+    });
+    mocks.send.mockRejectedValueOnce(new Error("Network unavailable"));
+    renderPage();
+
+    await screen.findByRole("heading", { name: "EMBA 2026" });
+    await user.type(screen.getByLabelText("Message"), "Keep my retry");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+    act(() => {
+      mocks.handlers.get("disconnect")?.("transport close");
+      mocks.handlers.get("connect")?.();
+    });
+
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Keep my retry")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
   });
 
   it("updates mute state and bounds local last-message previews", async () => {

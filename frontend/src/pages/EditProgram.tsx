@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { deriveFlyerUrlForUpdate } from "../utils/flyerUrl";
 import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
@@ -8,6 +8,12 @@ import ValidationIndicator from "../components/events/ValidationIndicator";
 import PricingSection from "../components/EditProgram/PricingSection";
 import PricingConfirmationModal from "../components/EditProgram/PricingConfirmationModal";
 import ProgramFormFields from "../components/EditProgram/ProgramFormFields";
+import ProgramCommunitySettingsSection, {
+  buildProgramCommunitySettingsInput,
+  createProgramCommunitySettingsDraft,
+  programCommunitySettingsChanged,
+  type ProgramCommunitySettingsDraft,
+} from "../components/EditProgram/ProgramCommunitySettingsSection";
 import type { Organizer as Mentor } from "../components/events/OrganizerSelection";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { programService, purchaseService } from "../services/api";
@@ -27,6 +33,12 @@ import {
   DEFAULT_TEACHER_ROLE_NAME,
   rolesToFormRoles,
 } from "../utils/programRoles";
+import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
+import { createIdempotencyKey } from "../utils/idempotencyKey";
+import type {
+  ProgramCommunitySettingsDTO,
+  UpdateProgramCommunitySettingsInput,
+} from "../services/api/programCommunitySettings.contracts";
 
 interface ProgramFormData {
   programType: string;
@@ -105,9 +117,33 @@ const MONTHS = [
 export default function EditProgram() {
   const { id } = useParams<{ id: string }>();
   const { currentUser } = useAuth();
+  const { config: runtimeConfig, status: runtimeConfigStatus } =
+    useRuntimeConfig();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [communitySettings, setCommunitySettings] =
+    useState<ProgramCommunitySettingsDTO | null>(null);
+  const [communityDraft, setCommunityDraft] =
+    useState<ProgramCommunitySettingsDraft | null>(null);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityError, setCommunityError] = useState<string | null>(null);
+  const [communityReloadSequence, setCommunityReloadSequence] = useState(0);
+  const communityRetryRef = useRef<{
+    readonly fingerprint: string;
+    readonly key: string;
+  } | null>(null);
+  const partialCommunitySaveRef = useRef<{
+    readonly programFingerprint: string;
+    readonly communityFingerprint: string;
+  } | null>(null);
+
+  const communityReadable =
+    runtimeConfigStatus === "ready" && runtimeConfig.alumniNetwork.readable;
+  const communityWritable =
+    runtimeConfigStatus === "ready" && runtimeConfig.alumniNetwork.writable;
+  const communitySettingsUnavailable =
+    communityReadable && !communityLoading && communitySettings === null;
 
   // Confirmation modal states
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -228,8 +264,28 @@ export default function EditProgram() {
   // Check if mentors have changed - unified for all program types
   const mentorsChanged = !compareMentorArrays(mentors, originalMentors);
 
+  const currentCommunityStudentRoles = buildProgramRolesPayload({
+    teacherRoleName: watch("teacherRoleName"),
+    studentRoles: watch("studentRoles"),
+  }).studentRoles;
+  let communityDraftDirty = false;
+  if (communitySettings && communityDraft) {
+    try {
+      communityDraftDirty = programCommunitySettingsChanged(
+        communitySettings,
+        buildProgramCommunitySettingsInput(
+          communityDraft,
+          currentCommunityStudentRoles,
+          communitySettings.revision,
+        ),
+      );
+    } catch {
+      communityDraftDirty = true;
+    }
+  }
+
   // Custom isDirty that includes mentor changes
-  const customIsDirty = isDirty || mentorsChanged;
+  const customIsDirty = isDirty || mentorsChanged || communityDraftDirty;
 
   // Check if pricing has changed
   const hasPricingChanges = useMemo(() => {
@@ -505,6 +561,44 @@ export default function EditProgram() {
     };
   }, [id, setValue, navigate]);
 
+  useEffect(() => {
+    if (!id || !communityReadable) {
+      setCommunitySettings(null);
+      setCommunityDraft(null);
+      setCommunityLoading(false);
+      setCommunityError(null);
+      communityRetryRef.current = null;
+      return;
+    }
+
+    const controller = new AbortController();
+    setCommunityLoading(true);
+    setCommunityError(null);
+    void programService
+      .getCommunitySettings(id, controller.signal)
+      .then((settings) => {
+        if (controller.signal.aborted) return;
+        setCommunitySettings(settings);
+        setCommunityDraft(createProgramCommunitySettingsDraft(settings));
+        communityRetryRef.current = null;
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setCommunitySettings(null);
+        setCommunityDraft(null);
+        setCommunityError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load Program Chat Room settings.",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCommunityLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [communityReadable, communityReloadSequence, id]);
+
   // Check if current user is the program creator
   useEffect(() => {
     if (!id) return;
@@ -531,9 +625,54 @@ export default function EditProgram() {
 
   const handleActualSubmit = async (data: ProgramFormData) => {
     if (!id) return;
+    if (runtimeConfigStatus !== "ready") return;
+    if (communitySettingsUnavailable) {
+      setCommunityError((current) =>
+        current || "Reload Program Chat Room settings before updating this Program.",
+      );
+      return;
+    }
+
+    const programRoles = buildProgramRolesPayload({
+      teacherRoleName: data.teacherRoleName,
+      studentRoles: data.studentRoles,
+    });
+    let communityPayload: UpdateProgramCommunitySettingsInput | null = null;
+    let saveCommunitySettings = false;
+    if (communityReadable && communitySettings && communityDraft) {
+      try {
+        communityPayload = buildProgramCommunitySettingsInput(
+          communityDraft,
+          programRoles.studentRoles,
+          communitySettings.revision,
+        );
+        saveCommunitySettings = programCommunitySettingsChanged(
+          communitySettings,
+          communityPayload,
+        );
+      } catch (error) {
+        setCommunityError(
+          error instanceof Error
+            ? error.message
+            : "Review the Program Chat Room settings.",
+        );
+        return;
+      }
+      if (saveCommunitySettings && !communityWritable) {
+        if (communitySettings.enabled || communityDraft.enabled) {
+          setCommunityError(
+            "This active Program Chat Room must remain consistent with its student roles while settings are read-only.",
+          );
+          return;
+        }
+        communityPayload = null;
+        saveCommunitySettings = false;
+      }
+    }
 
     try {
       setIsSubmitting(true);
+      setCommunityError(null);
       console.log("Form data:", data);
 
       // Map month name (e.g., "April") to 2-digit code (e.g., "04") for API payload
@@ -552,10 +691,6 @@ export default function EditProgram() {
         December: "12",
       };
 
-      const programRoles = buildProgramRolesPayload({
-        teacherRoleName: data.teacherRoleName,
-        studentRoles: data.studentRoles,
-      });
       const discountRole = programRoles.studentRoles.find(
         (role) => role.discountEligible,
       );
@@ -598,10 +733,60 @@ export default function EditProgram() {
       // Add unified mentors for all program types
       payload.mentors = toProgramMentorPayloads(mentors);
 
+      const programFingerprint = JSON.stringify(payload);
+      const communityFingerprint = communityPayload
+        ? JSON.stringify(communityPayload)
+        : "";
+      const programAlreadySaved =
+        saveCommunitySettings &&
+        partialCommunitySaveRef.current?.programFingerprint ===
+          programFingerprint &&
+        partialCommunitySaveRef.current?.communityFingerprint ===
+          communityFingerprint;
+
       console.log("Updating program with payload:", payload);
 
       // Update the program via API
-      await programService.updateProgram(id, payload);
+      if (!programAlreadySaved) {
+        await programService.updateProgram(id, payload);
+      }
+
+      if (saveCommunitySettings && communityPayload) {
+        const fingerprint = JSON.stringify(communityPayload);
+        if (communityRetryRef.current?.fingerprint !== fingerprint) {
+          communityRetryRef.current = {
+            fingerprint,
+            key: createIdempotencyKey(),
+          };
+        }
+        try {
+          const updatedSettings = await programService.updateCommunitySettings(
+            id,
+            communityPayload,
+            communityRetryRef.current.key,
+          );
+          setCommunitySettings(updatedSettings);
+          setCommunityDraft(
+            createProgramCommunitySettingsDraft(updatedSettings),
+          );
+          communityRetryRef.current = null;
+        } catch (error) {
+          partialCommunitySaveRef.current = {
+            programFingerprint,
+            communityFingerprint,
+          };
+          setCommunityError(
+            `Program details were saved, but Chat Room settings were not saved. ${
+              error instanceof Error
+                ? error.message
+                : "Reload or retry the Chat Room settings."
+            }`,
+          );
+          return;
+        }
+      }
+
+      partialCommunitySaveRef.current = null;
 
       console.log("Program updated successfully");
       navigate(`/dashboard/programs/${id}`);
@@ -696,6 +881,34 @@ export default function EditProgram() {
             errors={errors}
           />
 
+          {communityReadable && (
+            <ProgramCommunitySettingsSection
+              settings={communitySettings}
+              draft={communityDraft}
+              studentRoles={currentCommunityStudentRoles}
+              loading={communityLoading}
+              writable={communityWritable}
+              error={communityError}
+              onChange={(draft) => {
+                setCommunityDraft(draft);
+                setCommunityError(null);
+              }}
+              onReload={() =>
+                setCommunityReloadSequence((sequence) => sequence + 1)
+              }
+            />
+          )}
+
+          {runtimeConfigStatus === "error" && (
+            <div
+              role="alert"
+              className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
+              Feature settings are unavailable. Reload this page before updating
+              the Program.
+            </div>
+          )}
+
           {/* Overall Validation Status */}
           <div className="mb-4">
             <ValidationIndicator
@@ -717,7 +930,13 @@ export default function EditProgram() {
             <button
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isSubmitting || !customIsDirty}
+              disabled={
+                isSubmitting ||
+                !customIsDirty ||
+                runtimeConfigStatus !== "ready" ||
+                (communityReadable &&
+                  (communityLoading || communitySettingsUnavailable))
+              }
             >
               {isSubmitting ? "Updating..." : "Update Program"}
             </button>

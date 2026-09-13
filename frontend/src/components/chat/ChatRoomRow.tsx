@@ -91,7 +91,12 @@ export default function ChatRoomRow({
           </span>
           <span className="mt-1 block text-xs font-medium text-gray-500">
             {room.kind === "alumni_help" ? "Alumni Help" : "Program"}
-            {room.viewer.accessMode === "read_only" ? " · Read-only" : ""}
+            {` · ${room.section === "current" ? "Current" : "Past"}`}
+            {` · ${
+              room.viewer.accessMode === "read_write"
+                ? "Read/write"
+                : "Read-only"
+            }`}
           </span>
         </span>
       </Link>

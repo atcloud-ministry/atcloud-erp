@@ -5,6 +5,7 @@ import AuditLog from "../../models/AuditLog";
 import { EventCascadeService } from "../../services/EventCascadeService";
 import { RoleUtils } from "../../utils/roleUtils";
 import { resourceAuthorizationInvalidationService } from "../../services/authorization/ResourceAuthorizationInvalidationService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 export default class DeletionController {
   /**
@@ -104,6 +105,15 @@ export default class DeletionController {
           linkedEventIds,
         );
         await Program.findByIdAndDelete(id);
+        programMembershipMutationSyncTrigger.programAssignmentsChanged(id, {
+          actor: {
+            type: "user",
+            id: String(req.user._id),
+            role: req.user.role,
+          },
+          source: "http",
+          correlationId: req.correlationId,
+        });
 
         // Audit log for program deletion (unlink mode)
         try {
@@ -157,6 +167,15 @@ export default class DeletionController {
         totalDeletedGuests += deletedGuestRegistrations;
       }
       await Program.findByIdAndDelete(id);
+      programMembershipMutationSyncTrigger.programAssignmentsChanged(id, {
+        actor: {
+          type: "user",
+          id: String(req.user._id),
+          role: req.user.role,
+        },
+        source: "http",
+        correlationId: req.correlationId,
+      });
 
       // Audit log for program deletion (cascade mode)
       try {

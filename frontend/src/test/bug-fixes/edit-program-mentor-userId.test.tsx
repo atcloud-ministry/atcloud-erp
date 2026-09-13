@@ -14,6 +14,15 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import EditProgram from "../../pages/EditProgram";
 
+vi.mock("../../contexts/RuntimeConfigContext", () => ({
+  useRuntimeConfig: () => ({
+    status: "ready",
+    config: {
+      alumniNetwork: { mode: "off", readable: false, writable: false },
+    },
+  }),
+}));
+
 const mockedProgramService = vi.hoisted(() => ({
   getById: vi.fn(),
   updateProgram: vi.fn(),

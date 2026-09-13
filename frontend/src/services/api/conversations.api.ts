@@ -15,6 +15,7 @@ import {
   decodeChatUnreadCount,
   decodeConversationDetail,
   decodeConversationList,
+  decodeProgramChatRoomLink,
   isValidChatSafeLinkUrl,
   type ChatHistoryDTO,
   type ChatMuteMutationDTO,
@@ -23,6 +24,7 @@ import {
   type ConversationDetailDTO,
   type ConversationListDTO,
   type ConversationSection,
+  type ProgramChatRoomLinkDataDTO,
 } from "./conversations.contracts";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
@@ -48,6 +50,11 @@ export interface SendChatMessageInput {
     url: string;
     label?: string;
   };
+}
+
+export interface PublishProgramAnnouncementInput {
+  clientMessageId: string;
+  content: string;
 }
 
 function requireObjectId(value: string, label: string): string {
@@ -166,6 +173,22 @@ class ConversationsApiClient extends BaseApiClient {
     return decodeConversationDetail(response.data);
   }
 
+  async getProgramRoom(
+    programId: string,
+    signal?: AbortSignal,
+  ): Promise<ProgramChatRoomLinkDataDTO> {
+    const response = await this.request<unknown>(
+      `/conversations/program/${encodeURIComponent(
+        requireObjectId(programId, "Program ID"),
+      )}`,
+      { signal },
+    );
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to find the Program Chat Room");
+    }
+    return decodeProgramChatRoomLink(response.data);
+  }
+
   async history(
     conversationId: string,
     params: ChatHistoryParams = {},
@@ -266,6 +289,37 @@ class ConversationsApiClient extends BaseApiClient {
       throw new Error(response.message || "Failed to send message");
     }
     return decodeChatMessageMutation(response.data);
+  }
+
+  async publishAnnouncement(
+    conversationId: string,
+    input: PublishProgramAnnouncementInput,
+  ): Promise<ChatMessageMutationDTO> {
+    const clientMessageId = requireUuid(input.clientMessageId);
+    const content = normalizeContent(input.content);
+    const body = { clientMessageId, content };
+    if (
+      new TextEncoder().encode(JSON.stringify(body)).byteLength >
+      CHAT_HTTP_PAYLOAD_MAX_BYTES
+    ) {
+      throw new Error("The announcement payload cannot exceed 16 KiB");
+    }
+    const response = await this.request<unknown>(
+      `${conversationPath(conversationId)}/announcements`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": clientMessageId },
+        body: JSON.stringify(body),
+      },
+    );
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to publish announcement");
+    }
+    const result = decodeChatMessageMutation(response.data);
+    if (result.message.kind !== "announcement") {
+      throw new Error("The announcement response has an invalid message kind");
+    }
+    return result;
   }
 
   async markRead(

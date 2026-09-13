@@ -109,6 +109,7 @@ export interface ChatRoomViewerDTO {
   readonly muted: boolean;
   readonly accessMode: "read_write" | "read_only";
   readonly canSend: boolean;
+  readonly canAnnounce: boolean;
 }
 
 export interface ConversationDTO {
@@ -145,6 +146,21 @@ export interface ChatRoomListDataDTO {
 export interface ChatRoomDataDTO {
   readonly conversation: ConversationDTO;
   readonly chatUnreadTotal: number;
+}
+
+export interface ProgramChatRoomLinkDTO {
+  readonly id: string;
+  readonly programId: string;
+  readonly status: ConversationStatus;
+  readonly section: ChatRoomListView;
+  readonly viewer: Readonly<{
+    status: ConversationMemberStatus;
+    accessMode: "read_write" | "read_only";
+  }>;
+}
+
+export interface ProgramChatRoomLinkDataDTO {
+  readonly room: ProgramChatRoomLinkDTO;
 }
 
 export interface ChatMessageHistoryPaginationDTO {

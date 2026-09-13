@@ -7,6 +7,7 @@ import {
   parseReadChatRoomBody,
   parseSendChatMessageBody,
 } from "../../contracts/chatRoomFlow";
+import { parsePublishProgramAnnouncementBody } from "../../contracts/programAnnouncements";
 import {
   chatRoomService,
   type ChatActor,
@@ -97,6 +98,19 @@ export class ChatRoomController {
     }
   };
 
+  getProgramRoomLink = async (req: Request, res: Response): Promise<void> => {
+    noStore(res);
+    try {
+      const data = await this.service.getProgramRoomLink(
+        actor(req).id,
+        req.params.programId ?? "",
+      );
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      sendChatRoomHttpError(res, error);
+    }
+  };
+
   history = async (req: Request, res: Response): Promise<void> => {
     noStore(res);
     try {
@@ -118,6 +132,24 @@ export class ChatRoomController {
       const currentActor = actor(req);
       const body = parseSendChatMessageBody(req.body);
       const data = await this.service.send({
+        conversationId: req.params.conversationId ?? "",
+        ...body,
+        actor: currentActor,
+        idempotencyKey: idempotencyKey(req),
+        correlationId: req.correlationId,
+      });
+      res.status(201).json({ success: true, data });
+    } catch (error) {
+      sendChatRoomHttpError(res, error);
+    }
+  };
+
+  publishAnnouncement = async (req: Request, res: Response): Promise<void> => {
+    noStore(res);
+    try {
+      const currentActor = actor(req);
+      const body = parsePublishProgramAnnouncementBody(req.body);
+      const data = await this.service.publishAnnouncement({
         conversationId: req.params.conversationId ?? "",
         ...body,
         actor: currentActor,

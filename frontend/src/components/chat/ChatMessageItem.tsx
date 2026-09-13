@@ -43,6 +43,18 @@ export default function ChatMessageItem({
             <time dateTime={message.createdAt}>
               {formatMessageTime(message.createdAt)}
             </time>
+            {own && message.deliveryState && (
+              <span aria-live="polite"> · {message.deliveryState}</span>
+            )}
+            {own && message.deliveryState === "failed" && onRetry && (
+              <button
+                className="ml-2 min-h-11 rounded px-2 font-semibold text-red-700 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                onClick={() => onRetry(message)}
+                type="button"
+              >
+                Retry
+              </button>
+            )}
           </p>
         </article>
       </li>

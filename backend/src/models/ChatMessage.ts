@@ -192,6 +192,10 @@ chatMessageSchema.index(
   { unique: true, name: "uniq_chat_message_client_retry" },
 );
 chatMessageSchema.index(
+  { conversationId: 1, kind: 1, createdAt: 1 },
+  { name: "idx_chat_message_room_kind_created_at" },
+);
+chatMessageSchema.index(
   { purgeAt: 1 },
   { expireAfterSeconds: 0, name: "ttl_chat_message_purge_at" },
 );

@@ -84,6 +84,14 @@ vi.mock("../../../../src/utils/responseHelper", () => ({
     ),
   },
 }));
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      userEligibilityChanged: vi.fn(),
+    },
+  }),
+);
 
 import { User } from "../../../../src/models";
 import AuditLog from "../../../../src/models/AuditLog";
@@ -91,6 +99,7 @@ import { lockService } from "../../../../src/services/LockService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import { ResponseHelper } from "../../../../src/utils/responseHelper";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 interface MockRequest {
   params: Record<string, string>;
@@ -299,6 +308,17 @@ describe("UserDeletionController", () => {
           expect.any(Function),
           10000
         );
+        expect(
+          programMembershipMutationSyncTrigger.userEligibilityChanged,
+        ).toHaveBeenCalledWith("targetUser123", {
+          actor: {
+            type: "user",
+            id: "admin123",
+            role: "Super Admin",
+          },
+          source: "http",
+          correlationId: undefined,
+        });
         expect(ResponseHelper.success).toHaveBeenCalled();
       });
 

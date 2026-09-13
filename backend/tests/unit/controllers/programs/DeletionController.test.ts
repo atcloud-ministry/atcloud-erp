@@ -22,6 +22,16 @@ vi.mock(
     },
   }),
 );
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 interface MockRequest extends Partial<Request> {
   user?: {
@@ -316,6 +326,17 @@ describe("DeletionController", () => {
           ).mock.invocationCallOrder[0],
         );
         expect(Program.findByIdAndDelete).toHaveBeenCalledWith(testProgramId);
+        expect(
+          programMembershipMutationSyncTrigger.programAssignmentsChanged,
+        ).toHaveBeenCalledWith(testProgramId, {
+          actor: {
+            type: "user",
+            id: "admin123",
+            role: "Administrator",
+          },
+          source: "http",
+          correlationId: undefined,
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

@@ -72,6 +72,7 @@ const room = {
     unreadCount: 1,
     muted: false,
     canSend: true,
+    canAnnounce: false,
     accessMode: "read_write" as const,
   },
   archivedAt: null,
@@ -133,6 +134,39 @@ describe("ChatRooms page", () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  it("identifies a live-titled Program Room with its Past and read-only state", async () => {
+    mocks.list.mockResolvedValueOnce({
+      ...result,
+      conversations: [
+        {
+          ...room,
+          kind: "program",
+          status: "current",
+          section: "past",
+          title: "EMBA 2026",
+          helpRequestId: null,
+          programId: "64b000000000000000000005",
+          counterpart: null,
+          viewer: {
+            ...room.viewer,
+            role: "mentee",
+            status: "history_only",
+            unreadCount: 0,
+            canSend: false,
+            accessMode: "read_only",
+          },
+        },
+      ],
+      chatUnreadTotal: 0,
+    });
+    renderPage("/dashboard/chat-rooms?view=past");
+
+    expect(
+      await screen.findByRole("link", { name: "EMBA 2026" }),
+    ).toHaveAttribute("href", `/dashboard/chat-rooms/${room.id}`);
+    expect(screen.getByText("Program · Past · Read-only")).toBeInTheDocument();
   });
 
   it("uses live absolute room counts and coalesces unread-event refreshes", async () => {

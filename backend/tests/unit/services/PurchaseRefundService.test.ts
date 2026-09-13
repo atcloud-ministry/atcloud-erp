@@ -5,6 +5,14 @@ vi.mock("../../../src/services/infrastructure/SocketService", () => ({
     disconnectUser: vi.fn(),
   },
 }));
+vi.mock(
+  "../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programPurchaseChanged: vi.fn(),
+    },
+  }),
+);
 
 import {
   applyPurchaseItemSnapshot,
@@ -12,6 +20,7 @@ import {
   persistPurchaseUnenrollment,
 } from "../../../src/services/PurchaseRefundService";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 describe("PurchaseRefundService item snapshots", () => {
   beforeEach(() => {
@@ -60,6 +69,27 @@ describe("PurchaseRefundService item snapshots", () => {
 describe("persistPurchaseUnenrollment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("refreshes Program membership only after a Program revocation persists", async () => {
+    const programId = "507f1f77bcf86cd799439012";
+    const purchase = {
+      userId: "507f1f77bcf86cd799439011",
+      purchaseType: "program",
+      programId,
+      isClassRep: false,
+      save: vi.fn().mockResolvedValue(undefined),
+    } as any;
+
+    await persistPurchaseUnenrollment(purchase, "refund_requested");
+
+    expect(
+      programMembershipMutationSyncTrigger.programPurchaseChanged,
+    ).toHaveBeenCalledWith({ purchaseType: "program", programId });
+    expect(purchase.save.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(programMembershipMutationSyncTrigger.programPurchaseChanged)
+        .mock.invocationCallOrder[0],
+    );
   });
 
   it("disconnects live sockets only after the revocation is persisted", async () => {

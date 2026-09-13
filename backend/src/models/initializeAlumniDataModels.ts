@@ -11,6 +11,8 @@ import ChatMessage from "./ChatMessage";
 import Message from "./Message";
 import PushSubscription from "./PushSubscription";
 import NotificationPreference from "./NotificationPreference";
+import ProgramCommunitySettings from "./ProgramCommunitySettings";
+import Purchase from "./Purchase";
 
 const ALUMNI_DATA_MODELS = [
   AlumniProfile,
@@ -26,6 +28,8 @@ const ALUMNI_DATA_MODELS = [
   Message,
   PushSubscription,
   NotificationPreference,
+  ProgramCommunitySettings,
+  Purchase,
 ] as const;
 
 /** Create and verify every Alumni feature index before accepting traffic. */

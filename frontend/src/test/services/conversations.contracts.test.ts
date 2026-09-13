@@ -6,6 +6,7 @@ import {
   decodeConversation,
   decodeConversationParticipant,
   decodeConversationList,
+  decodeProgramChatRoomLink,
 } from "../../services/api/conversations.contracts";
 
 const IDS = {
@@ -61,6 +62,7 @@ const conversation = {
     unreadCount: 1,
     muted: false,
     canSend: true,
+    canAnnounce: false,
     accessMode: "read_write",
   },
   archivedAt: null,
@@ -114,6 +116,41 @@ describe("Conversations API response contracts", () => {
         viewer: { ...conversation.viewer, canSend: false },
       }),
     ).toThrow(/consistent with accessMode/);
+  });
+
+  it("accepts only server-granted announcement capability on a current Program Room", () => {
+    const programConversation = {
+      ...conversation,
+      kind: "program",
+      title: "EMBA 2026",
+      helpRequestId: null,
+      programId: IDS.request,
+      counterpart: null,
+      viewer: {
+        ...conversation.viewer,
+        role: "mentee",
+        canAnnounce: true,
+      },
+    };
+    expect(decodeConversation(programConversation).viewer.canAnnounce).toBe(true);
+    expect(() =>
+      decodeConversation({
+        ...conversation,
+        viewer: { ...conversation.viewer, canAnnounce: true },
+      }),
+    ).toThrow(/Program Room announcement access/);
+    expect(() =>
+      decodeConversation({
+        ...programConversation,
+        section: "past",
+        viewer: {
+          ...programConversation.viewer,
+          status: "history_only",
+          canSend: false,
+          accessMode: "read_only",
+        },
+      }),
+    ).toThrow(/Program Room announcement access/);
   });
 
   it("accepts safe-link-only messages but rejects unsafe URLs", () => {
@@ -219,5 +256,34 @@ describe("Conversations API response contracts", () => {
         timestamp: "2026-09-13T12:00:00.000Z",
       }),
     ).toThrow(/safe integer/);
+  });
+
+  it("decodes a membership-scoped Program Room link and rejects incoherent access", () => {
+    const data = {
+      room: {
+        id: IDS.room,
+        programId: IDS.request,
+        status: "current",
+        section: "past",
+        viewer: { status: "history_only", accessMode: "read_only" },
+      },
+    };
+    expect(decodeProgramChatRoomLink(data)).toEqual(data);
+    expect(() =>
+      decodeProgramChatRoomLink({
+        room: {
+          ...data.room,
+          section: "current",
+        },
+      }),
+    ).toThrow(/consistent with Room and member status/);
+    expect(() =>
+      decodeProgramChatRoomLink({
+        room: {
+          ...data.room,
+          viewer: { status: "history_only", accessMode: "read_write" },
+        },
+      }),
+    ).toThrow(/read_only access/);
   });
 });

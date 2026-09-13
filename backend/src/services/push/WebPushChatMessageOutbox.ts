@@ -1,5 +1,6 @@
 import type { ClientSession } from "mongoose";
 import {
+  NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM,
   notificationOutboxService,
   type NotificationOutboxRecord,
   type NotificationOutboxService,
@@ -90,4 +91,41 @@ export async function enqueueWebPushChatMessage(
     session: input.session,
     correlationId: input.correlationId,
   });
+}
+
+export async function enqueueWebPushChatMessagesBatch(
+  inputs: readonly EnqueueWebPushChatMessageInput[],
+  outbox: Pick<NotificationOutboxService, "enqueueManyInTransaction"> =
+    notificationOutboxService,
+): Promise<readonly NotificationOutboxRecord[]> {
+  if (
+    inputs.length < 1 ||
+    inputs.length > NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM
+  ) {
+    throw new TypeError(
+      `Web Push chat batch must contain 1-${NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM} recipients.`,
+    );
+  }
+  const firstSession = inputs[0]!.session;
+  const events = inputs.map((input) => {
+    if (input.session !== firstSession) {
+      throw new TypeError("Web Push chat batch must share one session.");
+    }
+    const payload = parseWebPushChatMessagePayload({
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      recipientUserId: input.recipientUserId,
+      sequence: input.sequence,
+      occurredAt: input.occurredAt,
+    });
+    return {
+      topic: WEB_PUSH_CHAT_MESSAGE_TOPIC,
+      dedupeKey: `web-push-chat-message:${payload.messageId}:${payload.recipientUserId}`,
+      payloadVersion: WEB_PUSH_CHAT_MESSAGE_PAYLOAD_VERSION,
+      payload,
+      session: input.session,
+      correlationId: input.correlationId,
+    } as const;
+  });
+  return outbox.enqueueManyInTransaction(events);
 }

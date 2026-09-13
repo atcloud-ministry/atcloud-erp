@@ -19,6 +19,14 @@ const alumniOutcomeMocks = vi.hoisted(() => ({
 const chatUnreadMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
+const programMembershipMocks = vi.hoisted(() => ({
+  runBounded: vi.fn(),
+}));
+const loggerMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
 
 // Mock the models
 vi.mock("../../../src/models/GuestRegistration");
@@ -35,12 +43,22 @@ vi.mock("../../../src/services/alumni/AlumniOutcomeDeadlineService", () => ({
 vi.mock("../../../src/services/chat/ChatUnreadReconciliationService", () => ({
   chatUnreadReconciliationService: chatUnreadMocks,
 }));
+vi.mock(
+  "../../../src/services/programs/ProgramMembershipReconciliationService",
+  () => ({
+    PROGRAM_MEMBERSHIP_RECONCILIATION_CAPACITY: Object.freeze({
+      baselinePrograms: 500,
+      baselineSimultaneouslyOpenPrograms: 50,
+      defaultLimit: 25,
+      maximumLimit: 100,
+      cadenceMs: 60_000,
+      baselineMaximumSweepMinutes: 2,
+    }),
+    programMembershipReconciliationService: programMembershipMocks,
+  }),
+);
 vi.mock("../../../src/services/LoggerService", () => ({
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  })),
+  createLogger: vi.fn(() => loggerMocks),
 }));
 
 describe("MaintenanceScheduler", () => {
@@ -74,6 +92,23 @@ describe("MaintenanceScheduler", () => {
       racedOrUnavailable: 0,
       hasMore: false,
       capacityPerRun: 500,
+    });
+    programMembershipMocks.runBounded.mockResolvedValue({
+      paused: false,
+      candidatesScanned: 0,
+      reconciledPrograms: 0,
+      createdMemberships: 0,
+      updatedRoles: 0,
+      closedMemberships: 0,
+      reactivatedMemberships: 0,
+      archivedRooms: 0,
+      ignoredPurchasesMissingStudentRoleId: 0,
+      ignoredPurchasesUnmappedStudentRoleId: 0,
+      deferredRevocations: 0,
+      deferredReactivations: 0,
+      racedOrUnavailable: 0,
+      hasMore: false,
+      capacityPerRun: 25,
     });
 
     (GuestRegistration as any).purgeExpiredManageTokens =
@@ -118,6 +153,16 @@ describe("MaintenanceScheduler", () => {
           principal: expect.objectContaining({
             serviceKey: "chat-unread-reconciler",
             capabilities: ["chat.unread.reconcile"],
+          }),
+        }),
+      );
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "program-membership-reconciler",
+            capabilities: ["program.membership.reconcile"],
           }),
         }),
       );
@@ -180,6 +225,109 @@ describe("MaintenanceScheduler", () => {
       expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(2);
     });
 
+    it("reconciles Program memberships at startup and every configured minute", async () => {
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(programMembershipMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "program-membership-reconciler",
+            capabilities: ["program.membership.reconcile"],
+          }),
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(50 * 1000);
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(programMembershipMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trigger: "scheduled" }),
+      );
+
+      scheduler.stop();
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledTimes(2);
+    });
+
+    it("logs bounded Program membership reconciliation metrics", async () => {
+      programMembershipMocks.runBounded.mockResolvedValue({
+        paused: false,
+        candidatesScanned: 2,
+        reconciledPrograms: 2,
+        createdMemberships: 3,
+        updatedRoles: 1,
+        closedMemberships: 8,
+        reactivatedMemberships: 9,
+        archivedRooms: 1,
+        ignoredPurchasesMissingStudentRoleId: 4,
+        ignoredPurchasesUnmappedStudentRoleId: 5,
+        deferredRevocations: 6,
+        deferredReactivations: 7,
+        racedOrUnavailable: 0,
+        hasMore: true,
+        capacityPerRun: 25,
+      });
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+
+      expect(loggerMocks.info).toHaveBeenCalledWith(
+        "Completed bounded Program membership reconciliation",
+        undefined,
+        {
+          candidatesScanned: 2,
+          reconciledPrograms: 2,
+          createdMemberships: 3,
+          updatedRoles: 1,
+          closedMemberships: 8,
+          reactivatedMemberships: 9,
+          archivedRooms: 1,
+          ignoredPurchasesMissingStudentRoleId: 4,
+          ignoredPurchasesUnmappedStudentRoleId: 5,
+          deferredRevocations: 6,
+          deferredReactivations: 7,
+          racedOrUnavailable: 0,
+          hasMore: true,
+          capacityPerRun: 25,
+        },
+      );
+    });
+
+    it("keeps the scheduled repair loop available while a runtime-gated pass is paused", async () => {
+      programMembershipMocks.runBounded.mockResolvedValue({
+        paused: true,
+        candidatesScanned: 0,
+        reconciledPrograms: 0,
+        createdMemberships: 0,
+        updatedRoles: 0,
+        closedMemberships: 0,
+        reactivatedMemberships: 0,
+        archivedRooms: 0,
+        ignoredPurchasesMissingStudentRoleId: 0,
+        ignoredPurchasesUnmappedStudentRoleId: 0,
+        deferredRevocations: 0,
+        deferredReactivations: 0,
+        racedOrUnavailable: 0,
+        hasMore: false,
+        capacityPerRun: 25,
+      });
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledOnce();
+      expect(loggerMocks.info).not.toHaveBeenCalledWith(
+        "Completed bounded Program membership reconciliation",
+        expect.anything(),
+        expect.anything(),
+      );
+
+      await vi.advanceTimersByTimeAsync(50 * 1000);
+      expect(programMembershipMocks.runBounded).toHaveBeenCalledTimes(2);
+    });
+
     it("should not start if already running", () => {
       const consoleSpy = vi.spyOn(console, "log");
       scheduler.start();
@@ -216,6 +364,7 @@ describe("MaintenanceScheduler", () => {
       expect(purgeOldAuditLogsMock).not.toHaveBeenCalled();
       expect(alumniRetentionMocks.runBounded).not.toHaveBeenCalled();
       expect(chatUnreadMocks.runBounded).not.toHaveBeenCalled();
+      expect(programMembershipMocks.runBounded).not.toHaveBeenCalled();
     });
 
     it("should warn if trying to stop when not running", () => {

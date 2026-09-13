@@ -73,6 +73,10 @@ describe("M4 chat room model indexes and persistence", () => {
           key: { purgeAt: 1 },
           expireAfterSeconds: 0,
         }),
+        expect.objectContaining({
+          name: "idx_program_conversation_membership_repair",
+          key: { kind: 1, status: 1, _id: 1 },
+        }),
       ]),
     );
     expect(memberIndexes).toEqual(
@@ -107,6 +111,10 @@ describe("M4 chat room model indexes and persistence", () => {
           name: "uniq_chat_message_client_retry",
           key: { conversationId: 1, senderId: 1, clientMessageId: 1 },
           unique: true,
+        }),
+        expect.objectContaining({
+          name: "idx_chat_message_room_kind_created_at",
+          key: { conversationId: 1, kind: 1, createdAt: 1 },
         }),
         expect.objectContaining({
           name: "ttl_chat_message_purge_at",

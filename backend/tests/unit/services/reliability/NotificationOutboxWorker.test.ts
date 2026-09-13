@@ -10,8 +10,10 @@ import type {
 } from "../../../../src/services/reliability/NotificationOutboxService";
 import {
   DeferredNotificationOutboxDeliveryError,
+  NOTIFICATION_OUTBOX_WORKER_DEFAULT_BATCH_SIZE,
   NotificationOutboxWorker,
   PermanentNotificationOutboxDeliveryError,
+  RetryableNotificationOutboxDeliveryError,
   type NotificationOutboxWorkerAuthorizer,
   type NotificationOutboxWorkerConfig,
   type NotificationOutboxWorkerTimers,
@@ -243,6 +245,25 @@ describe("NotificationOutboxWorker", () => {
     expect(result).toMatchObject({ claimed: 1, delivered: 1 });
   });
 
+  it("wires the production default worker pass to 100 deliveries", async () => {
+    const event = claim();
+    outbox.claimNext.mockResolvedValue(event);
+    outbox.finalizeDelivered.mockResolvedValue(completed(event, "delivered"));
+    const defaultWorker = new NotificationOutboxWorker({
+      outbox,
+      registry: new NotificationOutboxDeliveryRegistry([handler]),
+      authorizer,
+      workerId: "worker-default-batch",
+    });
+
+    const result = await defaultWorker.runOnce();
+
+    expect(NOTIFICATION_OUTBOX_WORKER_DEFAULT_BATCH_SIZE).toBe(100);
+    expect(result.claimed).toBe(100);
+    expect(outbox.claimNext).toHaveBeenCalledTimes(100);
+    expect(handler.deliver).toHaveBeenCalledTimes(100);
+  });
+
   it("does not claim when reconciliation authorization fails", async () => {
     vi.mocked(authorizer.assertCanReconcile).mockRejectedValue(
       new Error("denied"),
@@ -361,6 +382,29 @@ describe("NotificationOutboxWorker", () => {
       }),
     );
     expect(result.retried).toBe(1);
+  });
+
+  it("retries a delivery-state failure raised during handler authorization", async () => {
+    const event = claim();
+    outbox.claimNext.mockResolvedValueOnce(event).mockResolvedValueOnce(null);
+    vi.mocked(handler.assertCanDeliver).mockRejectedValue(
+      new RetryableNotificationOutboxDeliveryError(
+        "CHAT_MESSAGE_STATE_READ_FAILED",
+      ),
+    );
+    outbox.finalizeFailure.mockResolvedValue(completed(event, "pending"));
+
+    const result = await worker().runOnce();
+
+    expect(handler.deliver).not.toHaveBeenCalled();
+    expect(outbox.finalizeFailure).toHaveBeenCalledWith(
+      event,
+      expect.objectContaining({
+        code: "CHAT_MESSAGE_STATE_READ_FAILED",
+        retryable: true,
+      }),
+    );
+    expect(result).toMatchObject({ retried: 1, deadLettered: 0 });
   });
 
   it("releases a post-claim runtime deferral without consuming an attempt", async () => {

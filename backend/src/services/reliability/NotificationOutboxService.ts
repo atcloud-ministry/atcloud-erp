@@ -42,6 +42,8 @@ export interface EnqueueNotificationOutboxInTransactionInput
   readonly session: ClientSession;
 }
 
+export const NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM = 100;
+
 export interface EnqueueNotificationOutboxStandaloneInput
   extends EnqueueNotificationOutboxInput {
   readonly session?: never;
@@ -131,6 +133,15 @@ interface NotificationOutboxModelPort {
   countDocuments(
     filter: Readonly<Record<string, unknown>>,
   ): Promise<number>;
+  find?(
+    filter: Readonly<Record<string, unknown>>,
+    projection?: Readonly<Record<string, unknown>> | null,
+    options?: Readonly<Record<string, unknown>>,
+  ): PromiseLike<INotificationOutbox[]>;
+  insertMany?(
+    documents: ReadonlyArray<Readonly<Record<string, unknown>>>,
+    options?: Readonly<Record<string, unknown>>,
+  ): Promise<INotificationOutbox[]>;
 }
 
 interface NotificationOutboxServiceDependencies {
@@ -431,6 +442,149 @@ export class NotificationOutboxService {
       input,
       requireActiveTransactionSession(input.session),
     );
+  }
+
+  /**
+   * Inserts a bounded group with two database operations at most. Every item
+   * retains its own topic/dedupe identity and payload-conflict verification;
+   * callers split larger fan-outs into batches of at most 100.
+   */
+  async enqueueManyInTransaction(
+    inputs: readonly EnqueueNotificationOutboxInTransactionInput[],
+  ): Promise<readonly NotificationOutboxRecord[]> {
+    if (
+      inputs.length < 1 ||
+      inputs.length > NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM
+    ) {
+      throw new Error(
+        `Notification outbox enqueue batch must contain 1-${NOTIFICATION_OUTBOX_ENQUEUE_BATCH_MAXIMUM} items`,
+      );
+    }
+    const session = requireActiveTransactionSession(inputs[0]!.session);
+    if (inputs.some((input) => input.session !== session)) {
+      throw new Error("Notification outbox enqueue batch must share one session");
+    }
+    if (!this.model.find || !this.model.insertMany) {
+      throw new Error("Notification outbox model does not support batch enqueue");
+    }
+
+    const prepared = inputs.map((input) => {
+      const topic = requireTopic(input.topic);
+      const dedupeKey = requireDedupeKey(input.dedupeKey);
+      const dedupeKeyHash = hashOutboxDedupeKey(dedupeKey);
+      const payloadVersion = requirePayloadVersion(input.payloadVersion);
+      const payload = normalizeOutboxPayload(input.payload);
+      const payloadHash = hashOutboxPayload(payloadVersion, payload);
+      const maxAttempts = input.maxAttempts ?? this.config.defaultMaxAttempts;
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100) {
+        throw new Error("Invalid notification outbox maxAttempts");
+      }
+      const nextAttemptAt = requireDate(
+        input.nextAttemptAt ?? this.now(),
+        "nextAttemptAt",
+      );
+      const correlationId = input.correlationId
+        ? requireIdentifier(input.correlationId, "correlationId", 128)
+        : null;
+      return Object.freeze({
+        key: `${topic}\u0000${dedupeKeyHash}`,
+        topic,
+        dedupeKeyHash,
+        payloadVersion,
+        payload,
+        payloadHash,
+        maxAttempts,
+        nextAttemptAt,
+        correlationId,
+        eventId: requireUuid(this.createEventId(), "eventId"),
+      });
+    });
+    if (new Set(prepared.map((item) => item.key)).size !== prepared.length) {
+      throw new Error("Notification outbox enqueue batch contains duplicate keys");
+    }
+
+    const existing = await this.model.find(
+      {
+        $or: prepared.map(({ topic, dedupeKeyHash }) => ({
+          topic,
+          dedupeKeyHash,
+        })),
+      },
+      null,
+      { session },
+    );
+    const byKey = new Map(
+      existing.map((document) => [
+        `${document.topic}\u0000${document.dedupeKeyHash}`,
+        document,
+      ]),
+    );
+    for (const item of prepared) {
+      const document = byKey.get(item.key);
+      if (
+        document &&
+        (document.payloadHash !== item.payloadHash ||
+          document.payloadVersion !== item.payloadVersion)
+      ) {
+        this.metrics.increment("idempotencyConflicts");
+        throw new NotificationOutboxIdempotencyConflictError(
+          item.topic,
+          item.dedupeKeyHash,
+        );
+      }
+    }
+
+    const missing = prepared.filter((item) => !byKey.has(item.key));
+    if (missing.length > 0) {
+      const createdAt = requireDate(this.now(), "clock");
+      const inserted = await this.model.insertMany(
+        missing.map((item) => ({
+          eventId: item.eventId,
+          topic: item.topic,
+          dedupeKeyHash: item.dedupeKeyHash,
+          payloadVersion: item.payloadVersion,
+          payload: item.payload,
+          payloadHash: item.payloadHash,
+          status: "pending",
+          attemptCount: 0,
+          maxAttempts: item.maxAttempts,
+          nextAttemptAt: item.nextAttemptAt,
+          correlationId: item.correlationId,
+          revision: 0,
+          createdAt,
+          updatedAt: createdAt,
+        })),
+        { session, ordered: true },
+      );
+      for (const document of inserted) {
+        byKey.set(
+          `${document.topic}\u0000${document.dedupeKeyHash}`,
+          document,
+        );
+      }
+    }
+
+    const result = prepared.map((item) => {
+      const document = byKey.get(item.key);
+      if (!document) {
+        throw new Error("Failed to enqueue notification outbox batch item");
+      }
+      if (
+        document.payloadHash !== item.payloadHash ||
+        document.payloadVersion !== item.payloadVersion
+      ) {
+        this.metrics.increment("idempotencyConflicts");
+        throw new NotificationOutboxIdempotencyConflictError(
+          item.topic,
+          item.dedupeKeyHash,
+        );
+      }
+      this.metrics.increment(
+        document.eventId === item.eventId ? "enqueued" : "deduplicated",
+      );
+      return toRecord(document);
+    });
+    return Object.freeze(result);
   }
 
   /**

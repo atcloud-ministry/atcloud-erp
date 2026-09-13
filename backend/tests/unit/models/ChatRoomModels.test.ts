@@ -182,6 +182,12 @@ describe("Conversation model", () => {
             name: "ttl_conversation_purge_at",
           }),
         ],
+        [
+          { kind: 1, status: 1, _id: 1 },
+          expect.objectContaining({
+            name: "idx_program_conversation_membership_repair",
+          }),
+        ],
       ]),
     );
   });
@@ -304,6 +310,12 @@ describe("ChatMessage model", () => {
         [
           { conversationId: 1, senderId: 1, clientMessageId: 1 },
           expect.objectContaining({ unique: true }),
+        ],
+        [
+          { conversationId: 1, kind: 1, createdAt: 1 },
+          expect.objectContaining({
+            name: "idx_chat_message_room_kind_created_at",
+          }),
         ],
         [
           { purgeAt: 1 },

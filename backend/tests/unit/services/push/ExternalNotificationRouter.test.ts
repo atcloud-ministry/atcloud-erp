@@ -7,6 +7,7 @@ const CHAT = Object.freeze({
   messageId: "507f1f77bcf86cd799439015",
   recipientUserId: "507f1f77bcf86cd799439012",
   sequence: 4,
+  authorizeRecipient: async () => true,
 });
 const HELP = Object.freeze({
   eventId: "0f7dc682-51a3-4b72-bfac-319a9cc3e5f6",
@@ -63,6 +64,25 @@ describe("ExternalNotificationRouter", () => {
     expect(email.sendChatFallback).not.toHaveBeenCalled();
   });
 
+  it("uses fixed Program announcement Push and Email fallback routing", async () => {
+    const { router, push, email } = setup("no_subscription");
+    await expect(
+      router.deliverChat({ ...CHAT, kind: "announcement" }),
+    ).resolves.toMatchObject({ route: "email" });
+    expect(push.deliverChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          title: "@Cloud Program Announcement",
+          body: "A new Program announcement is available.",
+          deepLink: `/#/dashboard/chat-rooms/${CHAT.conversationId}`,
+        }),
+      }),
+    );
+    expect(email.sendChatFallback).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "announcement" }),
+    );
+  });
+
   it.each(["push_disabled", "no_subscription", "permanent_failure"])(
     "falls back to email for %s",
     async (route) => {
@@ -75,6 +95,85 @@ describe("ExternalNotificationRouter", () => {
   it("skips both channels for Room mute", async () => {
     const { router, email } = setup("muted");
     await expect(router.deliverChat(CHAT)).resolves.toMatchObject({ route: "skipped" });
+    expect(email.sendChatFallback).not.toHaveBeenCalled();
+  });
+
+  it("stops fallback when the provider-boundary authorization sees a revocation", async () => {
+    let releaseBadge!: () => void;
+    let badgeStarted!: () => void;
+    const badgeBarrier = new Promise<void>((resolve) => {
+      releaseBadge = resolve;
+    });
+    const badgeEntered = new Promise<void>((resolve) => {
+      badgeStarted = resolve;
+    });
+    let authorized = true;
+    const authorizeRecipient = vi.fn(async () => authorized);
+    const push = {
+      deliverChatMessage: vi.fn(async (input: {
+        authorizeRecipient: () => Promise<boolean>;
+      }) =>
+        pushResult(
+          (await input.authorizeRecipient())
+            ? "delivered"
+            : "recipient_unavailable",
+        ),
+      ),
+      deliverHelpNotification: vi.fn(),
+    };
+    const email = {
+      sendChatFallback: vi.fn(),
+      sendHelpFallback: vi.fn(),
+    };
+    const router = new ExternalNotificationRouter({
+      push: push as never,
+      email: email as never,
+      badges: {
+        totalForUser: vi.fn(async () => {
+          badgeStarted();
+          await badgeBarrier;
+          return 8;
+        }),
+      },
+    });
+
+    const delivery = router.deliverChat({ ...CHAT, authorizeRecipient });
+    await badgeEntered;
+    authorized = false;
+    releaseBadge();
+
+    await expect(delivery).resolves.toMatchObject({ route: "skipped" });
+    expect(authorizeRecipient).toHaveBeenCalledTimes(1);
+    expect(email.sendChatFallback).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without Email fallback when final authorization cannot be read", async () => {
+    const authorizationError = new Error("canonical database unavailable");
+    const push = {
+      deliverChatMessage: vi.fn(async (input: {
+        authorizeRecipient: () => Promise<boolean>;
+      }) => {
+        await input.authorizeRecipient();
+        return pushResult("delivered");
+      }),
+      deliverHelpNotification: vi.fn(),
+    };
+    const email = {
+      sendChatFallback: vi.fn(),
+      sendHelpFallback: vi.fn(),
+    };
+    const router = new ExternalNotificationRouter({
+      push: push as never,
+      email: email as never,
+      badges: { totalForUser: vi.fn().mockResolvedValue(8) },
+    });
+
+    await expect(
+      router.deliverChat({
+        ...CHAT,
+        authorizeRecipient: vi.fn().mockRejectedValue(authorizationError),
+      }),
+    ).rejects.toBe(authorizationError);
     expect(email.sendChatFallback).not.toHaveBeenCalled();
   });
 

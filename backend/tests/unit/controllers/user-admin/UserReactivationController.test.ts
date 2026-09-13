@@ -57,6 +57,14 @@ vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
     invalidateUserCache: vi.fn().mockResolvedValue(undefined),
   },
 }));
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      userEligibilityChanged: vi.fn(),
+    },
+  }),
+);
 
 import { User } from "../../../../src/models";
 import AuditLog from "../../../../src/models/AuditLog";
@@ -64,6 +72,7 @@ import { hasPermission, ROLES } from "../../../../src/utils/roleUtils";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { EmailService } from "../../../../src/services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 interface MockRequest {
   params: Record<string, string>;
@@ -246,6 +255,17 @@ describe("UserReactivationController", () => {
 
         expect(targetUser.isActive).toBe(true);
         expect(targetUser.save).toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.userEligibilityChanged,
+        ).toHaveBeenCalledWith(testUserId, {
+          actor: {
+            type: "user",
+            id: "admin123",
+            role: "Administrator",
+          },
+          source: "http",
+          correlationId: undefined,
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

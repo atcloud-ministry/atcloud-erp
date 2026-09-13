@@ -5,6 +5,8 @@ export type ChatRoomErrorCode =
   | "CHAT_MESSAGE_SEQUENCE_CONFLICT"
   | "CHAT_READ_SEQUENCE_INVALID"
   | "CHAT_SEND_RATE_LIMITED"
+  | "CHAT_ANNOUNCEMENT_FORBIDDEN"
+  | "CHAT_ANNOUNCEMENT_RATE_LIMITED"
   | "CHAT_OPERATION_UNAVAILABLE";
 
 export class ChatRoomError extends Error {
@@ -65,6 +67,25 @@ export function chatSendRateLimited(retryAfterSeconds: number): ChatRoomError {
     "CHAT_SEND_RATE_LIMITED",
     429,
     "Too many chat messages were sent. Please try again shortly.",
+    retryAfterSeconds,
+  );
+}
+
+export function chatAnnouncementForbidden(): ChatRoomError {
+  return new ChatRoomError(
+    "CHAT_ANNOUNCEMENT_FORBIDDEN",
+    403,
+    "This Program member cannot publish announcements.",
+  );
+}
+
+export function chatAnnouncementRateLimited(
+  retryAfterSeconds: number,
+): ChatRoomError {
+  return new ChatRoomError(
+    "CHAT_ANNOUNCEMENT_RATE_LIMITED",
+    429,
+    "Too many Program announcements were published. Please try again later.",
     retryAfterSeconds,
   );
 }

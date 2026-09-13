@@ -37,7 +37,7 @@ const DEFAULT_TRANSACTION_OPTIONS: MongoTransactionDriverOptions = {
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_COMMIT_ATTEMPTS = 3;
-const MAX_CONFIGURED_ATTEMPTS = 10;
+const MAX_CONFIGURED_ATTEMPTS = 12;
 const MAX_COMMIT_TIME_MS = 120_000;
 
 abstract class MongoTransactionError extends Error {

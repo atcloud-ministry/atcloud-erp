@@ -73,6 +73,7 @@ export interface ConversationViewerDTO {
   unreadCount: number;
   muted: boolean;
   canSend: boolean;
+  canAnnounce: boolean;
   accessMode: ConversationAccessMode;
 }
 
@@ -120,6 +121,21 @@ export interface ConversationListDTO {
 export interface ConversationDetailDTO {
   conversation: ConversationDTO;
   chatUnreadTotal: number;
+}
+
+export interface ProgramChatRoomLinkDTO {
+  id: string;
+  programId: string;
+  status: ConversationStatus;
+  section: ConversationSection;
+  viewer: {
+    status: ConversationMemberStatus;
+    accessMode: ConversationAccessMode;
+  };
+}
+
+export interface ProgramChatRoomLinkDataDTO {
+  room: ProgramChatRoomLinkDTO;
 }
 
 export interface ChatMessageMutationDTO {
@@ -458,9 +474,14 @@ function decodeViewer(value: unknown, path: string): ConversationViewerDTO {
     "unreadCount",
     "muted",
     "canSend",
+    "canAnnounce",
     "accessMode",
   ]);
   const canSend = booleanAt(viewer.canSend, `${path}.canSend`);
+  const canAnnounce = booleanAt(
+    viewer.canAnnounce,
+    `${path}.canAnnounce`,
+  );
   const accessMode = enumAt(
     viewer.accessMode,
     `${path}.accessMode`,
@@ -488,6 +509,7 @@ function decodeViewer(value: unknown, path: string): ConversationViewerDTO {
     ),
     muted: booleanAt(viewer.muted, `${path}.muted`),
     canSend,
+    canAnnounce,
     accessMode,
   };
 }
@@ -539,6 +561,20 @@ export function decodeConversation(
           conversation.lastMessage,
           `${path}.lastMessage`,
         );
+  const viewer = decodeViewer(conversation.viewer, `${path}.viewer`);
+  if (
+    viewer.canAnnounce &&
+    (kind !== "program" ||
+      conversation.status !== "current" ||
+      conversation.section !== "current" ||
+      viewer.status !== "active" ||
+      !viewer.canSend)
+  ) {
+    return contractError(
+      `${path}.viewer.canAnnounce`,
+      "current writable Program Room announcement access",
+    );
+  }
   return {
     id,
     kind,
@@ -568,7 +604,7 @@ export function decodeConversation(
       0,
     ),
     lastMessage,
-    viewer: decodeViewer(conversation.viewer, `${path}.viewer`),
+    viewer,
     createdAt: dateAt(conversation.createdAt, `${path}.createdAt`),
     archivedAt: nullableDateAt(
       conversation.archivedAt,
@@ -653,6 +689,66 @@ export function decodeConversationDetail(
       "data.chatUnreadTotal",
       0,
     ),
+  };
+}
+
+export function decodeProgramChatRoomLink(
+  value: unknown,
+): ProgramChatRoomLinkDataDTO {
+  const data = exactObjectAt(value, "data", ["room"]);
+  const room = exactObjectAt(data.room, "data.room", [
+    "id",
+    "programId",
+    "status",
+    "section",
+    "viewer",
+  ]);
+  const viewer = exactObjectAt(room.viewer, "data.room.viewer", [
+    "status",
+    "accessMode",
+  ]);
+  const status = enumAt(
+    room.status,
+    "data.room.status",
+    CONVERSATION_STATUSES,
+  );
+  const section = enumAt(
+    room.section,
+    "data.room.section",
+    CONVERSATION_SECTIONS,
+  );
+  const viewerStatus = enumAt(
+    viewer.status,
+    "data.room.viewer.status",
+    CONVERSATION_MEMBER_STATUSES,
+  );
+  const accessMode = enumAt(
+    viewer.accessMode,
+    "data.room.viewer.accessMode",
+    CONVERSATION_ACCESS_MODES,
+  );
+  const expectedSection =
+    status === "current" && viewerStatus === "active" ? "current" : "past";
+  if (section !== expectedSection) {
+    return contractError(
+      "data.room.section",
+      "value consistent with Room and member status",
+    );
+  }
+  if (section === "past" && accessMode !== "read_only") {
+    return contractError(
+      "data.room.viewer.accessMode",
+      "read_only access for a past Room",
+    );
+  }
+  return {
+    room: {
+      id: objectIdAt(room.id, "data.room.id"),
+      programId: objectIdAt(room.programId, "data.room.programId"),
+      status,
+      section,
+      viewer: { status: viewerStatus, accessMode },
+    },
   };
 }
 

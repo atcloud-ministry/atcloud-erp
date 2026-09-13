@@ -28,6 +28,7 @@
     "test:critical": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/api/event-purchase-flow.integration.test.ts tests/integration/api/purchases-refund.integration.test.ts tests/integration/api/donations-webhook.integration.test.ts --testTimeout=60000",
     "test:backend:single": "vitest run --config vitest.unit.config.ts --testTimeout=60000",
     "test:perf": "VITEST_SCOPE=integration vitest run --config vitest.perf.config.ts",
+    "test:perf:approved": "M4_CHAT_LOAD_PROFILE=approved M6_PROGRAM_ROOM_LOAD_PROFILE=approved VITEST_VERBOSE_LOGS=true VITEST_SCOPE=integration vitest run --config vitest.perf.config.ts",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage --testTimeout=15000",
     "test:coverage:unit": "VITEST_DISABLE_COVERAGE_THRESHOLDS=true vitest run --config vitest.unit.config.ts tests/unit --coverage --testTimeout=10000",

@@ -6,6 +6,11 @@ import {
 } from "./common";
 import type { ProgramType } from "../../constants/programTypes";
 import type { ProgramRoles } from "../../types/program";
+import {
+  decodeProgramCommunitySettings,
+  type ProgramCommunitySettingsDTO,
+  type UpdateProgramCommunitySettingsInput,
+} from "./programCommunitySettings.contracts";
 
 /**
  * Programs API Service
@@ -132,6 +137,39 @@ class ProgramsApiClient extends BaseApiClient {
       body: JSON.stringify(payload),
     });
     return (res as { data?: unknown }).data;
+  }
+
+  async getCommunitySettings(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<ProgramCommunitySettingsDTO> {
+    const res = await this.request<unknown>(
+      `/programs/${encodeURIComponent(id)}/community-settings`,
+      { signal },
+    );
+    if (res.data === undefined) {
+      throw new Error(res.message || "Failed to load Program Chat Room settings");
+    }
+    return decodeProgramCommunitySettings(res.data);
+  }
+
+  async updateCommunitySettings(
+    id: string,
+    input: UpdateProgramCommunitySettingsInput,
+    idempotencyKey: string,
+  ): Promise<ProgramCommunitySettingsDTO> {
+    const res = await this.request<unknown>(
+      `/programs/${encodeURIComponent(id)}/community-settings`,
+      {
+        method: "PUT",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+    );
+    if (res.data === undefined) {
+      throw new Error(res.message || "Failed to update Program Chat Room settings");
+    }
+    return decodeProgramCommunitySettings(res.data);
   }
 
   async deleteProgram(
@@ -318,6 +356,13 @@ export const programsService = {
   createProgram: (payload: unknown) => programsApiClient.createProgram(payload),
   updateProgram: (id: string, payload: unknown) =>
     programsApiClient.updateProgram(id, payload),
+  getCommunitySettings: (id: string, signal?: AbortSignal) =>
+    programsApiClient.getCommunitySettings(id, signal),
+  updateCommunitySettings: (
+    id: string,
+    input: UpdateProgramCommunitySettingsInput,
+    idempotencyKey: string,
+  ) => programsApiClient.updateCommunitySettings(id, input, idempotencyKey),
   deleteProgram: (
     id: string,
     options?: Parameters<typeof programsApiClient.deleteProgram>[1]

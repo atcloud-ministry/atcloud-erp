@@ -4,6 +4,7 @@ import { conversationsService } from "../../services/api/conversations.api";
 const IDS = {
   room: "64b000000000000000000001",
   request: "64b000000000000000000002",
+  program: "64b000000000000000000005",
   user: "64b000000000000000000003",
   message: "64b000000000000000000004",
 };
@@ -46,6 +47,7 @@ const conversation = {
     unreadCount: 1,
     muted: false,
     canSend: true,
+    canAnnounce: false,
     accessMode: "read_write",
   },
   archivedAt: null,
@@ -142,6 +144,38 @@ describe("Conversations API client", () => {
     });
   });
 
+  it("publishes Program announcements through the independent idempotent endpoint", async () => {
+    const announcement = {
+      ...message,
+      kind: "announcement",
+      content: "Program starts tomorrow",
+      safeLink: null,
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      response({ message: announcement, roomUnreadCount: 0, chatUnreadTotal: 3 }),
+    );
+
+    await expect(
+      conversationsService.publishAnnouncement(IDS.room, {
+        clientMessageId,
+        content: "  Program starts tomorrow  ",
+      }),
+    ).resolves.toMatchObject({ message: { kind: "announcement" } });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(
+      new RegExp(`/api/conversations/${IDS.room}/announcements$`),
+    );
+    expect(options?.method).toBe("POST");
+    expect((options?.headers as Record<string, string>)["Idempotency-Key"]).toBe(
+      clientMessageId,
+    );
+    expect(JSON.parse(String(options?.body))).toEqual({
+      clientMessageId,
+      content: "Program starts tomorrow",
+    });
+  });
+
   it("supports safe-link-only sends and compact read/mute responses", async () => {
     const safeLinkMessage = {
       ...message,
@@ -213,6 +247,30 @@ describe("Conversations API client", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain(
       `/api/conversations/${IDS.room}/messages?limit=100&afterSequence=0`,
     );
+  });
+
+  it("uses the authenticated Program Room lookup endpoint", async () => {
+    const room = {
+      id: IDS.room,
+      programId: IDS.program,
+      status: "current",
+      section: "current",
+      viewer: { status: "active", accessMode: "read_write" },
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(response({ room }));
+
+    await expect(conversationsService.getProgramRoom(IDS.program)).resolves.toEqual({
+      room,
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(
+      new RegExp(`/api/conversations/program/${IDS.program}$`),
+    );
+    await expect(conversationsService.getProgramRoom("not-an-id")).rejects.toThrow(
+      /Program ID/u,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("rejects unsafe pagination, ambiguous history, UUID, and links locally", async () => {

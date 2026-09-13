@@ -1,6 +1,5 @@
 // Purchase.schema.test.ts - Unit tests for Purchase schema conditional required validators
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import mongoose from "mongoose";
 import Purchase from "../../../src/models/Purchase";
 
 describe("Purchase Schema Conditional Required Fields", () => {
@@ -69,6 +68,24 @@ describe("Purchase Schema Conditional Required Fields", () => {
     test("should default to 'program' for backward compatibility", () => {
       const purchaseTypePath = Purchase.schema.path("purchaseType");
       expect(purchaseTypePath.options.default).toBe("program");
+    });
+  });
+
+  describe("membership resolver index", () => {
+    test("supports bounded lookup of effective Program purchases", () => {
+      const resolverIndex = Purchase.schema.indexes().find(
+        ([, options]) =>
+          options.name === "idx_program_membership_resolver",
+      );
+
+      expect(resolverIndex).toBeDefined();
+      expect(resolverIndex?.[0]).toEqual({
+        programId: 1,
+        purchaseType: 1,
+        status: 1,
+        unenrolledAt: 1,
+        userId: 1,
+      });
     });
   });
 });

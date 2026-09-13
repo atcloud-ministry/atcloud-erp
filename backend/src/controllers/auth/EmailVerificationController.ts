@@ -11,6 +11,7 @@ import { CachePatterns } from "../../services/infrastructure/CacheService";
 import GuestMigrationService from "../../services/GuestMigrationService";
 import { createLogger } from "../../services/LoggerService";
 import { UserDocLike, LoggerLike, toIdString } from "./types";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 export default class EmailVerificationController {
   static async verifyEmail(req: Request, res: Response): Promise<void> {
@@ -42,6 +43,18 @@ export default class EmailVerificationController {
       user.emailVerificationExpires = undefined;
 
       await user.save();
+      programMembershipMutationSyncTrigger.userEligibilityChanged(
+        toIdString(user._id),
+        {
+          actor: {
+            type: "user",
+            id: toIdString(user._id),
+            role: user.role ?? "Participant",
+          },
+          source: "http",
+          correlationId: req.correlationId,
+        },
+      );
 
       // Invalidate user cache after email verification
       await CachePatterns.invalidateUserCache(toIdString(user._id));

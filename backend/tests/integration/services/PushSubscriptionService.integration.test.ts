@@ -247,6 +247,7 @@ describe("M5 PushSubscription and notification preference integration", () => {
       messageId: messageId.toString(),
       recipientUserId: recipientId.toString(),
       sequence: 1,
+      authorizeRecipient: vi.fn().mockResolvedValue(true),
       payload: {
         title: "@Cloud Chat Rooms",
         body: "You have a new chat message.",
@@ -269,6 +270,57 @@ describe("M5 PushSubscription and notification preference integration", () => {
     });
     expect(sendNotification).toHaveBeenCalledTimes(1);
 
+    let releaseAuthorization!: () => void;
+    let authorizationStarted!: () => void;
+    const authorizationBarrier = new Promise<void>((resolve) => {
+      releaseAuthorization = resolve;
+    });
+    const authorizationEntered = new Promise<void>((resolve) => {
+      authorizationStarted = resolve;
+    });
+    const revokedAuthorization = vi.fn(async () => {
+      authorizationStarted();
+      await authorizationBarrier;
+      return false;
+    });
+    const revokedDelivery = delivery.deliverChatMessage({
+      ...request,
+      eventId: "0f7dc682-51a3-4b72-bfac-319a9cc3e5e7",
+      authorizeRecipient: revokedAuthorization,
+    });
+    await authorizationEntered;
+    releaseAuthorization();
+    await expect(revokedDelivery).resolves.toMatchObject({
+      route: "recipient_unavailable",
+      attempted: 0,
+    });
+    expect(revokedAuthorization).toHaveBeenCalledTimes(1);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+
+    await service.upsert({
+      actor: { id: recipientId.toString(), role: "Participant" },
+      subscription: input("recipient-second-endpoint", "ios-second-installation"),
+    });
+    let authorized = true;
+    sendNotification.mockImplementationOnce(async () => {
+      authorized = false;
+      return { statusCode: 201 };
+    });
+    const perTargetAuthorization = vi.fn(async () => authorized);
+    await expect(
+      delivery.deliverChatMessage({
+        ...request,
+        eventId: "0f7dc682-51a3-4b72-bfac-319a9cc3e5e8",
+        authorizeRecipient: perTargetAuthorization,
+      }),
+    ).resolves.toMatchObject({
+      route: "recipient_unavailable",
+      attempted: 1,
+      succeeded: 1,
+    });
+    expect(perTargetAuthorization).toHaveBeenCalledTimes(2);
+    expect(sendNotification).toHaveBeenCalledTimes(2);
+
     await service.setPreferences({
       actor: { id: recipientId.toString(), role: "Participant" },
       changes: { pushEnabled: false },
@@ -279,7 +331,7 @@ describe("M5 PushSubscription and notification preference integration", () => {
         eventId: "0f7dc682-51a3-4b72-bfac-319a9cc3e5f6",
       }),
     ).resolves.toMatchObject({ route: "push_disabled" });
-    expect(sendNotification).toHaveBeenCalledTimes(1);
+    expect(sendNotification).toHaveBeenCalledTimes(2);
     expect(senderId).toBeInstanceOf(mongoose.Types.ObjectId);
   });
 
@@ -360,6 +412,7 @@ describe("M5 PushSubscription and notification preference integration", () => {
       messageId: messageId.toString(),
       recipientUserId: recipientId.toString(),
       sequence: 1,
+      authorizeRecipient: vi.fn().mockResolvedValue(true),
     };
 
     await expect(emails.sendChatFallback(input)).resolves.toBe("sent");
@@ -369,6 +422,29 @@ describe("M5 PushSubscription and notification preference integration", () => {
     );
     expect(JSON.stringify(options)).not.toContain("untrusted/base");
     expect(JSON.stringify(options)).not.toContain("private chat text");
+
+    let releaseAuthorization!: () => void;
+    let authorizationStarted!: () => void;
+    const authorizationBarrier = new Promise<void>((resolve) => {
+      releaseAuthorization = resolve;
+    });
+    const authorizationEntered = new Promise<void>((resolve) => {
+      authorizationStarted = resolve;
+    });
+    const revokedAuthorization = vi.fn(async () => {
+      authorizationStarted();
+      await authorizationBarrier;
+      return false;
+    });
+    const revokedDelivery = emails.sendChatFallback({
+      ...input,
+      authorizeRecipient: revokedAuthorization,
+    });
+    await authorizationEntered;
+    releaseAuthorization();
+    await expect(revokedDelivery).resolves.toBe("skipped");
+    expect(revokedAuthorization).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
 
     await ConversationMember.updateOne(
       { _id: member._id },

@@ -67,14 +67,16 @@ function setup(options: {
     listActiveRetainedMemberUserIds: vi
       .fn()
       .mockResolvedValue([SENDER_ID, RECIPIENT_ID, STALE_MEMBER_ID]),
-    getMemberDeliveryState: vi.fn(async (_conversationId, userId, _sequence) =>
-      userId === STALE_MEMBER_ID
-        ? null
-        : {
+    getMemberDeliveryStates: vi.fn(
+      async (_conversationId, userIds: readonly string[], _sequence) =>
+        userIds
+          .filter((userId) => userId !== STALE_MEMBER_ID)
+          .map((userId) => ({
+            userId,
             roomUnreadCount: userId === RECIPIENT_ID ? 3 : 0,
             lastReadSequence: userId === RECIPIENT_ID ? 4 : 7,
             chatUnreadTotal: userId === RECIPIENT_ID ? 8 : 2,
-          },
+          })),
     ),
   };
   const socket = {
@@ -121,6 +123,16 @@ describe("ChatMessageDeliveryHandler", () => {
     expect(rooms.loadRetainedMessageForDelivery).not.toHaveBeenCalled();
   });
 
+  it("validates the envelope in assertCanDeliver without duplicating delivery-state reads", async () => {
+    const { handler, rooms } = setup();
+
+    await handler.assertCanDeliver(event(), context());
+
+    expect(rooms.loadRetainedMessageForDelivery).not.toHaveBeenCalled();
+    expect(rooms.listActiveRetainedMemberUserIds).not.toHaveBeenCalled();
+    expect(rooms.getMemberDeliveryStates).not.toHaveBeenCalled();
+  });
+
   it("emits only to freshly active members with authoritative absolute counts", async () => {
     const { handler, rooms, socket } = setup();
     await handler.deliver(event(), context());
@@ -130,9 +142,9 @@ describe("ChatMessageDeliveryHandler", () => {
       CONVERSATION_ID,
       7,
     );
-    expect(rooms.getMemberDeliveryState).toHaveBeenCalledWith(
+    expect(rooms.getMemberDeliveryStates).toHaveBeenCalledWith(
       CONVERSATION_ID,
-      RECIPIENT_ID,
+      [SENDER_ID, RECIPIENT_ID, STALE_MEMBER_ID],
       7,
     );
     expect(socket.emitChatMessageToUser).toHaveBeenCalledWith(
@@ -153,9 +165,43 @@ describe("ChatMessageDeliveryHandler", () => {
     });
   });
 
+  it("fans announcements out to the publisher's other tabs with zero sender unread", async () => {
+    const announcement = Object.freeze({
+      ...MESSAGE,
+      kind: "announcement" as const,
+      content: "Program update",
+    });
+    const { handler, rooms, socket } = setup({ message: announcement });
+
+    await handler.deliver(event(), context());
+
+    expect(rooms.getMemberDeliveryStates).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      [SENDER_ID, RECIPIENT_ID, STALE_MEMBER_ID],
+      7,
+    );
+    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(2);
+    expect(socket.emitChatMessageToUser).toHaveBeenCalledWith(
+      SENDER_ID,
+      CONVERSATION_ID,
+      { message: announcement },
+    );
+    expect(socket.emitChatMessageToUser).toHaveBeenCalledWith(
+      RECIPIENT_ID,
+      CONVERSATION_ID,
+      { message: announcement },
+    );
+    expect(socket.emitChatUnreadUpdate).toHaveBeenCalledWith(SENDER_ID, {
+      conversationId: CONVERSATION_ID,
+      roomUnreadCount: 0,
+      chatUnreadTotal: 2,
+      lastReadSequence: 7,
+    });
+  });
+
   it("permanently rejects a message outside logical retention", async () => {
     await expect(
-      setup({ message: null }).handler.assertCanDeliver(event(), context()),
+      setup({ message: null }).handler.deliver(event(), context()),
     ).rejects.toBeInstanceOf(PermanentNotificationOutboxDeliveryError);
   });
 
@@ -176,7 +222,7 @@ describe("ChatMessageDeliveryHandler", () => {
     expect(recipientFailure.socket.emitChatMessageToUser).not.toHaveBeenCalled();
 
     const stateFailure = setup();
-    stateFailure.rooms.getMemberDeliveryState.mockRejectedValueOnce(
+    stateFailure.rooms.getMemberDeliveryStates.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     await expect(
@@ -206,13 +252,16 @@ describe("ChatMessageDeliveryHandler", () => {
       listActiveRetainedMemberUserIds: vi
         .fn()
         .mockResolvedValue([RECIPIENT_ID]),
-      getMemberDeliveryState: vi.fn(async () => {
+      getMemberDeliveryStates: vi.fn(async () => {
         order.push("final-state");
-        return {
-          roomUnreadCount: 1,
-          lastReadSequence: 6,
-          chatUnreadTotal: 1,
-        };
+        return [
+          {
+            userId: RECIPIENT_ID,
+            roomUnreadCount: 1,
+            lastReadSequence: 6,
+            chatUnreadTotal: 1,
+          },
+        ];
       }),
     };
     const handler = new ChatMessageDeliveryHandler({
@@ -233,7 +282,7 @@ describe("ChatMessageDeliveryHandler", () => {
 
     const delivery = handler.deliver(event(), context());
     await vi.waitFor(() => expect(order).toContain("socket-start"));
-    expect(rooms.getMemberDeliveryState).not.toHaveBeenCalled();
+    expect(rooms.getMemberDeliveryStates).not.toHaveBeenCalled();
 
     releaseSocket();
     await delivery;
@@ -247,26 +296,32 @@ describe("ChatMessageDeliveryHandler", () => {
     ]);
   });
 
-  it("emits the first freshly authorized recipient while the second state read is still pending", async () => {
-    let releaseSecond!: () => void;
-    const secondReady = new Promise<void>((resolve) => {
-      releaseSecond = resolve;
+  it("waits for the single final state batch before synchronously emitting every eligible recipient", async () => {
+    let releaseStates!: () => void;
+    const statesReady = new Promise<void>((resolve) => {
+      releaseStates = resolve;
     });
     const rooms = {
       loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
       listActiveRetainedMemberUserIds: vi
         .fn()
         .mockResolvedValue([SENDER_ID, RECIPIENT_ID]),
-      getMemberDeliveryState: vi.fn(async (_roomId: string, userId: string) => {
-        if (userId === RECIPIENT_ID) {
-          await secondReady;
-          return null;
-        }
-        return {
-          roomUnreadCount: 0,
-          lastReadSequence: 7,
-          chatUnreadTotal: 0,
-        };
+      getMemberDeliveryStates: vi.fn(async () => {
+        await statesReady;
+        return [
+          {
+            userId: SENDER_ID,
+            roomUnreadCount: 0,
+            lastReadSequence: 7,
+            chatUnreadTotal: 0,
+          },
+          {
+            userId: RECIPIENT_ID,
+            roomUnreadCount: 1,
+            lastReadSequence: 6,
+            chatUnreadTotal: 1,
+          },
+        ];
       }),
     };
     const socket = {
@@ -286,33 +341,23 @@ describe("ChatMessageDeliveryHandler", () => {
 
     const delivery = handler.deliver(event(), context());
     await vi.waitFor(() =>
-      expect(rooms.getMemberDeliveryState).toHaveBeenCalledWith(
+      expect(rooms.getMemberDeliveryStates).toHaveBeenCalledWith(
         CONVERSATION_ID,
-        RECIPIENT_ID,
+        [SENDER_ID, RECIPIENT_ID],
         7,
       ),
     );
 
-    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(1);
-    expect(socket.emitChatMessageToUser).toHaveBeenCalledWith(
-      SENDER_ID,
-      CONVERSATION_ID,
-      { message: MESSAGE },
-    );
-    expect(socket.emitChatMessageToUser).not.toHaveBeenCalledWith(
-      RECIPIENT_ID,
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(socket.emitChatMessageToUser).not.toHaveBeenCalled();
 
-    releaseSecond();
+    releaseStates();
     await delivery;
-    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(1);
+    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(2);
   });
 
-  it("fans out to 250 user rooms/500 clients and recovers disconnected tabs without duplicates", async () => {
+  it("fans out one authorized state batch to 500 user rooms without per-recipient reads", async () => {
     const recipientUserIds = Array.from(
-      { length: 250 },
+      { length: 500 },
       (_unused, index) =>
         `64f1${(index + 1).toString(16).padStart(20, "0")}`,
     );
@@ -345,11 +390,15 @@ describe("ChatMessageDeliveryHandler", () => {
       listActiveRetainedMemberUserIds: vi
         .fn()
         .mockResolvedValue(recipientUserIds),
-      getMemberDeliveryState: vi.fn().mockResolvedValue({
-        roomUnreadCount: 1,
-        lastReadSequence: 6,
-        chatUnreadTotal: 1,
-      }),
+      getMemberDeliveryStates: vi.fn(
+        async (_conversationId, userIds: readonly string[]) =>
+          userIds.map((userId) => ({
+            userId,
+            roomUnreadCount: 1,
+            lastReadSequence: 6,
+            chatUnreadTotal: 1,
+          })),
+      ),
     };
     const socket = {
       emitChatMessageToUser: vi.fn(
@@ -385,8 +434,14 @@ describe("ChatMessageDeliveryHandler", () => {
     });
 
     await handler.deliver(event(), context());
-    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(250);
-    expect(socket.emitChatUnreadUpdate).toHaveBeenCalledTimes(250);
+    expect(rooms.getMemberDeliveryStates).toHaveBeenCalledTimes(1);
+    expect(rooms.getMemberDeliveryStates).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      recipientUserIds,
+      7,
+    );
+    expect(socket.emitChatMessageToUser).toHaveBeenCalledTimes(500);
+    expect(socket.emitChatUnreadUpdate).toHaveBeenCalledTimes(500);
     expect(
       [...clients.get(outsiderId)!].every(
         (client) => client.messageKeys.size === 0,
@@ -405,7 +460,7 @@ describe("ChatMessageDeliveryHandler", () => {
     const authorizedClients = recipientUserIds.flatMap(
       (userId) => clients.get(userId)!,
     );
-    expect(authorizedClients).toHaveLength(500);
+    expect(authorizedClients).toHaveLength(1_000);
     expect(
       authorizedClients.every(
         (client) => client.messageKeys.size === 1 && client.unreadCount === 1,

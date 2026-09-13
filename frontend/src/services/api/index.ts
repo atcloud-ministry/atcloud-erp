@@ -17,6 +17,7 @@ export * from "./publicEvents.api";
 export * from "./events.api";
 export * from "./rolesTemplates.api";
 export * from "./programs.api";
+export * from "./programCommunitySettings.contracts";
 export * from "./purchases.api";
 export * from "./promoCodes.api";
 export * from "./users.api";

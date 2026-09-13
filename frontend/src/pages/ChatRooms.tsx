@@ -191,7 +191,7 @@ export default function ChatRooms() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
-        subtitle="Continue private Alumni Help conversations in one place."
+        subtitle="Continue Alumni Help and Program conversations in one place."
         title="Chat Rooms"
       />
       <nav
@@ -276,7 +276,7 @@ export default function ChatRooms() {
               }
               message={
                 view === "current"
-                  ? "Accepted Alumni Help requests will appear here."
+                  ? "Available Alumni Help and Program Rooms will appear here."
                   : "You have no past Rooms available for history."
               }
               title={view === "current" ? "No current Rooms" : "No past Rooms"}

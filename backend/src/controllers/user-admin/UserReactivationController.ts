@@ -6,6 +6,7 @@ import { socketService } from "../../services/infrastructure/SocketService";
 import { AutoEmailNotificationService } from "../../services/infrastructure/autoEmailNotificationService";
 import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 /**
  * UserReactivationController
@@ -74,6 +75,18 @@ export default class UserReactivationController {
       // Reactivate user
       targetUser.isActive = true;
       await targetUser.save();
+      programMembershipMutationSyncTrigger.userEligibilityChanged(
+        String(targetUser._id),
+        {
+          actor: {
+            type: "user",
+            id: String(req.user._id),
+            role: req.user.role,
+          },
+          source: "http",
+          correlationId: req.correlationId,
+        },
+      );
 
       // Audit log for user reactivation
       try {

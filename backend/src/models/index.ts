@@ -141,6 +141,12 @@ export {
   IChatMessage,
 } from "./ChatMessage";
 export {
+  default as ProgramCommunitySettings,
+  IProgramCommunitySettings,
+  PROGRAM_COMMUNITY_SETTINGS_COLLECTION,
+  ProgramStudentRoleMapping,
+} from "./ProgramCommunitySettings";
+export {
   default as PushSubscription,
   IPushSubscription,
   PUSH_SUBSCRIPTION_COLLECTION,

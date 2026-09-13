@@ -69,6 +69,7 @@ const USER_ID = "507f1f77bcf86cd799439011";
 const OTHER_ID = "507f1f77bcf86cd799439012";
 const ROOM_ID = "507f191e810c19729de860ea";
 const REQUEST_ID = "507f191e810c19729de860eb";
+const PROGRAM_ID = "507f191e810c19729de860ed";
 const MESSAGE_ID = "507f191e810c19729de860ec";
 const CLIENT_MESSAGE_ID = "3f00aa31-36f0-4f05-8f4a-a362bf33a111";
 
@@ -111,6 +112,7 @@ const CONVERSATION = Object.freeze({
     muted: false,
     accessMode: "read_write" as const,
     canSend: true,
+    canAnnounce: false,
   }),
   createdAt: "2026-09-10T12:00:00.000Z",
   updatedAt: MESSAGE.createdAt,
@@ -225,6 +227,41 @@ describe("conversation HTTP contracts", () => {
     );
   });
 
+  it("maps the authenticated, feature-gated Program Room lookup without a public ID", async () => {
+    const lookup = vi
+      .spyOn(chatRoomService, "getProgramRoomLink")
+      .mockResolvedValue({
+        room: {
+          id: ROOM_ID,
+          programId: PROGRAM_ID,
+          status: "current",
+          section: "past",
+          viewer: { status: "history_only", accessMode: "read_only" },
+        },
+      });
+    const app = buildApp();
+
+    await request(app)
+      .get(`/api/conversations/program/${PROGRAM_ID}`)
+      .expect(401);
+    const response = await member(
+      request(app).get(`/api/conversations/program/${PROGRAM_ID}`),
+    ).expect(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body.data.room).toMatchObject({
+      id: ROOM_ID,
+      section: "past",
+      viewer: { accessMode: "read_only" },
+    });
+    expect(lookup).toHaveBeenCalledWith(USER_ID, PROGRAM_ID);
+
+    setMode("off");
+    await member(
+      request(app).get(`/api/conversations/program/${PROGRAM_ID}`),
+    ).expect(503);
+    expect(lookup).toHaveBeenCalledOnce();
+  });
+
   it("maps send/read/mute bodies and idempotency context exactly", async () => {
     const send = vi.spyOn(chatRoomService, "send").mockResolvedValue({
       message: MESSAGE,
@@ -285,8 +322,56 @@ describe("conversation HTTP contracts", () => {
       .toEqual([
         AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
         AUTHORIZATION_ACTIONS.CONVERSATION_UPDATE_STATE,
-        AUTHORIZATION_ACTIONS.CONVERSATION_UPDATE_STATE,
+        AUTHORIZATION_ACTIONS.CONVERSATION_READ,
       ]);
+  });
+
+  it("maps the strict Program announcement body and idempotency context", async () => {
+    const announcement = { ...MESSAGE, kind: "announcement" as const };
+    const publish = vi
+      .spyOn(chatRoomService, "publishAnnouncement")
+      .mockResolvedValue({
+        message: announcement,
+        roomUnreadCount: 0,
+        chatUnreadTotal: 2,
+      });
+    const correlationId = "program-announcement-contract";
+
+    const response = await member(
+      request(buildApp()).post(
+        `/api/conversations/${ROOM_ID}/announcements`,
+      ),
+    )
+      .set("Idempotency-Key", CLIENT_MESSAGE_ID)
+      .set("x-correlation-id", correlationId)
+      .send({
+        clientMessageId: CLIENT_MESSAGE_ID.toUpperCase(),
+        content: "  Program update  ",
+      })
+      .expect(201);
+
+    expect(response.body.data.message.kind).toBe("announcement");
+    expect(publish).toHaveBeenCalledWith({
+      conversationId: ROOM_ID,
+      clientMessageId: CLIENT_MESSAGE_ID,
+      content: "Program update",
+      actor: { id: USER_ID, role: "Participant" },
+      idempotencyKey: CLIENT_MESSAGE_ID,
+      correlationId,
+    });
+    expect(middlewareMocks.authorizationAction).toHaveBeenLastCalledWith(
+      AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
+    );
+
+    await member(
+      request(buildApp()).post(
+        `/api/conversations/${ROOM_ID}/announcements`,
+      ),
+    )
+      .set("Idempotency-Key", randomUUID())
+      .send({ clientMessageId: randomUUID(), content: "Update", extra: true })
+      .expect(400);
+    expect(publish).toHaveBeenCalledOnce();
   });
 
   it("does not fail a committed read when realtime synchronization is unavailable", async () => {

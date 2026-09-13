@@ -13,6 +13,16 @@ vi.mock("../../../../src/models", () => ({
 }));
 
 vi.mock("../../../../src/models/AuditLog");
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 describe("AdminEnrollController", () => {
   let mockReq: any;
@@ -31,6 +41,7 @@ describe("AdminEnrollController", () => {
       body: {},
       ip: "127.0.0.1",
       get: vi.fn().mockReturnValue("test-agent"),
+      correlationId: "admin-enroll-1",
     };
 
     mockRes = {
@@ -137,6 +148,17 @@ describe("AdminEnrollController", () => {
           success: true,
           message: "Successfully enrolled as mentee.",
           data: mockProgram,
+        });
+        expect(
+          programMembershipMutationSyncTrigger.programAssignmentsChanged,
+        ).toHaveBeenCalledWith(programId.toString(), {
+          actor: {
+            type: "user",
+            id: userId.toString(),
+            role: "Super Admin",
+          },
+          source: "http",
+          correlationId: "admin-enroll-1",
         });
       });
 

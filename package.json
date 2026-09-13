@@ -24,6 +24,7 @@
     "test:backend:integration": "cd backend && npm run -s test:integration",
     "test:critical": "cd backend && npm run -s test:critical",
     "test:backend:perf": "cd backend && npm run -s test:perf",
+    "test:backend:perf:approved": "cd backend && npm run -s test:perf:approved",
     "test:frontend": "cd frontend && npm test",
     "test:e2e": "cd frontend && npm run -s test:e2e",
     "test:e2e:fullstack": "bash scripts/run-fullstack-e2e.sh",

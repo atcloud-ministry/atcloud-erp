@@ -30,6 +30,11 @@ const authorizeConversationRead = authorizeHttp({
 router.get("/unread-count", requireAlumniNetworkReadable, chatRoomController.unreadCount);
 router.get("/", requireAlumniNetworkReadable, chatRoomController.list);
 router.get(
+  "/program/:programId",
+  requireAlumniNetworkReadable,
+  chatRoomController.getProgramRoomLink,
+);
+router.get(
   "/:conversationId",
   requireAlumniNetworkReadable,
   authorizeConversationRead,
@@ -57,6 +62,19 @@ router.post(
   }),
   chatRoomController.send,
 );
+router.post(
+  "/:conversationId/announcements",
+  requireAlumniNetworkReadable,
+  authorizeHttp({
+    action: AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
+    resource: (req) => ({
+      type: "conversation",
+      id: req.params.conversationId ?? "",
+    }),
+    concealDeniedResource: true,
+  }),
+  chatRoomController.publishAnnouncement,
+);
 router.patch(
   "/:conversationId/read",
   requireAlumniNetworkWritable,
@@ -73,14 +91,7 @@ router.patch(
 router.patch(
   "/:conversationId/mute",
   requireAlumniNetworkWritable,
-  authorizeHttp({
-    action: AUTHORIZATION_ACTIONS.CONVERSATION_UPDATE_STATE,
-    resource: (req) => ({
-      type: "conversation",
-      id: req.params.conversationId ?? "",
-    }),
-    concealDeniedResource: true,
-  }),
+  authorizeConversationRead,
   chatRoomController.mute,
 );
 

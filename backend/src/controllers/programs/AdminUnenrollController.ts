@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Program } from "../../models";
 import AuditLog from "../../models/AuditLog";
 import { socketService } from "../../services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 export default class AdminUnenrollController {
   /**
@@ -82,6 +83,15 @@ export default class AdminUnenrollController {
       }
 
       await program.save();
+      programMembershipMutationSyncTrigger.programAssignmentsChanged(id, {
+        actor: {
+          type: "user",
+          id: String(req.user._id),
+          role: req.user.role,
+        },
+        source: "http",
+        correlationId: req.correlationId,
+      });
       socketService.disconnectUser(userId.toString());
 
       // Audit log

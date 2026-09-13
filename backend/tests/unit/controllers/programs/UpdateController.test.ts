@@ -38,12 +38,21 @@ vi.mock(
     },
   }),
 );
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+    },
+  }),
+);
 
 import {
   AssignmentSnapshotError,
   UserAssignmentSnapshotService,
 } from "../../../../src/services/UserAssignmentSnapshotService";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 describe("UpdateController", () => {
   let mockReq: any;
@@ -88,6 +97,7 @@ describe("UpdateController", () => {
         _id: userId,
         role: "Super Admin",
       },
+      correlationId: "program-update-1",
     };
 
     mockRes = {
@@ -152,6 +162,17 @@ describe("UpdateController", () => {
         expect(RoleUtils.isAdmin).toHaveBeenCalledWith("Super Admin");
         expect(mockProgram.set).toHaveBeenCalledWith(mockReq.body);
         expect(mockProgram.save).toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programAssignmentsChanged,
+        ).toHaveBeenCalledWith(programId.toString(), {
+          actor: {
+            type: "user",
+            id: userId.toString(),
+            role: "Super Admin",
+          },
+          source: "http",
+          correlationId: "program-update-1",
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

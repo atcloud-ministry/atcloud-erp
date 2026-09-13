@@ -77,6 +77,8 @@ export class ExternalNotificationRouter {
     readonly messageId: string;
     readonly recipientUserId: string;
     readonly sequence: number;
+    readonly kind?: "text" | "announcement";
+    readonly authorizeRecipient: () => Promise<boolean>;
     readonly signal?: AbortSignal;
   }): Promise<ExternalNotificationRouteResult> {
     const badgeCount = await this.badges.totalForUser(input.recipientUserId);
@@ -85,10 +87,20 @@ export class ExternalNotificationRouter {
       return result("skipped", noSubscription());
     }
     const push = await this.push.deliverChatMessage({
-      ...input,
+      eventId: input.eventId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      recipientUserId: input.recipientUserId,
+      sequence: input.sequence,
+      authorizeRecipient: input.authorizeRecipient,
+      signal: input.signal,
       payload: payload(
-        "@Cloud Chat Rooms",
-        "You have a new chat message.",
+        input.kind === "announcement"
+          ? "@Cloud Program Announcement"
+          : "@Cloud Chat Rooms",
+        input.kind === "announcement"
+          ? "A new Program announcement is available."
+          : "You have a new chat message.",
         `chat-${input.conversationId}`,
         `/#/dashboard/chat-rooms/${input.conversationId}`,
         badgeCount,
@@ -140,18 +152,24 @@ export class ExternalNotificationRouter {
       readonly messageId: string;
       readonly recipientUserId: string;
       readonly sequence: number;
+      readonly kind?: "text" | "announcement";
+      readonly authorizeRecipient: () => Promise<boolean>;
       readonly signal?: AbortSignal;
     },
     push: PushRecipientDeliveryResult,
   ): Promise<ExternalNotificationRouteResult> {
     if (push.route === "transient_failure") return result("retry", push);
     if (push.route === "delivered") return result("push", push);
-    if (push.route === "muted") return result("skipped", push);
+    if (push.route === "muted" || push.route === "recipient_unavailable") {
+      return result("skipped", push);
+    }
     const email = await this.email.sendChatFallback({
       conversationId: input.conversationId,
       messageId: input.messageId,
       recipientUserId: input.recipientUserId,
       sequence: input.sequence,
+      kind: input.kind,
+      authorizeRecipient: input.authorizeRecipient,
       signal: input.signal,
     });
     return result(email === "sent" ? "email" : "skipped", push);

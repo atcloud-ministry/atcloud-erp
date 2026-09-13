@@ -41,6 +41,29 @@ function context() {
 }
 
 describe("WebPushChatMessageDeliveryHandler", () => {
+  it("validates the envelope in assertCanDeliver without duplicating recipient reads", async () => {
+    const loadRetainedMessageForDelivery = vi.fn().mockResolvedValue(MESSAGE);
+    const isActiveRetainedMemberForDelivery = vi.fn().mockResolvedValue(true);
+    const handler = new WebPushChatMessageDeliveryHandler({
+      releaseAvailable: () => true,
+      runtimeReader: {
+        getOperationalRuntimeConfig: vi
+          .fn()
+          .mockResolvedValue(createRuntimeConfigDTO("on", 1)),
+      },
+      rooms: {
+        loadRetainedMessageForDelivery,
+        isActiveRetainedMemberForDelivery,
+      },
+      router: { deliverChat: vi.fn() },
+    });
+
+    await handler.assertCanDeliver(EVENT, context());
+
+    expect(loadRetainedMessageForDelivery).not.toHaveBeenCalled();
+    expect(isActiveRetainedMemberForDelivery).not.toHaveBeenCalled();
+  });
+
   it("delivers only the recipient-scoped event using no private message content", async () => {
     const deliverChat = vi.fn().mockResolvedValue({
       route: "skipped",
@@ -61,9 +84,7 @@ describe("WebPushChatMessageDeliveryHandler", () => {
       },
       rooms: {
         loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
-        listActiveRetainedMemberUserIds: vi
-          .fn()
-          .mockResolvedValue([MESSAGE.sender.id, "507f1f77bcf86cd799439014"]),
+        isActiveRetainedMemberForDelivery: vi.fn().mockResolvedValue(true),
       },
       router: { deliverChat },
     });
@@ -77,6 +98,132 @@ describe("WebPushChatMessageDeliveryHandler", () => {
     );
   });
 
+  it("rechecks the recipient set and routes Program announcement copy", async () => {
+    const announcement = Object.freeze({
+      ...MESSAGE,
+      kind: "announcement" as const,
+      content: "Program schedule update",
+    });
+    const deliverChat = vi.fn().mockImplementation(async (input) => {
+      expect(await input.authorizeRecipient()).toBe(true);
+      return {
+        route: "skipped",
+        push: {
+          route: "muted",
+          attempted: 0,
+          succeeded: 0,
+          permanentFailures: 0,
+          transientFailures: 0,
+        },
+      };
+    });
+    const isActiveRetainedMemberForDelivery = vi.fn().mockResolvedValue(true);
+    const rooms = {
+      loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(announcement),
+      isActiveRetainedMemberForDelivery,
+    };
+    const handler = new WebPushChatMessageDeliveryHandler({
+      releaseAvailable: () => true,
+      runtimeReader: {
+        getOperationalRuntimeConfig: vi
+          .fn()
+          .mockResolvedValue(createRuntimeConfigDTO("on", 1)),
+      },
+      rooms,
+      router: { deliverChat },
+    });
+
+    await handler.deliver(EVENT, context());
+
+    expect(isActiveRetainedMemberForDelivery).toHaveBeenCalledWith(
+      EVENT.payload.conversationId,
+      EVENT.payload.recipientUserId,
+      EVENT.payload.sequence,
+    );
+    expect(deliverChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUserId: EVENT.payload.recipientUserId,
+        kind: "announcement",
+      }),
+    );
+  });
+
+  it("lets the provider boundary drop a recipient revoked after message resolution", async () => {
+    let authorized = true;
+    let continueDelivery!: () => void;
+    const deliveryPaused = new Promise<void>((resolve) => {
+      continueDelivery = resolve;
+    });
+    let routerEntered!: () => void;
+    const routerStarted = new Promise<void>((resolve) => {
+      routerEntered = resolve;
+    });
+    const deliverChat = vi.fn().mockImplementation(async (input) => {
+      routerEntered();
+      await deliveryPaused;
+      const allowed = await input.authorizeRecipient();
+      return {
+        route: allowed ? "push" : "skipped",
+        push: {
+          route: allowed ? "delivered" : "recipient_unavailable",
+          attempted: allowed ? 1 : 0,
+          succeeded: allowed ? 1 : 0,
+          permanentFailures: 0,
+          transientFailures: 0,
+        },
+      };
+    });
+    const isActiveRetainedMemberForDelivery = vi.fn(async () => authorized);
+    const handler = new WebPushChatMessageDeliveryHandler({
+      releaseAvailable: () => true,
+      runtimeReader: {
+        getOperationalRuntimeConfig: vi
+          .fn()
+          .mockResolvedValue(createRuntimeConfigDTO("on", 1)),
+      },
+      rooms: {
+        loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
+        isActiveRetainedMemberForDelivery,
+      },
+      router: { deliverChat },
+    });
+
+    const delivery = handler.deliver(EVENT, context());
+    await routerStarted;
+    expect(isActiveRetainedMemberForDelivery).not.toHaveBeenCalled();
+    authorized = false;
+    continueDelivery();
+    await expect(delivery).resolves.toBeUndefined();
+    expect(isActiveRetainedMemberForDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries when the final recipient authorization read fails", async () => {
+    const deliverChat = vi.fn().mockImplementation(async (input) => {
+      await input.authorizeRecipient();
+      throw new Error("authorization unexpectedly returned");
+    });
+    const handler = new WebPushChatMessageDeliveryHandler({
+      releaseAvailable: () => true,
+      runtimeReader: {
+        getOperationalRuntimeConfig: vi
+          .fn()
+          .mockResolvedValue(createRuntimeConfigDTO("on", 1)),
+      },
+      rooms: {
+        loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
+        isActiveRetainedMemberForDelivery: vi
+          .fn()
+          .mockRejectedValue(new Error("canonical database unavailable")),
+      },
+      router: { deliverChat },
+    });
+
+    await expect(handler.deliver(EVENT, context())).rejects.toMatchObject({
+      code: "WEB_PUSH_STATE_READ_FAILED",
+    });
+    expect(deliverChat).toHaveBeenCalledTimes(1);
+  });
+
   it("turns any transient endpoint result into an outbox retry", async () => {
     const handler = new WebPushChatMessageDeliveryHandler({
       releaseAvailable: () => true,
@@ -87,9 +234,7 @@ describe("WebPushChatMessageDeliveryHandler", () => {
       },
       rooms: {
         loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
-        listActiveRetainedMemberUserIds: vi
-          .fn()
-          .mockResolvedValue(["507f1f77bcf86cd799439014"]),
+        isActiveRetainedMemberForDelivery: vi.fn().mockResolvedValue(true),
       },
       router: {
         deliverChat: vi.fn().mockResolvedValue({
@@ -119,9 +264,7 @@ describe("WebPushChatMessageDeliveryHandler", () => {
       },
       rooms: {
         loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
-        listActiveRetainedMemberUserIds: vi
-          .fn()
-          .mockResolvedValue(["507f1f77bcf86cd799439014"]),
+        isActiveRetainedMemberForDelivery: vi.fn().mockResolvedValue(true),
       },
       router: {
         deliverChat: vi
@@ -147,9 +290,7 @@ describe("WebPushChatMessageDeliveryHandler", () => {
       },
       rooms: {
         loadRetainedMessageForDelivery: vi.fn().mockResolvedValue(MESSAGE),
-        listActiveRetainedMemberUserIds: vi
-          .fn()
-          .mockResolvedValue([EVENT.payload.recipientUserId]),
+        isActiveRetainedMemberForDelivery: vi.fn().mockResolvedValue(true),
       },
       router: {
         deliverChat: vi.fn().mockImplementation(async () => {

@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.7
+- 版本：3.9
 - 更新时间：2026-09-12
 - 状态：Approved
-- 实施进度：M0–M5 已完成
-- 下一任务：M6-01（待确认）
+- 实施进度：M0–M6 已完成
+- 下一任务：G1-01（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -333,12 +333,13 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M6 — Program Rooms
 
-- [ ] M6-01 实现 ProgramCommunitySettings 与 primary Room provisioning。
-- [ ] M6-02 实现 enrollment/assignment membership resolver、event sync 和 reconciliation。
-- [ ] M6-03 实现 mute、unenroll cutoff、history_only、re-enroll window 和 archive。
-- [ ] M6-04 实现 Program deep link 与 Current/Past Room UI。
-- [ ] M6-05 实现 announcement authorization、unread 和 notification routing。
-- [ ] M6-06 完成 membership、announcement、cutoff、re-enroll、archive 和 load tests。
+- [x] M6-01 实现 ProgramCommunitySettings 与 primary Room provisioning。
+- [x] M6-02 实现 enrollment/assignment membership resolver、event sync 和 reconciliation。
+- [x] M6-03 实现 mute、unenroll cutoff、history_only、re-enroll window 和 archive。
+- [x] M6-04 实现 Program deep link 与 Current/Past Room UI。
+- [x] M6-05 实现 announcement authorization、unread 和 notification routing。
+- [x] M6-06 完成 membership、announcement、cutoff、re-enroll、archive 和 load tests。
+  - 验证：backend unit 6,943、HTTP 454、MongoDB integration 1,923/1,924（并行隔离项 standalone 29/29）、frontend 2,242；approved capacity 18/18，production full-stack E2E、lint、type-check、migration checksum、production/PWA build、deployment guards 与独立审查通过。
 
 ### G1 — Production release
 

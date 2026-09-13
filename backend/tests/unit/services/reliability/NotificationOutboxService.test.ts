@@ -80,6 +80,8 @@ describe("NotificationOutboxService", () => {
     findOne: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
     countDocuments: ReturnType<typeof vi.fn>;
+    find: ReturnType<typeof vi.fn>;
+    insertMany: ReturnType<typeof vi.fn>;
   };
   let metrics: NotificationOutboxMetrics;
   let service: NotificationOutboxService;
@@ -90,6 +92,8 @@ describe("NotificationOutboxService", () => {
       findOne: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ acknowledged: true }),
       countDocuments: vi.fn().mockResolvedValue(0),
+      find: vi.fn().mockResolvedValue([]),
+      insertMany: vi.fn().mockImplementation(async (documents) => documents),
     };
     metrics = new NotificationOutboxMetrics();
     service = new NotificationOutboxService({
@@ -228,6 +232,111 @@ describe("NotificationOutboxService", () => {
       }),
     ).rejects.toThrow("requires an active ClientSession");
     expect(model.findOneAndUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("batch-enqueues recipient events in one insert with per-item results", async () => {
+    const activeSession = {
+      inTransaction: vi.fn(() => true),
+    } as unknown as ClientSession;
+    let eventIndex = 0;
+    const batchService = new NotificationOutboxService({
+      model,
+      metrics,
+      now: () => NOW,
+      eventId: () =>
+        [EVENT_ID, OTHER_EVENT_ID][eventIndex++] ?? OTHER_EVENT_ID,
+    });
+
+    const result = await batchService.enqueueManyInTransaction(
+      ["user-1", "user-2"].map((recipientUserId) => ({
+        topic: "web_push.chat_message",
+        dedupeKey: `message-1:${recipientUserId}`,
+        payloadVersion: 1,
+        payload: { messageId: "message-1", recipientUserId },
+        session: activeSession,
+      })),
+    );
+
+    expect(result.map((record) => record.eventId)).toEqual([
+      EVENT_ID,
+      OTHER_EVENT_ID,
+    ]);
+    expect(model.find).toHaveBeenCalledOnce();
+    expect(model.insertMany).toHaveBeenCalledOnce();
+    expect(model.insertMany.mock.calls[0][0]).toHaveLength(2);
+    expect(model.insertMany.mock.calls[0][1]).toEqual({
+      session: activeSession,
+      ordered: true,
+    });
+    expect(JSON.stringify(model.insertMany.mock.calls[0][0])).not.toContain(
+      "message-1:user-1",
+    );
+    expect(metrics.snapshot()).toMatchObject({ enqueued: 2, deduplicated: 0 });
+  });
+
+  it("batch enqueue deduplicates matching payloads and rejects conflicts", async () => {
+    const activeSession = {
+      inTransaction: vi.fn(() => true),
+    } as unknown as ClientSession;
+    const payload = normalizeOutboxPayload({ messageId: "message-1" });
+    const existing = document({
+      eventId: OTHER_EVENT_ID,
+      topic: "web_push.chat_message",
+      dedupeKeyHash: hashOutboxDedupeKey("message-1:user-1"),
+      payload,
+      payloadHash: hashOutboxPayload(1, payload),
+    });
+    model.find.mockResolvedValueOnce([existing]);
+
+    const matched = await service.enqueueManyInTransaction([
+      {
+        topic: "web_push.chat_message",
+        dedupeKey: "message-1:user-1",
+        payloadVersion: 1,
+        payload: { messageId: "message-1" },
+        session: activeSession,
+      },
+    ]);
+    expect(matched[0]?.eventId).toBe(OTHER_EVENT_ID);
+    expect(model.insertMany).not.toHaveBeenCalled();
+    expect(metrics.snapshot().deduplicated).toBe(1);
+
+    model.find.mockResolvedValueOnce([
+      document({
+        ...existing,
+        payloadHash: "f".repeat(64),
+      }),
+    ]);
+    await expect(
+      service.enqueueManyInTransaction([
+        {
+          topic: "web_push.chat_message",
+          dedupeKey: "message-1:user-1",
+          payloadVersion: 1,
+          payload: { messageId: "message-1" },
+          session: activeSession,
+        },
+      ]),
+    ).rejects.toBeInstanceOf(NotificationOutboxIdempotencyConflictError);
+  });
+
+  it("bounds transactional enqueue batches at 100 items", async () => {
+    const session = {
+      inTransaction: vi.fn(() => true),
+    } as unknown as ClientSession;
+    await expect(
+      service.enqueueManyInTransaction(
+        Array.from({ length: 101 }, (_, index) => ({
+          topic: "web_push.chat_message",
+          dedupeKey: `message-1:user-${index}`,
+          payloadVersion: 1,
+          payload: { index },
+          session,
+        })),
+      ),
+    ).rejects.toThrow("must contain 1-100 items");
+    expect(model.find).not.toHaveBeenCalled();
+    expect(model.insertMany).not.toHaveBeenCalled();
   });
 
   it("rejects a hidden session at the standalone boundary", async () => {

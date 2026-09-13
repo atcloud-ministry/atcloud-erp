@@ -22,6 +22,11 @@ vi.mock("../../../src/models", () => ({
   Purchase: {
     findById: vi.fn(),
     findOne: vi.fn(),
+    updateOne: vi.fn().mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    }),
   },
   SystemConfig: {
     getBundleDiscountConfig: vi.fn(),
@@ -57,6 +62,16 @@ vi.mock("../../../src/services/email/domains/PurchaseEmailService", () => ({
     sendAdminRefundNotification: vi.fn().mockResolvedValue(undefined),
   },
 }));
+vi.mock(
+  "../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programPurchaseChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 function mockPurchaseFindByIdRefundChain(result: unknown) {
   return {
@@ -100,6 +115,16 @@ describe("WebhookController", () => {
 
     // Mock environment variables
     process.env.FRONTEND_URL = "http://localhost:5173";
+    vi.mocked(Purchase.updateOne).mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    } as any);
+    vi.mocked(Program.findById).mockResolvedValue({
+      _id: new mongoose.Types.ObjectId("507f1f77bcf86cd799439013"),
+      title: "Test Program",
+      programType: "Workshop",
+    } as any);
   });
 
   afterEach(() => {
@@ -258,6 +283,12 @@ describe("WebhookController", () => {
         const mockPurchase = {
           status: "pending",
           orderNumber: "ORDER-001",
+          purchaseType: "program",
+          programId: new mongoose.Types.ObjectId(
+            "507f1f77bcf86cd799439013",
+          ),
+          studentRoleId: undefined as string | undefined,
+          studentRoleName: undefined as string | undefined,
           save: vi.fn().mockResolvedValue({}),
         };
 
@@ -272,8 +303,86 @@ describe("WebhookController", () => {
           stripePaymentIntentId: "pi_test_123",
         });
         expect(mockPurchase.status).toBe("completed");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(mockPurchase.studentRoleId).toBe("mentee");
+        expect(mockPurchase.studentRoleName).toBe("Mentee");
+        expect(Purchase.updateOne).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: "pending",
+            stripePaymentIntentId: "pi_test_123",
+          }),
+          expect.objectContaining({
+            $set: expect.objectContaining({
+              status: "completed",
+              studentRoleId: "mentee",
+              studentRoleName: "Mentee",
+            }),
+          }),
+          { runValidators: true },
+        );
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).toHaveBeenCalledWith(
+          {
+            purchaseType: "program",
+            programId: mockPurchase.programId,
+          },
+          {
+            actor: { type: "system", key: "stripe-webhook" },
+            source: "system",
+            correlationId: "pi_test_123",
+          },
+        );
         expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it("fails payment-intent completion when the legacy Program role is ambiguous", async () => {
+        const mockPaymentIntent = {
+          id: "pi_ambiguous_role",
+        } as Stripe.PaymentIntent;
+        const pendingPurchase = {
+          status: "pending",
+          orderNumber: "ORDER-AMBIGUOUS",
+          purchaseType: "program",
+          programId: new mongoose.Types.ObjectId(
+            "507f1f77bcf86cd799439013",
+          ),
+          isClassRep: false,
+          save: vi.fn().mockResolvedValue({}),
+        };
+        vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+          type: "payment_intent.succeeded",
+          data: { object: mockPaymentIntent },
+        } as Stripe.Event);
+        vi.mocked(Purchase.findOne).mockResolvedValue(pendingPurchase as any);
+        vi.mocked(Program.findById).mockResolvedValue({
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "participant",
+                name: "Participant",
+                discountEligible: false,
+              },
+              {
+                id: "observer",
+                name: "Observer",
+                discountEligible: false,
+              },
+            ],
+          },
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(500);
+        expect(pendingPurchase.status).toBe("pending");
+        expect(pendingPurchase.save).not.toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
       });
 
       it("should handle payment_intent.payment_failed event", async () => {
@@ -308,7 +417,7 @@ describe("WebhookController", () => {
           stripePaymentIntentId: "pi_test_123",
         });
         expect(mockPurchase.status).toBe("failed");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
         expect(statusMock).toHaveBeenCalledWith(200);
       });
 
@@ -448,6 +557,50 @@ describe("WebhookController", () => {
         );
       });
 
+      it("recovers checkout completion from signed purchaseId metadata when the local session-id save was missed", async () => {
+        mockPurchase.stripeSessionId = undefined;
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(Purchase.updateOne).toHaveBeenCalledWith(
+          expect.objectContaining({
+            _id: mockPurchase._id,
+            status: "pending",
+          }),
+          expect.objectContaining({
+            $set: expect.objectContaining({
+              status: "completed",
+              stripeSessionId: "cs_test_123",
+            }),
+          }),
+          { runValidators: true },
+        );
+        expect(mockPurchase.status).toBe("completed");
+        expect(mockPurchase.stripeSessionId).toBe("cs_test_123");
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).toHaveBeenCalledTimes(1);
+      });
+
+      it("recovers a retried checkout when its old non-empty session ID was not replaced locally", async () => {
+        mockPurchase.stripeSessionId = "cs_old_session";
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(mockPurchase.status).toBe("completed");
+        expect(mockPurchase.stripeSessionId).toBe("cs_test_123");
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).toHaveBeenCalledTimes(1);
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
       it("should fall back to session ID lock for backward compatibility", async () => {
         mockSession.metadata = {};
         mockPurchase = {
@@ -495,6 +648,102 @@ describe("WebhookController", () => {
         );
 
         expect(mockPurchase.save).not.toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it.each(["refunded", "failed", "refund_processing", "refund_failed"])(
+        "ignores an out-of-order checkout completion for a %s purchase without restoring Program Room membership",
+        async (terminalStatus) => {
+          mockPurchase.status = terminalStatus;
+
+          await WebhookController.handleStripeWebhook(
+            mockReq as Request,
+            mockRes as Response,
+          );
+
+          expect(mockPurchase.status).toBe(terminalStatus);
+          expect(mockPurchase.save).not.toHaveBeenCalled();
+          expect(stripeService.getPaymentIntent).not.toHaveBeenCalled();
+          expect(
+            programMembershipMutationSyncTrigger.programPurchaseChanged,
+          ).not.toHaveBeenCalled();
+          expect(statusMock).toHaveBeenCalledWith(200);
+        },
+      );
+
+      it.each([
+        "completed",
+        "refunded",
+        "failed",
+        "refund_processing",
+        "refund_failed",
+      ])(
+        "loses the checkout completion CAS to a concurrent %s transition without running winner side effects",
+        async (persistedStatus) => {
+          const terminalPurchase = {
+            ...mockPurchase,
+            status: persistedStatus,
+          };
+          vi.mocked(Purchase.findById)
+            .mockResolvedValueOnce(mockPurchase)
+            .mockResolvedValueOnce(terminalPurchase as any);
+          vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+            acknowledged: true,
+            matchedCount: 0,
+            modifiedCount: 0,
+          } as any);
+
+          await WebhookController.handleStripeWebhook(
+            mockReq as Request,
+            mockRes as Response,
+          );
+
+          expect(Purchase.updateOne).toHaveBeenCalledWith(
+            expect.objectContaining({
+              _id: mockPurchase._id,
+              status: "pending",
+            }),
+            expect.objectContaining({
+              $set: expect.objectContaining({ status: "completed" }),
+            }),
+            { runValidators: true },
+          );
+          expect(mockPurchase.status).toBe("pending");
+          expect(PromoCode.findOne).not.toHaveBeenCalled();
+          expect(SystemConfig.getBundleDiscountConfig).not.toHaveBeenCalled();
+          expect(
+            EmailService.sendPurchaseConfirmationEmail,
+          ).not.toHaveBeenCalled();
+          expect(
+            programMembershipMutationSyncTrigger.programPurchaseChanged,
+          ).not.toHaveBeenCalled();
+          expect(statusMock).toHaveBeenCalledWith(200);
+        },
+      );
+
+      it("treats a purchase deleted by cancellation during checkout completion as a CAS miss", async () => {
+        vi.mocked(Purchase.findById)
+          .mockResolvedValueOnce(mockPurchase)
+          .mockResolvedValueOnce(null);
+        vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(mockPurchase.status).toBe("pending");
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
+        expect(EmailService.sendPurchaseConfirmationEmail).not.toHaveBeenCalled();
         expect(statusMock).toHaveBeenCalledWith(200);
       });
 
@@ -536,7 +785,7 @@ describe("WebhookController", () => {
           mockRes as Response,
         );
 
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
         expect(mockPurchase.status).toBe("completed");
       });
 
@@ -553,7 +802,7 @@ describe("WebhookController", () => {
         expect(mockPurchase.billingInfo.state).toBe("NY");
         expect(mockPurchase.billingInfo.zipCode).toBe("10001");
         expect(mockPurchase.billingInfo.country).toBe("US");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
 
       it("should mark purchase as completed with purchase date", async () => {
@@ -574,7 +823,54 @@ describe("WebhookController", () => {
         expect(mockPurchase.purchaseDate.getTime()).toBeLessThanOrEqual(
           afterDate.getTime(),
         );
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
+      });
+
+      it("persists a deterministic legacy role in the checkout completion CAS", async () => {
+        mockPurchase.isClassRep = true;
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(mockPurchase.status).toBe("completed");
+        expect(mockPurchase.studentRoleId).toBe("classRep");
+        expect(mockPurchase.studentRoleName).toBe("Class Representative");
+        expect(Purchase.updateOne).toHaveBeenCalledTimes(1);
+      });
+
+      it("keeps checkout completion pending when its legacy Program role is ambiguous", async () => {
+        mockPurchase.isClassRep = false;
+        vi.mocked(Program.findById).mockResolvedValue({
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "participant",
+                name: "Participant",
+                discountEligible: false,
+              },
+              {
+                id: "observer",
+                name: "Observer",
+                discountEligible: false,
+              },
+            ],
+          },
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(500);
+        expect(mockPurchase.status).toBe("pending");
+        expect(mockPurchase.save).not.toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
       });
 
       it("should continue if payment intent fetch fails", async () => {
@@ -587,7 +883,7 @@ describe("WebhookController", () => {
           mockRes as Response,
         );
 
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
         expect(mockPurchase.status).toBe("completed");
         expect(statusMock).toHaveBeenCalledWith(200);
       });
@@ -762,7 +1058,7 @@ describe("WebhookController", () => {
         );
 
         expect(statusMock).toHaveBeenCalledWith(200);
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
 
       it("should continue if marking promo code fails", async () => {
@@ -774,7 +1070,7 @@ describe("WebhookController", () => {
         );
 
         expect(statusMock).toHaveBeenCalledWith(200);
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
     });
 
@@ -870,6 +1166,44 @@ describe("WebhookController", () => {
         expect(mockPurchase.bundleDiscountAmount).toBe(20);
       });
 
+      it("does not overwrite a terminal status committed after the completion CAS when linking a bundle code", async () => {
+        let persistedStatus = "pending";
+        vi.mocked(Purchase.updateOne).mockImplementation(
+          async (_filter, update: any) => {
+            if (update.$set.status === "completed") {
+              expect(persistedStatus).toBe("pending");
+              persistedStatus = "completed";
+            } else {
+              expect(update.$set).not.toHaveProperty("status");
+            }
+            return {
+              acknowledged: true,
+              matchedCount: 1,
+              modifiedCount: 1,
+            } as any;
+          },
+        );
+        vi.mocked(SystemConfig.getBundleDiscountConfig).mockResolvedValue({
+          enabled: true,
+          discountAmount: 20,
+          expiryDays: 30,
+        } as any);
+        vi.mocked(PromoCode.generateUniqueCode).mockResolvedValue("BUNDLE123");
+        vi.mocked(PromoCode.create).mockImplementation(async () => {
+          persistedStatus = "refund_processing";
+          return { _id: "bundle_id", code: "BUNDLE123" } as any;
+        });
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(persistedStatus).toBe("refund_processing");
+        expect(Purchase.updateOne).toHaveBeenCalledTimes(2);
+        expect(mockPurchase.save).not.toHaveBeenCalled();
+      });
+
       it("should not generate bundle code when feature disabled", async () => {
         vi.mocked(SystemConfig.getBundleDiscountConfig).mockResolvedValue({
           enabled: false,
@@ -918,7 +1252,7 @@ describe("WebhookController", () => {
         );
 
         expect(statusMock).toHaveBeenCalledWith(200);
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
     });
 
@@ -1027,7 +1361,7 @@ describe("WebhookController", () => {
         );
 
         expect(statusMock).toHaveBeenCalledWith(200);
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
 
       it("should skip email if user not found", async () => {
@@ -1126,7 +1460,7 @@ describe("WebhookController", () => {
           { runValidators: false },
         );
         expect(mockPurchase.status).toBe("failed");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
 
       it("should not decrement for non-Class Rep purchase", async () => {
@@ -1774,7 +2108,7 @@ describe("WebhookController", () => {
         // Should preserve original name when customer_details.name is null
         expect(mockPurchase.billingInfo.fullName).toBe("Original Name");
         expect(mockPurchase.billingInfo.email).toBe("partial@example.com");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
       });
 
       it("should handle session with no payment_intent", async () => {
@@ -1834,7 +2168,7 @@ describe("WebhookController", () => {
 
         // Should still complete the purchase
         expect(mockPurchase.status).toBe("completed");
-        expect(mockPurchase.save).toHaveBeenCalled();
+        expect(Purchase.updateOne).toHaveBeenCalled();
         // getPaymentIntent should not be called
         expect(stripeService.getPaymentIntent).not.toHaveBeenCalled();
       });
@@ -1940,6 +2274,160 @@ describe("WebhookController", () => {
         );
 
         expect(mockPurchase.save).not.toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it.each(["refunded", "failed", "refund_processing", "refund_failed"])(
+        "ignores an out-of-order payment-intent success for a %s purchase without restoring Program Room membership",
+        async (terminalStatus) => {
+          const mockPaymentIntent = {
+            id: `pi_${terminalStatus}`,
+          } as Stripe.PaymentIntent;
+          const mockPurchase = {
+            status: terminalStatus,
+            orderNumber: `ORDER-${terminalStatus}`,
+            purchaseType: "program",
+            programId: new mongoose.Types.ObjectId(),
+            save: vi.fn(),
+          };
+
+          vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+            type: "payment_intent.succeeded",
+            data: { object: mockPaymentIntent },
+          } as Stripe.Event);
+          vi.mocked(Purchase.findOne).mockResolvedValue(mockPurchase as any);
+
+          await WebhookController.handleStripeWebhook(
+            mockReq as Request,
+            mockRes as Response,
+          );
+
+          expect(mockPurchase.status).toBe(terminalStatus);
+          expect(mockPurchase.save).not.toHaveBeenCalled();
+          expect(Program.findById).not.toHaveBeenCalled();
+          expect(
+            programMembershipMutationSyncTrigger.programPurchaseChanged,
+          ).not.toHaveBeenCalled();
+          expect(statusMock).toHaveBeenCalledWith(200);
+        },
+      );
+
+      it.each([
+        "completed",
+        "refunded",
+        "failed",
+        "refund_processing",
+        "refund_failed",
+      ])(
+        "loses the payment-intent success CAS to a concurrent %s transition without restoring Program Room membership",
+        async (persistedStatus) => {
+          const purchaseId = new mongoose.Types.ObjectId();
+          const stalePendingPurchase = {
+            _id: purchaseId,
+            status: "pending",
+            orderNumber: "ORDER-CAS-LOSS",
+            purchaseType: "program",
+            programId: new mongoose.Types.ObjectId(
+              "507f1f77bcf86cd799439013",
+            ),
+            isClassRep: false,
+            save: vi.fn(),
+          };
+          vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+            type: "payment_intent.succeeded",
+            data: { object: { id: "pi_cas_loss" } as Stripe.PaymentIntent },
+          } as Stripe.Event);
+          vi.mocked(Purchase.findOne).mockResolvedValue(
+            stalePendingPurchase as any,
+          );
+          vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+            acknowledged: true,
+            matchedCount: 0,
+            modifiedCount: 0,
+          } as any);
+          vi.mocked(Purchase.findById).mockResolvedValue({
+            ...stalePendingPurchase,
+            status: persistedStatus,
+          } as any);
+
+          await WebhookController.handleStripeWebhook(
+            mockReq as Request,
+            mockRes as Response,
+          );
+
+          expect(Purchase.updateOne).toHaveBeenCalledWith(
+            {
+              _id: purchaseId,
+              status: "pending",
+              stripePaymentIntentId: "pi_cas_loss",
+            },
+            expect.objectContaining({
+              $set: expect.objectContaining({ status: "completed" }),
+            }),
+            { runValidators: true },
+          );
+          expect(stalePendingPurchase.status).toBe("pending");
+          expect(stalePendingPurchase.save).not.toHaveBeenCalled();
+          expect(
+            programMembershipMutationSyncTrigger.programPurchaseChanged,
+          ).not.toHaveBeenCalled();
+          expect(statusMock).toHaveBeenCalledWith(200);
+        },
+      );
+
+      it("ignores a stale payment-intent success after retry reservation clears its identity", async () => {
+        const purchaseId = new mongoose.Types.ObjectId();
+        const stalePendingPurchase = {
+          _id: purchaseId,
+          status: "pending",
+          orderNumber: "ORDER-OLD-PI-SUCCESS",
+          purchaseType: "program",
+          programId: new mongoose.Types.ObjectId(
+            "507f1f77bcf86cd799439013",
+          ),
+          stripePaymentIntentId: "pi_old_attempt",
+          isClassRep: false,
+          save: vi.fn(),
+        };
+        vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+          type: "payment_intent.succeeded",
+          data: { object: { id: "pi_old_attempt" } as Stripe.PaymentIntent },
+        } as Stripe.Event);
+        vi.mocked(Purchase.findOne).mockResolvedValue(
+          stalePendingPurchase as any,
+        );
+        vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+        } as any);
+        vi.mocked(Purchase.findById).mockResolvedValue({
+          ...stalePendingPurchase,
+          stripePaymentIntentId: undefined,
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(Purchase.updateOne).toHaveBeenCalledWith(
+          {
+            _id: purchaseId,
+            status: "pending",
+            stripePaymentIntentId: "pi_old_attempt",
+          },
+          expect.any(Object),
+          { runValidators: true },
+        );
+        expect(stalePendingPurchase.status).toBe("pending");
+        expect(stalePendingPurchase.save).not.toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.programPurchaseChanged,
+        ).not.toHaveBeenCalled();
         expect(statusMock).toHaveBeenCalledWith(200);
       });
 
@@ -2032,6 +2520,99 @@ describe("WebhookController", () => {
 
         expect(mockPurchase.status).toBe("completed");
         expect(mockPurchase.save).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it("lets a concurrent success CAS win over a stale payment-failure handler", async () => {
+        const purchaseId = new mongoose.Types.ObjectId();
+        const staleFailurePurchase = {
+          _id: purchaseId,
+          status: "pending",
+          orderNumber: "ORDER-SUCCESS-WON",
+          purchaseType: "program",
+          programId: new mongoose.Types.ObjectId(),
+          stripePaymentIntentId: "pi_success_won",
+          isClassRep: true,
+          save: vi.fn(),
+        };
+        vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+          type: "payment_intent.payment_failed",
+          data: {
+            object: { id: "pi_success_won" } as Stripe.PaymentIntent,
+          },
+        } as Stripe.Event);
+        vi.mocked(Purchase.findOne).mockResolvedValue(
+          staleFailurePurchase as any,
+        );
+        vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+        } as any);
+        vi.mocked(Purchase.findById).mockResolvedValue({
+          ...staleFailurePurchase,
+          status: "completed",
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(staleFailurePurchase.status).toBe("pending");
+        expect(Program.findByIdAndUpdate).not.toHaveBeenCalled();
+        expect(staleFailurePurchase.save).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it("ignores a stale payment failure after retry reservation clears its identity", async () => {
+        const purchaseId = new mongoose.Types.ObjectId();
+        const staleFailurePurchase = {
+          _id: purchaseId,
+          status: "pending",
+          orderNumber: "ORDER-OLD-PI-FAILURE",
+          purchaseType: "program",
+          programId: new mongoose.Types.ObjectId(),
+          stripePaymentIntentId: "pi_old_attempt",
+          isClassRep: true,
+          save: vi.fn(),
+        };
+        vi.mocked(stripeService.constructWebhookEvent).mockReturnValue({
+          type: "payment_intent.payment_failed",
+          data: {
+            object: { id: "pi_old_attempt" } as Stripe.PaymentIntent,
+          },
+        } as Stripe.Event);
+        vi.mocked(Purchase.findOne).mockResolvedValue(
+          staleFailurePurchase as any,
+        );
+        vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+        } as any);
+        vi.mocked(Purchase.findById).mockResolvedValue({
+          ...staleFailurePurchase,
+          stripePaymentIntentId: undefined,
+        } as any);
+
+        await WebhookController.handleStripeWebhook(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(Purchase.updateOne).toHaveBeenCalledWith(
+          {
+            _id: purchaseId,
+            status: "pending",
+            stripePaymentIntentId: "pi_old_attempt",
+          },
+          expect.any(Object),
+          { runValidators: true },
+        );
+        expect(staleFailurePurchase.status).toBe("pending");
+        expect(Program.findByIdAndUpdate).not.toHaveBeenCalled();
+        expect(staleFailurePurchase.save).not.toHaveBeenCalled();
         expect(statusMock).toHaveBeenCalledWith(200);
       });
     });

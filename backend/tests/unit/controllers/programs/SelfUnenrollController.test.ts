@@ -40,11 +40,22 @@ vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
   },
 }));
 
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+      programPurchaseChanged: vi.fn(),
+    },
+  }),
+);
+
 import { AuditLog, Program, Purchase } from "../../../../src/models";
 import { processRefund } from "../../../../src/services/stripeService";
 import { PurchaseEmailService } from "../../../../src/services/email/domains/PurchaseEmailService";
 import { RefundRequestService } from "../../../../src/services/RefundRequestService";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 describe("SelfUnenrollController", () => {
   const programId = new mongoose.Types.ObjectId();
@@ -81,6 +92,53 @@ describe("SelfUnenrollController", () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
+  });
+
+  it("refreshes Program room membership after a free admin enrollment is removed", async () => {
+    const program: any = {
+      _id: programId,
+      title: "Free Program",
+      adminEnrollments: {
+        mentees: [userId],
+        classReps: [],
+      },
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.mocked(Program.findById).mockResolvedValue(program as any);
+    mockPurchaseFindOneResult(null);
+
+    const req = {
+      params: { id: programId.toString() },
+      user: {
+        _id: userId,
+        role: "Participant",
+        email: "user@test.com",
+      },
+      correlationId: "self-unenroll-1",
+      ip: "127.0.0.1",
+      get: vi.fn().mockReturnValue("vitest"),
+    };
+
+    await SelfUnenrollController.unenroll(req as any, mockRes as Response);
+
+    expect(program.adminEnrollments.mentees).toEqual([]);
+    expect(program.save).toHaveBeenCalledTimes(1);
+    expect(
+      programMembershipMutationSyncTrigger.programAssignmentsChanged,
+    ).toHaveBeenCalledWith(programId.toString(), {
+      actor: {
+        type: "user",
+        id: userId.toString(),
+        role: "Participant",
+      },
+      source: "http",
+      correlationId: "self-unenroll-1",
+    });
+    expect(socketService.disconnectUser).toHaveBeenCalledWith(
+      userId.toString(),
+    );
+    expect(statusMock).toHaveBeenCalledWith(200);
   });
 
   it("immediately unenrolls within 30 days, submits refund, and notifies admins", async () => {

@@ -16,6 +16,7 @@ import {
 } from "../../services/PurchaseRefundService";
 import { RefundRequestService } from "../../services/RefundRequestService";
 import { socketService } from "../../services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 type EnrollmentType = "mentee" | "classRep";
 type ProgramDocument = HydratedDocument<IProgram>;
@@ -105,6 +106,18 @@ export default class SelfUnenrollController {
         );
         if (removedAdminEnrollment) {
           await program.save();
+          programMembershipMutationSyncTrigger.programAssignmentsChanged(
+            String(program._id),
+            {
+              actor: {
+                type: "user",
+                id: userId.toString(),
+                role: req.user!.role,
+              },
+              source: "http",
+              correlationId: req.correlationId,
+            },
+          );
           socketService.disconnectUser(userId.toString());
         }
 

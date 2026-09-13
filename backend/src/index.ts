@@ -308,9 +308,8 @@ const startServer = async () => {
     console.log("✅ Reliability foundation initialized");
     log.info("Reliability foundation initialized");
 
-    // These collections are new and empty when M2 first deploys. Waiting for
-    // model initialization makes unique and retention index failures fail the
-    // deployment before HTTP/Socket traffic is accepted.
+    // Explicit Alumni-network model initialization makes required identity,
+    // retention, and resolver-index failures abort deployment before traffic.
     await initializeAlumniDataModels();
     console.log("✅ Alumni data models initialized");
     log.info("Alumni data models initialized");

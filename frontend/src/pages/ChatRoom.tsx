@@ -12,6 +12,7 @@ import {
 } from "react";
 import { Link, useParams } from "react-router-dom";
 import ChatAvatar from "../components/chat/ChatAvatar";
+import AnnouncementComposer from "../components/chat/AnnouncementComposer";
 import ChatComposer, {
   type ChatComposerValue,
 } from "../components/chat/ChatComposer";
@@ -39,6 +40,34 @@ import { createIdempotencyKey } from "../utils/idempotencyKey";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const LAST_MESSAGE_PREVIEW_CODE_POINTS = 160;
+const PROGRAM_ROOM_ACCESS_REFRESH_RETRY_DELAYS_MS = Object.freeze([
+  250, 750, 1_500,
+]);
+
+function retryableProgramRoomProjectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("status" in error)) return false;
+  const status = Number((error as { readonly status?: unknown }).status);
+  return status === 404 || status === 409;
+}
+
+function waitForProgramRoomAccessRetry(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 function previewContent(value: string | null): string | null {
   if (!value) return null;
@@ -145,6 +174,12 @@ export default function ChatRoom() {
   const validId = OBJECT_ID_PATTERN.test(conversationId);
   const roomKey = `${currentUser?.id ?? "anonymous"}:${conversationId}`;
   const effectiveCanSend = !!conversation && writable && conversation.viewer.canSend;
+  const effectiveCanAnnounce =
+    !!conversation &&
+    writable &&
+    conversation.kind === "program" &&
+    conversation.section === "current" &&
+    conversation.viewer.canAnnounce;
   const realtimeEligible =
     conversation?.status === "current" &&
     conversation.viewer.status === "active";
@@ -584,6 +619,7 @@ export default function ChatRoom() {
   useEffect(() => {
     if (!readable || !validId || !realtimeEligible) return;
     let released = false;
+    const accessRefreshController = new AbortController();
     setLiveDegraded(false);
     void socketService
       .joinConversationRoom(conversationId)
@@ -723,16 +759,146 @@ export default function ChatRoom() {
         }, 100);
       },
     );
+    const refreshProgramRoomAccess = async () => {
+      const currentRoom = conversationRef.current;
+      if (
+        currentRoom?.id !== conversationId ||
+        currentRoom.kind !== "program"
+      ) {
+        setLiveDegraded(false);
+        await recoverMessages();
+        return;
+      }
+
+      const roomSession = roomSessionGenerationRef.current;
+      const counterGeneration = captureCounterGeneration();
+      for (
+        let attempt = 0;
+        attempt <= PROGRAM_ROOM_ACCESS_REFRESH_RETRY_DELAYS_MS.length;
+        attempt += 1
+      ) {
+        try {
+          const detail = await conversationsService.get(
+            conversationId,
+            accessRefreshController.signal,
+          );
+          if (
+            released ||
+            accessRefreshController.signal.aborted ||
+            roomSession !== roomSessionGenerationRef.current ||
+            detail.conversation.id !== conversationId ||
+            detail.conversation.kind !== "program"
+          ) {
+            return;
+          }
+
+          const previous = conversationRef.current;
+          const staleReadSnapshot =
+            previous?.id === conversationId &&
+            detail.conversation.viewer.lastReadSequence <
+              previous.viewer.lastReadSequence;
+          const refreshed = staleReadSnapshot
+            ? {
+                ...detail.conversation,
+                viewer: {
+                  ...detail.conversation.viewer,
+                  lastReadSequence: previous.viewer.lastReadSequence,
+                  unreadCount: previous.viewer.unreadCount,
+                },
+              }
+            : detail.conversation;
+          conversationRef.current = refreshed;
+          setConversation((room) =>
+            room?.id === conversationId ? refreshed : room,
+          );
+          readRequestedRef.current = Math.max(
+            readRequestedRef.current,
+            refreshed.viewer.lastReadSequence,
+          );
+          if (!refreshed.viewer.canSend) {
+            pendingReadSequenceRef.current = 0;
+            pendingMessagesRef.current = [];
+            setPendingMessages([]);
+            setActionError(null);
+          }
+          applyCounterSnapshot(
+            detail.chatUnreadTotal,
+            conversationId,
+            refreshed.viewer.unreadCount,
+            refreshed.viewer.lastReadSequence,
+            counterGeneration,
+          );
+          setLiveDegraded(false);
+          await recoverMessages();
+          return;
+        } catch (reason) {
+          if (
+            released ||
+            accessRefreshController.signal.aborted ||
+            roomSession !== roomSessionGenerationRef.current
+          ) {
+            return;
+          }
+          const delayMs = PROGRAM_ROOM_ACCESS_REFRESH_RETRY_DELAYS_MS[attempt];
+          if (
+            delayMs === undefined ||
+            !retryableProgramRoomProjectionError(reason)
+          ) {
+            setLiveDegraded(true);
+            return;
+          }
+          if (
+            !(await waitForProgramRoomAccessRetry(
+              delayMs,
+              accessRefreshController.signal,
+            ))
+          ) {
+            return;
+          }
+        }
+      }
+    };
+    const stopDisconnect = socketService.on("disconnect", (reason) => {
+      if (
+        reason !== "io server disconnect" ||
+        socketService.connectionStatus?.connectionLimited
+      ) {
+        return;
+      }
+      const currentRoom = conversationRef.current;
+      if (
+        currentRoom?.id !== conversationId ||
+        currentRoom.kind !== "program" ||
+        !currentRoom.viewer.canSend
+      ) {
+        return;
+      }
+      const failClosedRoom: ConversationDTO = {
+        ...currentRoom,
+        viewer: {
+          ...currentRoom.viewer,
+          accessMode: "read_only",
+          canSend: false,
+          canAnnounce: false,
+        },
+      };
+      conversationRef.current = failClosedRoom;
+      setConversation((room) =>
+        room?.id === conversationId ? failClosedRoom : room,
+      );
+      setLiveDegraded(true);
+    });
     const stopReconnect = socketService.on("connect", () => {
-      setLiveDegraded(false);
-      void recoverMessages();
+      void refreshProgramRoomAccess();
     });
     return () => {
       released = true;
+      accessRefreshController.abort();
       socketService.leaveConversationRoom(conversationId);
       stopMessage();
       stopUnread();
       stopHelp();
+      stopDisconnect();
       stopReconnect();
       if (helpRefreshTimerRef.current !== null) {
         clearTimeout(helpRefreshTimerRef.current);
@@ -740,6 +906,8 @@ export default function ChatRoom() {
       }
     };
   }, [
+    applyCounterSnapshot,
+    captureCounterGeneration,
     conversationId,
     currentUser?.id,
     readable,
@@ -765,18 +933,24 @@ export default function ChatRoom() {
       );
       const roomSession = roomSessionGenerationRef.current;
       try {
-        const result = await conversationsService.send(conversationId, {
-          clientMessageId: optimistic.clientMessageId,
-          content: optimistic.content,
-          ...(optimistic.safeLink
-            ? {
-                safeLink: {
-                  url: optimistic.safeLink.url,
-                  label: optimistic.safeLink.label,
-                },
-              }
-            : {}),
-        });
+        const result =
+          optimistic.kind === "announcement"
+            ? await conversationsService.publishAnnouncement(conversationId, {
+                clientMessageId: optimistic.clientMessageId,
+                content: optimistic.content ?? "",
+              })
+            : await conversationsService.send(conversationId, {
+                clientMessageId: optimistic.clientMessageId,
+                content: optimistic.content,
+                ...(optimistic.safeLink
+                  ? {
+                      safeLink: {
+                        url: optimistic.safeLink.url,
+                        label: optimistic.safeLink.label,
+                      },
+                    }
+                  : {}),
+              });
         if (
           !mountedRef.current ||
           roomSession !== roomSessionGenerationRef.current
@@ -893,6 +1067,44 @@ export default function ChatRoom() {
             label: value.safeLink.label?.trim() || value.safeLink.url,
           }
         : null,
+      clientMessageId,
+      createdAt: new Date().toISOString(),
+      deliveryState: "sending",
+    };
+    setActionError(null);
+    setPendingMessages((current) => {
+      const next = [...current, optimistic];
+      pendingMessagesRef.current = next;
+      return next;
+    });
+    requestAnimationFrame(() => scrollToBottom("smooth"));
+    void deliverMessage(optimistic);
+  };
+
+  const handleAnnouncement = (content: string) => {
+    if (!effectiveCanAnnounce || !conversation || !currentUser) return;
+    const clientMessageId = createIdempotencyKey();
+    const sequence =
+      Math.max(
+        conversation.lastSequence,
+        messagesRef.current.at(-1)?.sequence ?? 0,
+      ) +
+      pendingMessages.length +
+      1;
+    const optimistic: ChatDisplayMessage = {
+      id: `pending-${clientMessageId}`,
+      conversationId,
+      sequence,
+      kind: "announcement",
+      sender: {
+        id: currentUser.id,
+        displayName:
+          `${currentUser.firstName ?? ""} ${currentUser.lastName ?? ""}`.trim() ||
+          currentUser.username,
+        avatar: currentUser.avatar ?? null,
+      },
+      content,
+      safeLink: null,
       clientMessageId,
       createdAt: new Date().toISOString(),
       deliveryState: "sending",
@@ -1100,7 +1312,12 @@ export default function ChatRoom() {
             </h1>
             <p className="text-xs text-gray-600">
               {conversation.kind === "alumni_help" ? "Alumni Help Room" : "Program Room"}
-            {!effectiveCanSend ? " · Read-only" : ""}
+              {` · ${conversation.section === "current" ? "Current" : "Past"}`}
+              {` · ${
+                conversation.viewer.accessMode === "read_write"
+                  ? "Read/write"
+                  : "Read-only"
+              }`}
             </p>
           </div>
           <button
@@ -1175,6 +1392,12 @@ export default function ChatRoom() {
             </button>
           )}
         </div>
+        {effectiveCanAnnounce && (
+          <AnnouncementComposer
+            onPublish={handleAnnouncement}
+            sending={anySending}
+          />
+        )}
         {effectiveCanSend ? (
           <ChatComposer onSend={handleSend} sending={anySending} />
         ) : (

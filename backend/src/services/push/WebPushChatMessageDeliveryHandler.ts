@@ -29,10 +29,11 @@ interface ChatPushRoomReader {
     readonly messageId: string;
     readonly sequence: number;
   }): Promise<ChatMessageDTO | null>;
-  listActiveRetainedMemberUserIds(
+  isActiveRetainedMemberForDelivery(
     conversationId: string,
+    userId: string,
     sequence: number,
-  ): Promise<readonly string[]>;
+  ): Promise<boolean>;
 }
 
 interface ChatPushRuntimeReader {
@@ -50,7 +51,6 @@ interface WebPushChatMessageDeliveryDependencies {
 
 interface ResolvedChatPush {
   readonly message: ChatMessageDTO;
-  readonly recipientUserIds: readonly string[];
 }
 
 export class WebPushChatMessageDeliveryHandler
@@ -81,7 +81,10 @@ export class WebPushChatMessageDeliveryHandler
     context: NotificationOutboxDeliveryContext,
   ): Promise<void> {
     await this.assertRuntimeReadable(context.signal);
-    await this.resolve(event, context.signal);
+    context.signal.throwIfAborted();
+    // Validate the durable envelope here; deliver owns the one final fresh
+    // recipient authorization so the worker does not double the database load.
+    parseWebPushChatMessagePayload(event.payload);
   }
 
   async deliver(
@@ -91,10 +94,7 @@ export class WebPushChatMessageDeliveryHandler
     await this.assertRuntimeReadable(context.signal);
     const payload = parseWebPushChatMessagePayload(event.payload);
     const resolved = await this.resolve(event, context.signal);
-    if (
-      payload.recipientUserId === resolved.message.sender.id ||
-      !resolved.recipientUserIds.includes(payload.recipientUserId)
-    ) {
+    if (payload.recipientUserId === resolved.message.sender.id) {
       throw new PermanentNotificationOutboxDeliveryError(
         "WEB_PUSH_RECIPIENT_UNAVAILABLE",
       );
@@ -108,6 +108,11 @@ export class WebPushChatMessageDeliveryHandler
         messageId: payload.messageId,
         recipientUserId: payload.recipientUserId,
         sequence: payload.sequence,
+        ...(resolved.message.kind === "announcement"
+          ? { kind: "announcement" as const }
+          : {}),
+        authorizeRecipient: () =>
+          this.authorizeRecipient(payload, context.signal),
         signal: context.signal,
       });
       if (delivery.route === "retry") {
@@ -155,15 +160,8 @@ export class WebPushChatMessageDeliveryHandler
   ): Promise<ResolvedChatPush> {
     const payload = parseWebPushChatMessagePayload(event.payload);
     let message: ChatMessageDTO | null;
-    let recipientUserIds: readonly string[];
     try {
-      [message, recipientUserIds] = await Promise.all([
-        this.rooms.loadRetainedMessageForDelivery(payload),
-        this.rooms.listActiveRetainedMemberUserIds(
-          payload.conversationId,
-          payload.sequence,
-        ),
-      ]);
+      message = await this.rooms.loadRetainedMessageForDelivery(payload);
     } catch (error) {
       if (signal.aborted) throw signal.reason ?? error;
       if (error instanceof RetryableNotificationOutboxDeliveryError) throw error;
@@ -177,10 +175,34 @@ export class WebPushChatMessageDeliveryHandler
         "WEB_PUSH_MESSAGE_STALE",
       );
     }
-    return Object.freeze({
-      message,
-      recipientUserIds: Object.freeze([...new Set(recipientUserIds)]),
-    });
+    if (payload.recipientUserId === message.sender.id) {
+      throw new PermanentNotificationOutboxDeliveryError(
+        "WEB_PUSH_RECIPIENT_UNAVAILABLE",
+      );
+    }
+    return Object.freeze({ message });
+  }
+
+  private async authorizeRecipient(
+    payload: ReturnType<typeof parseWebPushChatMessagePayload>,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    try {
+      signal.throwIfAborted();
+      const authorized = await this.rooms.isActiveRetainedMemberForDelivery(
+        payload.conversationId,
+        payload.recipientUserId,
+        payload.sequence,
+      );
+      signal.throwIfAborted();
+      return authorized;
+    } catch (error) {
+      if (signal.aborted) throw signal.reason ?? error;
+      if (error instanceof RetryableNotificationOutboxDeliveryError) throw error;
+      throw new RetryableNotificationOutboxDeliveryError(
+        "WEB_PUSH_STATE_READ_FAILED",
+      );
+    }
   }
 }
 

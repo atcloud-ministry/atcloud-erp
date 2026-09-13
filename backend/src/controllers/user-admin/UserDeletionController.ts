@@ -9,6 +9,7 @@ import { formatActorDisplay } from "../../utils/systemMessageFormatUtils";
 import { lockService } from "../../services/LockService";
 import { ResponseHelper } from "../../utils/responseHelper";
 import { socketService } from "../../services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 /**
  * UserDeletionController
@@ -73,6 +74,15 @@ export default class UserDeletionController {
         },
         10000
       );
+      programMembershipMutationSyncTrigger.userEligibilityChanged(userId, {
+        actor: {
+          type: "user",
+          id: String(currentUser._id),
+          role: currentUser.role,
+        },
+        source: "http",
+        correlationId: req.correlationId,
+      });
 
       // Revoke the deleted account's live HTTP-adjacent session immediately.
       socketService.disconnectUser(userId);

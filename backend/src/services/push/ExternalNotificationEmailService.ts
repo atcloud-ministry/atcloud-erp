@@ -101,6 +101,8 @@ export class ExternalNotificationEmailService {
     readonly messageId: string;
     readonly recipientUserId: string;
     readonly sequence: number;
+    readonly kind?: "text" | "announcement";
+    readonly authorizeRecipient: () => Promise<boolean>;
     readonly signal?: AbortSignal;
   }): Promise<ExternalEmailDeliveryResult> {
     input.signal?.throwIfAborted();
@@ -232,14 +234,24 @@ export class ExternalNotificationEmailService {
       this.frontendBaseUrl(),
       `/dashboard/chat-rooms/${conversationId.toString()}`,
     );
+    const options = emailOptions(
+      email,
+      input.kind === "announcement"
+        ? "New @Cloud Program announcement"
+        : "New @Cloud Chat Rooms message",
+      input.kind === "announcement"
+        ? "A new Program announcement is available. Sign in to view it securely."
+        : "You have a new chat message. Sign in to view it securely.",
+      url,
+      "Open Chat Rooms",
+    );
+    // Keep the canonical membership read adjacent to SMTP. In particular, a
+    // stale materialized Program member cannot authorize a post-revocation
+    // fallback email after the earlier Push attempt.
+    if (!(await input.authorizeRecipient())) return "skipped";
+    input.signal?.throwIfAborted();
     await this.sender.send(
-      emailOptions(
-        email,
-        "New @Cloud Chat Rooms message",
-        "You have a new chat message. Sign in to view it securely.",
-        url,
-        "Open Chat Rooms",
-      ),
+      options,
     );
     return "sent";
   }

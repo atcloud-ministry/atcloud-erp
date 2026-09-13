@@ -20,6 +20,9 @@ import Conversation from "../../../src/models/Conversation";
 import ConversationMember from "../../../src/models/ConversationMember";
 import IdempotencyRecord from "../../../src/models/IdempotencyRecord";
 import NotificationOutbox from "../../../src/models/NotificationOutbox";
+import Program from "../../../src/models/Program";
+import ProgramCommunitySettings from "../../../src/models/ProgramCommunitySettings";
+import Purchase from "../../../src/models/Purchase";
 import User from "../../../src/models/User";
 import {
   ChatRoomService,
@@ -29,6 +32,7 @@ import { ChatSendRateLimiter } from "../../../src/services/chat/ChatSendRateLimi
 import { enqueueChatMessagePersisted } from "../../../src/services/chat/ChatMessageOutbox";
 import { ChatUnreadReconciliationService } from "../../../src/services/chat/ChatUnreadReconciliationService";
 import { AlumniHelpRoomProvisioner } from "../../../src/services/alumni/AlumniHelpRoomProvisioner";
+import { ProgramMemberBatchReadResolver } from "../../../src/services/programs/ProgramMemberBatchReadResolver";
 import { IdempotencyService } from "../../../src/services/reliability/IdempotencyService";
 import { MongoTransactionService } from "../../../src/services/reliability/MongoTransactionService";
 import { authorizationService } from "../../../src/services/authorization/AuthorizationService";
@@ -42,6 +46,9 @@ const collections = [
   Conversation,
   IdempotencyRecord,
   NotificationOutbox,
+  ProgramCommunitySettings,
+  Purchase,
+  Program,
   User,
 ] as const;
 
@@ -127,6 +134,53 @@ async function createRoom(
     },
   ]);
   return conversation;
+}
+
+async function insertProgram(
+  title: string,
+  createdBy: mongoose.Types.ObjectId,
+): Promise<mongoose.Types.ObjectId> {
+  const _id = new mongoose.Types.ObjectId();
+  await Program.collection.insertOne({
+    _id,
+    title,
+    programType: "EMBA Mentor Circles",
+    hostedBy: "@Cloud Marketplace Ministry",
+    isFree: true,
+    fullPriceTicket: 0,
+    classRepDiscount: 0,
+    earlyBirdDiscount: 0,
+    classRepLimit: 0,
+    classRepCount: 0,
+    mentors: [{ userId: createdBy }],
+    adminEnrollments: { classReps: [], mentees: [] },
+    programRoles: {
+      teacherRoleName: "Mentor",
+      studentRoles: [
+        {
+          id: "participant",
+          name: "Participant",
+          discountEligible: false,
+          discountAmount: 0,
+          limit: 0,
+          count: 0,
+        },
+      ],
+    },
+    createdBy,
+    createdAt: nowValue,
+    updatedAt: nowValue,
+  });
+  await ProgramCommunitySettings.create({
+    programId: _id,
+    enabled: true,
+    opensAt: new Date("2032-01-01T00:00:00.000Z"),
+    closesAt: new Date("2033-01-01T00:00:00.000Z"),
+    studentRoleMappings: [
+      { studentRoleId: "participant", memberRole: "mentee" },
+    ],
+  });
+  return _id;
 }
 
 function sendInput(
@@ -447,6 +501,268 @@ describe("M4 ChatRoomService integration", () => {
     ]);
     expect(currentList.conversations[0]?.section).toBe("current");
     expect(pastList.conversations[0]?.section).toBe("past");
+  });
+
+  it("uses live Program titles, skips counterpart fan-out, and conceals Room discovery", async () => {
+    const viewerId = await insertUser("ProgramViewer");
+    const outsiderId = await insertUser("ProgramOutsider");
+    const programId = await insertProgram("Original Program Title", viewerId);
+    const room = await Conversation.create({ kind: "program", programId });
+    const member = await ConversationMember.create({
+      conversationId: room._id,
+      userId: viewerId,
+      role: "mentor",
+      status: "active",
+      joinedAt: nowValue,
+      accessWindows: [
+        {
+          visibleFromSequence: 1,
+          visibleThroughSequence: null,
+          openedAt: nowValue,
+          closedAt: null,
+        },
+      ],
+    });
+
+    const counterpartFind = vi.spyOn(ConversationMember, "find");
+    const current = await service.list(viewerId.toString(), {
+      view: "current",
+      page: 1,
+      limit: 30,
+    });
+    expect(current.conversations[0]).toMatchObject({
+      id: room._id.toString(),
+      programId: programId.toString(),
+      title: "Original Program Title",
+      kind: "program",
+      status: "current",
+      section: "current",
+      counterpart: null,
+      viewer: { status: "active", accessMode: "read_write" },
+    });
+    expect(counterpartFind).not.toHaveBeenCalled();
+    counterpartFind.mockRestore();
+
+    await Program.collection.updateOne(
+      { _id: programId },
+      { $set: { title: "Renamed Program", updatedAt: new Date(nowValue.getTime() + 1) } },
+    );
+    const renamed = await service.get(viewerId.toString(), room._id.toString());
+    expect(renamed.conversation).toMatchObject({
+      id: room._id.toString(),
+      title: "Renamed Program",
+    });
+
+    const retainedMessage = await insertMessage({
+      conversationId: room._id,
+      senderId: viewerId,
+      sequence: 1,
+    });
+    await Conversation.collection.updateOne(
+      { _id: room._id },
+      {
+        $set: {
+          lastSequence: 1,
+          lastMessageId: retainedMessage._id,
+          latestMessagePurgeAt: retainedMessage.purgeAt,
+          updatedAt: nowValue,
+        },
+      },
+    );
+    await ConversationMember.collection.updateOne(
+      { _id: member._id },
+      { $set: { unreadCount: 1, updatedAt: nowValue } },
+    );
+    await Program.collection.updateOne(
+      { _id: programId },
+      { $set: { mentors: [], updatedAt: nowValue } },
+    );
+
+    const staleCurrentList = await service.list(viewerId.toString(), {
+      view: "current",
+      page: 1,
+      limit: 30,
+    });
+    expect(staleCurrentList.conversations).toEqual([]);
+    expect(staleCurrentList.pagination).toMatchObject({
+      totalCount: 0,
+      totalPages: 0,
+      hasNext: false,
+      hasPrev: false,
+    });
+    expect(staleCurrentList.chatUnreadTotal).toBe(0);
+    await expect(service.unreadTotal(viewerId.toString())).resolves.toEqual({
+      chatUnreadTotal: 0,
+    });
+    await expect(
+      service.list(viewerId.toString(), {
+        view: "past",
+        page: 1,
+        limit: 30,
+      }),
+    ).resolves.toMatchObject({ chatUnreadTotal: 0 });
+    await expect(
+      service.markRead({
+        conversationId: room._id.toString(),
+        actor: actor(viewerId),
+        throughSequence: 1,
+      }),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_READ_ONLY" });
+    await expect(
+      service.setMuted({
+        conversationId: room._id.toString(),
+        actor: actor(viewerId),
+        muted: true,
+      }),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_READ_ONLY" });
+    await expect(
+      service.get(viewerId.toString(), room._id.toString()),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_NOT_FOUND", httpStatus: 404 });
+    await expect(
+      service.history(viewerId.toString(), room._id.toString(), { limit: 30 }),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_NOT_FOUND", httpStatus: 404 });
+    await expect(
+      service.getProgramRoomLink(viewerId.toString(), programId.toString()),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_NOT_FOUND", httpStatus: 404 });
+
+    await expect(
+      service.getProgramRoomLink(outsiderId.toString(), programId.toString()),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_NOT_FOUND", httpStatus: 404 });
+    await expect(
+      service.getProgramRoomLink(viewerId.toString(), new mongoose.Types.ObjectId().toString()),
+    ).rejects.toMatchObject({ code: "CHAT_ROOM_NOT_FOUND", httpStatus: 404 });
+
+    await ConversationMember.collection.updateOne(
+      { _id: member._id },
+      {
+        $set: {
+          status: "history_only",
+          accessWindows: [
+            {
+              visibleFromSequence: 1,
+              visibleThroughSequence: 1,
+              openedAt: nowValue,
+              closedAt: new Date(nowValue.getTime() + 1),
+            },
+          ],
+          unreadCount: 0,
+          updatedAt: new Date(nowValue.getTime() + 1),
+        },
+      },
+    );
+    await expect(
+      service.history(viewerId.toString(), room._id.toString(), { limit: 30 }),
+    ).resolves.toMatchObject({
+      messages: [{ sequence: 1, content: "message-1" }],
+    });
+    await expect(
+      service.getProgramRoomLink(viewerId.toString(), programId.toString()),
+    ).resolves.toEqual({
+      room: {
+        id: room._id.toString(),
+        programId: programId.toString(),
+        status: "current",
+        section: "past",
+        viewer: { status: "history_only", accessMode: "read_only" },
+      },
+    });
+
+    await Program.deleteOne({ _id: programId });
+    const deletedProgramFallback = await service.get(
+      viewerId.toString(),
+      room._id.toString(),
+    );
+    expect(deletedProgramFallback.conversation).toMatchObject({
+      id: room._id.toString(),
+      title: "Program Room",
+      section: "past",
+      viewer: { accessMode: "read_only" },
+    });
+  });
+
+  it("batch-validates every current Program candidate before list pagination", async () => {
+    const viewerId = await insertUser("BatchProgramViewer");
+    const firstProgramId = await insertProgram("Eligible Program", viewerId);
+    const secondProgramId = await insertProgram("Excluded Program", viewerId);
+    const [firstRoom, secondRoom] = await Conversation.create([
+      { kind: "program", programId: firstProgramId },
+      { kind: "program", programId: secondProgramId },
+    ]);
+    await ConversationMember.create([
+      {
+        conversationId: firstRoom!._id,
+        userId: viewerId,
+        role: "mentor",
+        status: "active",
+        joinedAt: nowValue,
+        accessWindows: [
+          {
+            visibleFromSequence: 1,
+            visibleThroughSequence: null,
+            openedAt: nowValue,
+            closedAt: null,
+          },
+        ],
+      },
+      {
+        conversationId: secondRoom!._id,
+        userId: viewerId,
+        role: "mentor",
+        status: "active",
+        joinedAt: nowValue,
+        accessWindows: [
+          {
+            visibleFromSequence: 1,
+            visibleThroughSequence: null,
+            openedAt: nowValue,
+            closedAt: null,
+          },
+        ],
+      },
+    ]);
+    const resolveEligibleRooms = vi.fn().mockResolvedValue([
+      {
+        programId: firstProgramId.toString(),
+        conversationId: firstRoom!._id.toString(),
+        role: "mentor",
+      },
+    ]);
+    const batchService = new ChatRoomService({
+      now: () => new Date(nowValue),
+      runtime: {
+        getOperationalRuntimeConfig: async () =>
+          createRuntimeConfigDTO("on", 1),
+      },
+      programActorRoomReadResolver: { resolveEligibleRooms },
+    });
+
+    const result = await batchService.list(viewerId.toString(), {
+      view: "current",
+      page: 1,
+      limit: 30,
+    });
+
+    expect(resolveEligibleRooms).toHaveBeenCalledOnce();
+    expect(resolveEligibleRooms).toHaveBeenCalledWith(
+      viewerId,
+      expect.arrayContaining([
+        expect.objectContaining({
+          programId: firstProgramId,
+          conversationId: firstRoom!._id,
+          materializedRole: "mentor",
+        }),
+        expect.objectContaining({
+          programId: secondProgramId,
+          conversationId: secondRoom!._id,
+          materializedRole: "mentor",
+        }),
+      ]),
+      { now: nowValue },
+    );
+    expect(result.conversations.map(({ id }) => id)).toEqual([
+      firstRoom!._id.toString(),
+    ]);
+    expect(result.pagination.totalCount).toBe(1);
   });
 
   it("conceals real database ACL failures while retaining read-only history access", async () => {
@@ -1056,9 +1372,9 @@ describe("M4 ChatRoomService integration", () => {
 
   it("propagates transient delivery-state database errors for durable retry", async () => {
     const userId = await insertUser("Recipient");
-    const roomId = new mongoose.Types.ObjectId();
+    const senderId = await insertUser("Sender");
+    const room = await createRoom(senderId, userId);
     const failure = new Error("transient database failure");
-    const total = vi.spyOn(service, "getChatUnreadTotal").mockResolvedValue(0);
     const lookup = vi
       .spyOn(ConversationMember, "aggregate")
       .mockImplementationOnce(() => {
@@ -1066,44 +1382,117 @@ describe("M4 ChatRoomService integration", () => {
       });
 
     await expect(
-      service.getMemberDeliveryState(roomId.toString(), userId.toString(), 1),
+      service.getMemberDeliveryState(room._id.toString(), userId.toString(), 1),
     ).rejects.toBe(failure);
     lookup.mockRestore();
-    total.mockRestore();
   });
 
-  it("rechecks current membership after an in-flight unread-total calculation", async () => {
-    const senderId = await insertUser("Sender");
-    const recipientId = await insertUser("Recipient");
-    const room = await createRoom(senderId, recipientId);
-    await service.send(sendInput(room._id, senderId, "race-window"));
-
-    let releaseTotal!: (value: number) => void;
-    const totalPending = new Promise<number>((resolve) => {
-      releaseTotal = resolve;
+  it("propagates canonical Program delivery resolver failures for durable retry", async () => {
+    const userId = await insertUser("ProgramDeliveryRecipient");
+    const programId = await insertProgram("Delivery resolver failure", userId);
+    const room = await Conversation.create({ kind: "program", programId });
+    await ConversationMember.create({
+      conversationId: room._id,
+      userId,
+      role: "mentor",
+      status: "active",
+      joinedAt: nowValue,
+      accessWindows: [
+        {
+          visibleFromSequence: 1,
+          visibleThroughSequence: null,
+          openedAt: nowValue,
+          closedAt: null,
+        },
+      ],
     });
-    const total = vi
-      .spyOn(service, "getChatUnreadTotal")
-      .mockImplementationOnce(() => totalPending);
-    const statePending = service.getMemberDeliveryState(
+    const failure = new Error("canonical resolver database unavailable");
+    const failingService = new ChatRoomService({
+      now: () => new Date(nowValue),
+      runtime: {
+        getOperationalRuntimeConfig: async () =>
+          createRuntimeConfigDTO("on", 1),
+      },
+      programMembershipResolver: {
+        resolveProgram: vi.fn().mockRejectedValue(failure),
+        resolveProgramMember: vi.fn().mockRejectedValue(failure),
+      },
+    });
+
+    await expect(
+      failingService.listActiveRetainedMemberUserIds(
+        room._id.toString(),
+        1,
+      ),
+    ).rejects.toBe(failure);
+    await expect(
+      failingService.isActiveRetainedMemberForDelivery(
+        room._id.toString(),
+        userId.toString(),
+        1,
+      ),
+    ).rejects.toBe(failure);
+  });
+
+  it("performs the canonical Program check after the delivery counter snapshot", async () => {
+    const mentorId = await insertUser("Mentor");
+    const programId = await insertProgram("Delivery authorization", mentorId);
+    const room = await Conversation.create({ kind: "program", programId });
+    await ConversationMember.create({
+      conversationId: room._id,
+      userId: mentorId,
+      role: "mentor",
+      status: "active",
+      joinedAt: nowValue,
+      accessWindows: [
+        {
+          visibleFromSequence: 1,
+          visibleThroughSequence: null,
+          openedAt: nowValue,
+          closedAt: null,
+        },
+      ],
+      unreadCount: 1,
+    });
+    let releaseCanonical!: () => void;
+    const canonicalReady = new Promise<void>((resolve) => {
+      releaseCanonical = resolve;
+    });
+    let canonicalStarted!: () => void;
+    const canonicalStartedPromise = new Promise<void>((resolve) => {
+      canonicalStarted = resolve;
+    });
+    const resolver = new ProgramMemberBatchReadResolver({
+      now: () => new Date(nowValue),
+    });
+    const gatedService = new ChatRoomService({
+      now: () => new Date(nowValue),
+      runtime: {
+        getOperationalRuntimeConfig: async () =>
+          createRuntimeConfigDTO("on", 1),
+      },
+      programMemberBatchReadResolver: {
+        resolveEligibleMemberships: async (...args) => {
+          canonicalStarted();
+          await canonicalReady;
+          return resolver.resolveEligibleMemberships(...args);
+        },
+      },
+    });
+    const statePending = gatedService.getMemberDeliveryStates(
       room._id.toString(),
-      recipientId.toString(),
+      [mentorId.toString()],
       1,
     );
-    await vi.waitFor(() => expect(total).toHaveBeenCalledOnce());
+    await canonicalStartedPromise;
 
-    await transactions.run((session) =>
-      new AlumniHelpRoomProvisioner().archiveInTransaction({
-        conversationId: room._id,
-        helpRequestId: room.helpRequestId!,
-        archivedAt: nowValue,
-        session,
-      }),
+    await Program.collection.updateOne(
+      { _id: programId },
+      { $set: { mentors: [], updatedAt: nowValue } },
     );
-    releaseTotal(1);
+    releaseCanonical();
 
-    await expect(statePending).resolves.toBeNull();
-    total.mockRestore();
+    await expect(statePending).resolves.toEqual([]);
   });
 
   it("continues delayed delivery inside an access window while runtime mode is read-only", async () => {
@@ -1274,7 +1663,19 @@ describe("M4 ChatRoomService integration", () => {
         actor: actor(recipientId),
         muted: true,
       }),
-    ).rejects.toMatchObject({ code: "CHAT_ROOM_READ_ONLY" });
+    ).resolves.toMatchObject({
+      conversationId: room._id.toString(),
+      muted: true,
+      chatUnreadTotal: 0,
+    });
+    await expect(
+      ConversationMember.findOne({
+        conversationId: room._id,
+        userId: recipientId,
+      })
+        .lean()
+        .orFail(),
+    ).resolves.toMatchObject({ status: "history_only", muted: true });
     await expect(
       service.listActiveRetainedMemberUserIds(room._id.toString(), 1),
     ).resolves.toEqual([]);
