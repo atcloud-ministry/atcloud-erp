@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 
 type WorkerListener = (event: any) => void;
 
-function loadWorker() {
+function loadWorker(version = "__PWA_VERSION__") {
   const source = readFileSync(
     resolve(process.cwd(), "pwa/service-worker.js"),
     "utf8",
+  ).replace(
+    'const SW_VERSION = "__PWA_VERSION__";',
+    `const SW_VERSION = ${JSON.stringify(version)};`,
   );
   const listeners = new Map<string, WorkerListener>();
   const setAppBadge = vi.fn().mockResolvedValue(undefined);
@@ -180,6 +183,92 @@ describe("PWA Service Worker security contracts", () => {
     expect(await response).toBe(cachedChunk);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(caches.delete).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit update confirmation and preserves private/offline deep-link recovery across versioned activation", async () => {
+    const {
+      listeners,
+      workerScope,
+      clients,
+      caches,
+      fetchMock,
+    } = loadWorker("release-v2");
+    let installation: Promise<unknown> | undefined;
+
+    listeners.get("install")?.({
+      waitUntil: (promise: Promise<unknown>) => {
+        installation = promise;
+      },
+    });
+    await installation;
+
+    // Installing an update only precaches its version. It may activate only
+    // after PwaExperience sends the explicit user-confirmed message.
+    expect(workerScope.skipWaiting).not.toHaveBeenCalled();
+    listeners.get("message")?.({ data: { type: "UPDATE_READY" } });
+    expect(workerScope.skipWaiting).not.toHaveBeenCalled();
+    listeners.get("message")?.({ data: { type: "SKIP_WAITING" } });
+    expect(workerScope.skipWaiting).toHaveBeenCalledOnce();
+
+    const deepLinkClient = {
+      url: "https://community.example/#/dashboard/chat-rooms/0123456789abcdef01234567",
+      navigate: vi.fn(),
+      focus: vi.fn(),
+    };
+    clients.matchAll.mockResolvedValueOnce([deepLinkClient]);
+    caches.keys.mockResolvedValueOnce([
+      "atcloud-pwa-precache-release-v1",
+      "atcloud-pwa-runtime-release-v1",
+      "atcloud-pwa-precache-release-v2",
+      "atcloud-pwa-runtime-release-v2",
+    ]);
+    let activation: Promise<unknown> | undefined;
+
+    listeners.get("activate")?.({
+      waitUntil: (promise: Promise<unknown>) => {
+        activation = promise;
+      },
+    });
+    await activation;
+
+    // An active deep-linked tab may still require its previous lazy chunks.
+    expect(caches.delete).not.toHaveBeenCalled();
+    expect(deepLinkClient.navigate).not.toHaveBeenCalled();
+
+    const cacheOpenCallsAfterInstall = caches.open.mock.calls.length;
+    const cacheMatchCallsAfterActivation = caches.match.mock.calls.length;
+    for (const path of ["/api/private", "/uploads/avatar.jpg", "/s/abc123"]) {
+      const respondWith = vi.fn();
+      listeners.get("fetch")?.({
+        request: new Request(`https://community.example${path}`),
+        respondWith,
+      });
+      expect(respondWith).not.toHaveBeenCalled();
+    }
+    expect(caches.open).toHaveBeenCalledTimes(cacheOpenCallsAfterInstall);
+    expect(caches.match).toHaveBeenCalledTimes(cacheMatchCallsAfterActivation);
+
+    const offlineResponse = new Response("You are offline", { status: 200 });
+    fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+    caches.match.mockImplementation(async (key: string) =>
+      key === "/offline.html" ? offlineResponse : undefined,
+    );
+    let fallback: Promise<Response> | undefined;
+    listeners.get("fetch")?.({
+      request: {
+        method: "GET",
+        mode: "navigate",
+        url: deepLinkClient.url,
+      },
+      respondWith: (promise: Promise<Response>) => {
+        fallback = promise;
+      },
+    });
+
+    await expect(fallback).resolves.toBe(offlineResponse);
+    expect(caches.match).toHaveBeenCalledWith("/offline.html");
+    expect(caches.open).toHaveBeenCalledTimes(cacheOpenCallsAfterInstall);
+    expect(deepLinkClient.navigate).not.toHaveBeenCalled();
   });
 
   it("accepts only the bounded room/help push payload contract", async () => {

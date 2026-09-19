@@ -214,4 +214,34 @@ describe("PWA installation and lifecycle UX", () => {
       type: "SKIP_WAITING",
     });
   });
+
+  it("keeps a waiting Service Worker inactive when the user selects Later", async () => {
+    const user = userEvent.setup();
+    const waiting = Object.assign(new EventTarget(), {
+      state: "installed",
+      postMessage: vi.fn(),
+    }) as unknown as ServiceWorker;
+    const registration = Object.assign(new EventTarget(), {
+      waiting,
+      installing: null,
+      update: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as ServiceWorkerRegistration;
+    const container = Object.assign(new EventTarget(), {
+      controller: {},
+      register: vi.fn().mockResolvedValue(registration),
+    }) as unknown as ServiceWorkerContainer;
+    setNavigatorValue("serviceWorker", container);
+
+    render(<PwaExperience registrationEnabled />);
+    await expect(
+      screen.findByRole("region", { name: "An @Cloud update is ready" }),
+    ).resolves.toBeVisible();
+    expect(waiting.postMessage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Later" }));
+    expect(waiting.postMessage).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("region", { name: "An @Cloud update is ready" }),
+    ).not.toBeInTheDocument();
+  });
 });

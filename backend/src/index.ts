@@ -24,6 +24,7 @@ import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvit
 import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
 import { assertWebPushConfiguration } from "./config/webPush";
 import { assertRateLimitProductionConfiguration } from "./middleware/rateLimiting";
+import { assertWebRuntimeIsNotRestoreIsolation } from "./config/restoreIsolation";
 
 const log = createLogger("App");
 
@@ -288,6 +289,8 @@ process.on("SIGINT", gracefulShutdown);
 // Start server
 const startServer = async () => {
   try {
+    assertWebRuntimeIsNotRestoreIsolation();
+
     // Never start production HTTP/Socket authentication with fallback secrets.
     TokenService.assertProductionConfiguration();
     assertRateLimitProductionConfiguration();
@@ -366,10 +369,13 @@ const startServer = async () => {
       });
     }
 
-    // Start maintenance scheduler
-    const maintenance = MaintenanceScheduler.getInstance();
-    maintenance.start();
-    log.info("Maintenance scheduler started");
+    // Start maintenance scheduler only with the same explicit scheduler gate
+    // used for event reminders and message cleanup.
+    if (schedulerEnabled) {
+      const maintenance = MaintenanceScheduler.getInstance();
+      maintenance.start();
+      log.info("Maintenance scheduler started");
+    }
 
     // Start message cleanup scheduler (automated daily cleanup at 2 AM)
     if (schedulerEnabled) {

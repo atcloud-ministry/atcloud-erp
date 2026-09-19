@@ -129,3 +129,83 @@ npm run -s alumni-import -- cancel --batch-id BATCH_OBJECT_ID \
 
 Exit code `0` 表示通过，`2` 表示 CLI 参数错误，`3` 表示 expectation、authorization、readiness、
 index 或 verification gate 未通过。保存 aggregate JSON、migration status 和 AuditLog evidence；完成后删除临时 CSV。
+
+## 7. Isolated restore qualification and recovery
+
+G1-03 使用 `recovery-qualification` 检查恢复副本，并使用 `recovery-reconcile`
+执行有界恢复批次。报告仅包含 collection counts、SHA-256 structural digests 和 aggregate
+recovery counts。
+
+1. 从同一 immutable Atlas snapshot 创建两个隔离的 restore database：一个 baseline，一个
+   recovery target。记录 snapshot ID、时间和两个 database name。
+2. 在 baseline 运行相同 release artifact，生成结构化 baseline manifest。使用仅授权该
+   restore database 的 Atlas credential，并使 URI 中的 database name 与
+   `RESTORE_ISOLATION_DATABASE` 完全一致：
+
+~~~bash
+export RESTORE_ISOLATION_MODE=true
+export RESTORE_ISOLATION_DATABASE='atcloud-restore-baseline-YYYYMMDD'
+export NOTIFICATION_OUTBOX_ENABLED=false
+export SCHEDULER_ENABLED=false
+export WEB_PUSH_ENABLED=false
+export ALUMNI_NETWORK_RELEASE_AVAILABLE=false
+export MONGODB_URI='RESTORED_BASELINE_DATABASE_URI_FROM_SECURE_STORE'
+
+cd backend
+npm run build
+npm run -s recovery-qualification -- inspect \
+  --confirm-db "$RESTORE_ISOLATION_DATABASE" --json \
+  > /restricted/restore-baseline-manifest.json
+~~~
+
+3. 将相同 isolation variables 配置到 recovery target；更新
+   `RESTORE_ISOLATION_DATABASE` 和 `MONGODB_URI` 后，用 baseline manifest 验证该副本：
+
+~~~bash
+export RESTORE_ISOLATION_DATABASE='atcloud-restore-recovery-YYYYMMDD'
+export MONGODB_URI='RESTORED_RECOVERY_DATABASE_URI_FROM_SECURE_STORE'
+
+npm run -s recovery-qualification -- verify \
+  --confirm-db "$RESTORE_ISOLATION_DATABASE" \
+  --manifest /restricted/restore-baseline-manifest.json --json
+~~~
+
+4. 准备受限的 account-deletion delta。它只包含 snapshot 创建后已删除的账号，保留源
+   `deletedAt`，并由 source AuditLog `alumni_account.deleted` 记录核对。没有条目时仍使用
+   空数组：
+
+~~~json
+{
+  "schemaVersion": 1,
+  "kind": "alumni_account_deletion_reconciliation",
+  "sourceSnapshotAt": "2026-09-19T00:00:00.000Z",
+  "entries": []
+}
+~~~
+
+5. 使用新的 UUID 执行一轮恢复。`incomplete` 时用新的 UUID 继续；transaction outcome
+   不确定时使用相同 UUID 重试。每个 manifest 的 Program membership checkpoint 会跨轮保存，
+   成功后保留 terminal checkpoint；并发轮次以 compare-and-set gate 停止并重新开始。
+
+~~~bash
+npm run -s recovery-reconcile -- execute --confirm-db "$RESTORE_ISOLATION_DATABASE" \
+  --operator RELEASE_CODE --idempotency-key UUID \
+  --account-deletion-manifest /restricted/account-deletions.json \
+  --execute --yes --json
+~~~
+
+每轮最多处理 100 个 account deletions、每类 retention 500 条、100 个 Program membership、
+500 个 audit logs、500 个 TTL records、500 个 outcome deadlines 和 100 个 outbox records。
+account-deletion delta 尚有记录时，先完成该 delta，再运行其余恢复项。
+
+6. 在恢复报告为 `completed` 后，对副本运行最终检查，并保存 aggregate JSON：
+
+~~~bash
+npm run -s recovery-qualification -- inspect \
+  --confirm-db "$RESTORE_ISOLATION_DATABASE" --json \
+  > /restricted/restore-recovery-final.json
+~~~
+
+`0` 表示完成，`2` 表示参数或 manifest 无效，`3` 表示 isolation、integrity、comparison 或
+recovery gate 未通过。Migration rollback 使用 [Database migrations](DATABASE_MIGRATIONS.md) 的
+rollback procedure，并记录 migration ledger evidence。

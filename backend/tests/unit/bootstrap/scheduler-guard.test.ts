@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mocks shared across tests
 const mockStart = vi.fn();
 const mockStop = vi.fn();
+const mockMaintenanceStart = vi.fn();
+const mockMaintenanceStop = vi.fn();
 const mockInitialize = vi.fn();
 const mockSocketShutdown = vi.fn().mockResolvedValue(undefined);
 const mockHttpEventHandlers = new Map<string, (...args: any[]) => void>();
@@ -132,7 +134,10 @@ vi.mock("../../../src/services/EventReminderScheduler", () => ({
 vi.mock("../../../src/services/MaintenanceScheduler", () => ({
   default: class {
     static getInstance() {
-      return { start: vi.fn(), stop: vi.fn() } as any;
+      return {
+        start: mockMaintenanceStart,
+        stop: mockMaintenanceStop,
+      } as any;
     }
   },
 }));
@@ -144,6 +149,7 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
     mockHttpEventHandlers.clear();
     // Ensure production so default dev-enabling does not apply
     process.env.NODE_ENV = "production";
+    delete process.env.RESTORE_ISOLATION_MODE;
     delete process.env.SCHEDULER_ENABLED;
     delete process.env.NOTIFICATION_OUTBOX_ENABLED;
     process.env.JWT_ACCESS_SECRET =
@@ -173,6 +179,7 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
 
     // Critical assertion: scheduler start was NOT called
     expect(mockStart).not.toHaveBeenCalled();
+    expect(mockMaintenanceStart).not.toHaveBeenCalled();
     expect(mockReliabilityInitialize).toHaveBeenCalledOnce();
     expect(mockAlumniDataInitialize).toHaveBeenCalledOnce();
     expect(mockReliabilityStart).toHaveBeenCalledOnce();
@@ -187,6 +194,25 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
       timeout: 1000,
     });
     expect(mockStart).toHaveBeenCalledOnce();
+    expect(mockMaintenanceStart).toHaveBeenCalledOnce();
+  });
+
+  it("refuses ordinary web startup in restore isolation mode", async () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    process.env.RESTORE_ISOLATION_MODE = "true";
+
+    await import("../../../src/index");
+
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1), {
+      timeout: 1000,
+    });
+    expect(mockReliabilityInitialize).not.toHaveBeenCalled();
+    expect(mockAlumniDataInitialize).not.toHaveBeenCalled();
+    expect(mockInitialize).not.toHaveBeenCalled();
+    expect(mockListen).not.toHaveBeenCalled();
+    exit.mockRestore();
   });
 
   it("fails closed before Socket.IO or HTTP starts when reliability initialization fails", async () => {

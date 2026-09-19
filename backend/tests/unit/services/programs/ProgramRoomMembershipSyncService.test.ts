@@ -5,8 +5,12 @@ import {
   ProgramMembershipSyncConflictError,
   ProgramRoomMembershipSyncService,
 } from "../../../../src/services/programs/ProgramRoomMembershipSyncService";
+import { RESTORE_RECOVERY_MEMBERSHIP_RUNTIME_READER } from "../../../../src/services/operations/RestoreRecoveryService";
 import type { ProgramMembershipResolution } from "../../../../src/services/programs/ProgramMembershipResolver";
-import { acquireProgramMembershipRuntimePermit } from "../../../../src/services/programs/ProgramMembershipRuntimeGate";
+import {
+  acquireProgramMembershipRuntimePermit,
+  type ProgramMembershipRuntimeReader,
+} from "../../../../src/services/programs/ProgramMembershipRuntimeGate";
 import { featureControlService } from "../../../../src/services/runtime/FeatureControlService";
 import type { IProgramCommunitySettings } from "../../../../src/models/ProgramCommunitySettings";
 import { conversationPurgeAt } from "../../../../src/contracts/chatRooms";
@@ -174,6 +178,7 @@ describe("ProgramRoomMembershipSyncService", () => {
   function service(
     maximumConflictAttempts = 3,
     now: () => Date = () => NOW,
+    configuredRuntimeReader: ProgramMembershipRuntimeReader = runtimeReader,
   ) {
     return new ProgramRoomMembershipSyncService({
       resolver: resolver as any,
@@ -185,7 +190,7 @@ describe("ProgramRoomMembershipSyncService", () => {
       audit,
       now,
       maximumConflictAttempts,
-      runtimeReader,
+      runtimeReader: configuredRuntimeReader,
     });
   }
 
@@ -238,6 +243,24 @@ describe("ProgramRoomMembershipSyncService", () => {
     });
     expect(transactions.run).not.toHaveBeenCalled();
     expect(resolver.resolveProgram).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a candidate with the restore-local reader while the normal release reader is off", async () => {
+    const normalReader = vi.spyOn(
+      featureControlService,
+      "getOperationalRuntimeConfig",
+    ).mockResolvedValue(createRuntimeConfigDTO("off", 9));
+
+    const result = await service(
+      3,
+      () => NOW,
+      RESTORE_RECOVERY_MEMBERSHIP_RUNTIME_READER,
+    ).reconcileProgram(PROGRAM_ID);
+
+    expect(result.paused).toBe(false);
+    expect(result.resolutionState).toBe("open");
+    expect(transactions.run).toHaveBeenCalledOnce();
+    expect(normalReader).not.toHaveBeenCalled();
   });
 
   it("does not accept a caller-fabricated runtime permit", async () => {

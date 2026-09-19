@@ -56,10 +56,53 @@ export interface ProgramMembershipReconciliationResult {
   readonly capacityPerRun: number;
 }
 
+/**
+ * A JSON-safe continuation point for an isolated, resumable reconciliation
+ * run.  It deliberately contains only collection cursor values, so it can be
+ * persisted by an operations tool without adding restore-specific fields to
+ * the normal reconciliation result.
+ */
+export interface ProgramMembershipReconciliationCheckpoint {
+  readonly settingsAfterId: string | null;
+  readonly anomalyAfterId: string | null;
+}
+
+export interface ProgramMembershipReconciliationCheckpointRun {
+  readonly result: ProgramMembershipReconciliationResult;
+  readonly checkpoint: ProgramMembershipReconciliationCheckpoint;
+}
+
+export const EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT =
+  Object.freeze({
+    settingsAfterId: null,
+    anomalyAfterId: null,
+  } satisfies ProgramMembershipReconciliationCheckpoint);
+
 interface Candidate {
   readonly _id: mongoose.Types.ObjectId;
   readonly programId: mongoose.Types.ObjectId;
 }
+
+interface InternalReconciliationCheckpoint {
+  readonly settingsAfterId: mongoose.Types.ObjectId | null;
+  readonly anomalyAfterId: mongoose.Types.ObjectId | null;
+}
+
+interface BoundedReconciliationExecution {
+  readonly result: ProgramMembershipReconciliationResult;
+  readonly checkpoint: InternalReconciliationCheckpoint;
+}
+
+type InFlightReconciliationExecution =
+  | {
+      readonly kind: "stateful";
+      readonly execution: Promise<ProgramMembershipReconciliationResult>;
+    }
+  | {
+      readonly kind: "checkpoint";
+      readonly checkpointKey: string;
+      readonly execution: Promise<ProgramMembershipReconciliationCheckpointRun>;
+    };
 
 type AnomalyCandidateLoader = (
   afterId: mongoose.Types.ObjectId | null,
@@ -103,6 +146,60 @@ function requireNow(value: Date): Date {
   return new Date(value);
 }
 
+function requireCheckpointId(
+  value: unknown,
+  label: string,
+): mongoose.Types.ObjectId | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{24}$/iu.test(value)) {
+    throw new TypeError(
+      `Program membership reconciliation ${label} checkpoint must be a 24-character ObjectId or null.`,
+    );
+  }
+  return new mongoose.Types.ObjectId(value);
+}
+
+function parseCheckpoint(
+  value: unknown,
+): InternalReconciliationCheckpoint {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(
+      "Program membership reconciliation checkpoint must be an object.",
+    );
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(record);
+  if (
+    keys.length !== 2 ||
+    !keys.includes("settingsAfterId") ||
+    !keys.includes("anomalyAfterId")
+  ) {
+    throw new TypeError(
+      "Program membership reconciliation checkpoint has invalid fields.",
+    );
+  }
+  return Object.freeze({
+    settingsAfterId: requireCheckpointId(record.settingsAfterId, "settings"),
+    anomalyAfterId: requireCheckpointId(record.anomalyAfterId, "anomaly"),
+  });
+}
+
+function serializeCheckpoint(
+  checkpoint: InternalReconciliationCheckpoint,
+): ProgramMembershipReconciliationCheckpoint {
+  return Object.freeze({
+    settingsAfterId: checkpoint.settingsAfterId?.toHexString() ?? null,
+    anomalyAfterId: checkpoint.anomalyAfterId?.toHexString() ?? null,
+  });
+}
+
+function checkpointKey(checkpoint: InternalReconciliationCheckpoint): string {
+  return [
+    checkpoint.settingsAfterId?.toHexString() ?? "",
+    checkpoint.anomalyAfterId?.toHexString() ?? "",
+  ].join(":");
+}
+
 /** Performs a bounded repair pass over Programs whose community is open now. */
 export class ProgramMembershipReconciliationService {
   private readonly now: () => Date;
@@ -118,8 +215,7 @@ export class ProgramMembershipReconciliationService {
   >;
   private readonly runtimeReader?: ProgramMembershipRuntimeReader;
   private readonly anomalyCandidateLoader: AnomalyCandidateLoader;
-  private inFlight: Promise<ProgramMembershipReconciliationResult> | null =
-    null;
+  private inFlight: InFlightReconciliationExecution | null = null;
   private lastCandidateId: mongoose.Types.ObjectId | null = null;
   private lastAnomalyCandidateId: mongoose.Types.ObjectId | null = null;
 
@@ -144,6 +240,45 @@ export class ProgramMembershipReconciliationService {
   async runBounded(
     runContext: ProgramMembershipReconciliationRunContext,
   ): Promise<ProgramMembershipReconciliationResult> {
+    await this.assertAuthorization(runContext);
+    for (;;) {
+      const active = this.inFlight;
+      if (!active) return this.startStatefulRun(runContext);
+      if (active.kind === "stateful") return active.execution;
+      await active.execution;
+    }
+  }
+
+  /**
+   * Performs one bounded reconciliation pass from caller-owned cursors.
+   * Unlike `runBounded`, this method never changes the scheduler's in-memory
+   * sweep position; callers persist the returned checkpoint themselves.
+   */
+  async runBoundedFromCheckpoint(
+    runContext: ProgramMembershipReconciliationRunContext,
+    checkpoint: ProgramMembershipReconciliationCheckpoint,
+  ): Promise<ProgramMembershipReconciliationCheckpointRun> {
+    const parsedCheckpoint = parseCheckpoint(checkpoint);
+    const requestedCheckpointKey = checkpointKey(parsedCheckpoint);
+    await this.assertAuthorization(runContext);
+    for (;;) {
+      const active = this.inFlight;
+      if (!active) {
+        return this.startCheckpointRun(runContext, parsedCheckpoint);
+      }
+      if (
+        active.kind === "checkpoint" &&
+        active.checkpointKey === requestedCheckpointKey
+      ) {
+        return active.execution;
+      }
+      await active.execution;
+    }
+  }
+
+  private async assertAuthorization(
+    runContext: ProgramMembershipReconciliationRunContext,
+  ): Promise<void> {
     await this.authorization.assertCapability(
       runContext,
       WORKER_CAPABILITIES.PROGRAM_MEMBERSHIP_RECONCILE,
@@ -154,12 +289,65 @@ export class ProgramMembershipReconciliationService {
         },
       },
     );
-    if (this.inFlight) return this.inFlight;
-    const execution = this.executeBounded(runContext);
-    this.inFlight = execution;
+  }
+
+  private startStatefulRun(
+    runContext: ProgramMembershipReconciliationRunContext,
+  ): Promise<ProgramMembershipReconciliationResult> {
+    const initialCheckpoint: InternalReconciliationCheckpoint = Object.freeze({
+      settingsAfterId: this.lastCandidateId,
+      anomalyAfterId: this.lastAnomalyCandidateId,
+    });
+    const execution = this.executeBounded(
+      runContext,
+      initialCheckpoint,
+      true,
+    ).then(
+      ({ result, checkpoint }) => {
+        if (!result.paused) {
+          this.lastCandidateId = checkpoint.settingsAfterId;
+          this.lastAnomalyCandidateId = checkpoint.anomalyAfterId;
+        }
+        return result;
+      },
+    );
+    const active: InFlightReconciliationExecution = {
+      kind: "stateful",
+      execution,
+    };
+    this.inFlight = active;
     void execution
       .finally(() => {
-        if (this.inFlight === execution) this.inFlight = null;
+        if (this.inFlight === active) this.inFlight = null;
+      })
+      .catch(() => undefined);
+    return execution;
+  }
+
+  private startCheckpointRun(
+    runContext: ProgramMembershipReconciliationRunContext,
+    initialCheckpoint: InternalReconciliationCheckpoint,
+  ): Promise<ProgramMembershipReconciliationCheckpointRun> {
+    const execution = this.executeBounded(
+      runContext,
+      initialCheckpoint,
+      false,
+    ).then(
+      ({ result, checkpoint }) =>
+        Object.freeze({
+          result,
+          checkpoint: serializeCheckpoint(checkpoint),
+        }),
+    );
+    const active: InFlightReconciliationExecution = {
+      kind: "checkpoint",
+      checkpointKey: checkpointKey(initialCheckpoint),
+      execution,
+    };
+    this.inFlight = active;
+    void execution
+      .finally(() => {
+        if (this.inFlight === active) this.inFlight = null;
       })
       .catch(() => undefined);
     return execution;
@@ -167,27 +355,32 @@ export class ProgramMembershipReconciliationService {
 
   private async executeBounded(
     runContext: ProgramMembershipReconciliationRunContext,
-  ): Promise<ProgramMembershipReconciliationResult> {
+    initialCheckpoint: InternalReconciliationCheckpoint,
+    cycleWhenExhausted: boolean,
+  ): Promise<BoundedReconciliationExecution> {
     const runtimePermit = await acquireProgramMembershipRuntimePermit(
       this.runtimeReader,
     );
     if (!runtimePermit) {
       return Object.freeze({
-        paused: true,
-        candidatesScanned: 0,
-        reconciledPrograms: 0,
-        createdMemberships: 0,
-        updatedRoles: 0,
-        closedMemberships: 0,
-        reactivatedMemberships: 0,
-        archivedRooms: 0,
-        ignoredPurchasesMissingStudentRoleId: 0,
-        ignoredPurchasesUnmappedStudentRoleId: 0,
-        deferredRevocations: 0,
-        deferredReactivations: 0,
-        racedOrUnavailable: 0,
-        hasMore: false,
-        capacityPerRun: this.limit,
+        result: Object.freeze({
+          paused: true,
+          candidatesScanned: 0,
+          reconciledPrograms: 0,
+          createdMemberships: 0,
+          updatedRoles: 0,
+          closedMemberships: 0,
+          reactivatedMemberships: 0,
+          archivedRooms: 0,
+          ignoredPurchasesMissingStudentRoleId: 0,
+          ignoredPurchasesUnmappedStudentRoleId: 0,
+          deferredRevocations: 0,
+          deferredReactivations: 0,
+          racedOrUnavailable: 0,
+          hasMore: false,
+          capacityPerRun: this.limit,
+        }),
+        checkpoint: initialCheckpoint,
       });
     }
     const queryNow = requireNow(this.now());
@@ -195,36 +388,58 @@ export class ProgramMembershipReconciliationService {
       PROGRAM_MEMBERSHIP_ANOMALY_CAPACITY,
       this.limit,
     );
-    let anomalyPageStartCursor = this.lastAnomalyCandidateId;
+    let anomalyPageStartCursor = initialCheckpoint.anomalyAfterId;
     let anomalies = await this.anomalyCandidateLoader(
       anomalyPageStartCursor,
       anomalyLimit + 1,
     );
-    if (anomalies.length === 0 && this.lastAnomalyCandidateId) {
-      this.lastAnomalyCandidateId = null;
+    if (
+      cycleWhenExhausted &&
+      anomalies.length === 0 &&
+      initialCheckpoint.anomalyAfterId
+    ) {
       anomalyPageStartCursor = null;
       anomalies = await this.anomalyCandidateLoader(null, anomalyLimit + 1);
     }
     const anomalyHasMore = anomalies.length > anomalyLimit;
     const selectedAnomalies = anomalies.slice(0, anomalyLimit);
     const settingsLimit = this.limit - selectedAnomalies.length;
-    let pageStartCursor = this.lastCandidateId;
+    let pageStartCursor = initialCheckpoint.settingsAfterId;
     let candidates =
       settingsLimit > 0
         ? await this.loadCandidates(queryNow, pageStartCursor, settingsLimit)
         : [];
-    // If every candidate after the prior cursor disappeared or closed, begin a
-    // new sweep in this run instead of wasting a full cadence on an empty page.
+    // The scheduler continuously sweeps, so it may restart after every
+    // candidate after its cursor disappeared or closed. A caller-owned restore
+    // checkpoint instead remains terminal at that point.
     if (
       settingsLimit > 0 &&
       candidates.length === 0 &&
-      this.lastCandidateId
+      initialCheckpoint.settingsAfterId &&
+      cycleWhenExhausted
     ) {
-      this.lastCandidateId = null;
       pageStartCursor = null;
       candidates = await this.loadCandidates(queryNow, null, settingsLimit);
     }
     const pageHasMore = candidates.length > settingsLimit;
+    let settingsHasMore = pageHasMore;
+    let nextSettingsAfterId = pageHasMore
+      ? (candidates[Math.max(0, settingsLimit - 1)]?._id ?? pageStartCursor)
+      : null;
+    // An anomaly page can consume all mutation capacity. In checkpoint mode,
+    // perform a one-record settings probe so an unvisited settings sweep is
+    // never incorrectly reported as complete or reset to its first page.
+    if (!cycleWhenExhausted && settingsLimit === 0) {
+      const settingsProbe = await this.loadCandidates(
+        queryNow,
+        initialCheckpoint.settingsAfterId,
+        0,
+      );
+      settingsHasMore = settingsProbe.length > 0;
+      nextSettingsAfterId = settingsHasMore
+        ? initialCheckpoint.settingsAfterId
+        : null;
+    }
     const anomalyProgramIds = new Set(
       selectedAnomalies.map((candidate) => candidate.programId.toString()),
     );
@@ -283,32 +498,45 @@ export class ProgramMembershipReconciliationService {
       deferredReactivations += result.deferredReactivations;
     }
 
-    if (!paused) {
-      this.lastCandidateId = pageHasMore
-        ? (candidates[Math.max(0, settingsLimit - 1)]?._id ?? pageStartCursor)
-        : null;
-      this.lastAnomalyCandidateId = anomalyHasMore
-        ? (selectedAnomalies[selectedAnomalies.length - 1]?._id ??
-          anomalyPageStartCursor)
-        : null;
-    }
+    // A normal scheduler sweep eventually wraps and retries a raced candidate.
+    // An externally persisted checkpoint must instead retain the entire prior
+    // page so a later clean recovery pass cannot falsely terminate after
+    // advancing beyond that candidate.
+    const retryCheckpoint =
+      !cycleWhenExhausted && racedOrUnavailable > 0;
+    const checkpoint = paused || retryCheckpoint
+      ? initialCheckpoint
+      : Object.freeze({
+          settingsAfterId: nextSettingsAfterId,
+          anomalyAfterId: anomalyHasMore
+            ? (selectedAnomalies[selectedAnomalies.length - 1]?._id ??
+              anomalyPageStartCursor)
+            : null,
+        });
 
     return Object.freeze({
-      paused,
-      candidatesScanned,
-      reconciledPrograms,
-      createdMemberships,
-      updatedRoles,
-      closedMemberships,
-      reactivatedMemberships,
-      archivedRooms,
-      ignoredPurchasesMissingStudentRoleId,
-      ignoredPurchasesUnmappedStudentRoleId,
-      deferredRevocations,
-      deferredReactivations,
-      racedOrUnavailable,
-      hasMore: paused || pageHasMore || anomalyHasMore,
-      capacityPerRun: this.limit,
+      result: Object.freeze({
+        paused,
+        candidatesScanned,
+        reconciledPrograms,
+        createdMemberships,
+        updatedRoles,
+        closedMemberships,
+        reactivatedMemberships,
+        archivedRooms,
+        ignoredPurchasesMissingStudentRoleId,
+        ignoredPurchasesUnmappedStudentRoleId,
+        deferredRevocations,
+        deferredReactivations,
+        racedOrUnavailable,
+        hasMore:
+          paused ||
+          retryCheckpoint ||
+          settingsHasMore ||
+          anomalyHasMore,
+        capacityPerRun: this.limit,
+      }),
+      checkpoint,
     });
   }
 

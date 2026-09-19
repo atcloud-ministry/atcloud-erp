@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeConfigDTO } from "../../../../src/contracts/runtimeConfig";
 import {
+  EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
   PROGRAM_MEMBERSHIP_RECONCILIATION_CAPACITY,
   ProgramMembershipReconciliationService,
 } from "../../../../src/services/programs/ProgramMembershipReconciliationService";
@@ -19,6 +20,13 @@ const SETTING_IDS = Array.from(
   (_, index) =>
     new mongoose.Types.ObjectId(
       `64e0000000000000000000${String(index + 1).padStart(2, "0")}`,
+    ),
+);
+const ANOMALY_IDS = Array.from(
+  { length: 4 },
+  (_, index) =>
+    new mongoose.Types.ObjectId(
+      `64f0000000000000000000${String(index + 1).padStart(2, "0")}`,
     ),
 );
 const RUN_CONTEXT = {
@@ -156,6 +164,324 @@ describe("ProgramMembershipReconciliationService", () => {
     );
     expect(first.createdMemberships).toBe(2);
     expect(third.candidatesScanned).toBe(1);
+  });
+
+  it("returns caller-owned settings checkpoints without changing the scheduler sweep", async () => {
+    const rows = PROGRAM_IDS.slice(0, 5).map((programId, index) => ({
+      _id: SETTING_IDS[index]!,
+      programId,
+    }));
+    const model = settingsModel(rows);
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: model as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    const first = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+    const second = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      first.checkpoint,
+    );
+    const third = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      second.checkpoint,
+    );
+
+    expect(first).toMatchObject({
+      result: { candidatesScanned: 2, hasMore: true },
+      checkpoint: {
+        settingsAfterId: SETTING_IDS[1]!.toHexString(),
+        anomalyAfterId: null,
+      },
+    });
+    expect(second).toMatchObject({
+      result: { candidatesScanned: 2, hasMore: true },
+      checkpoint: {
+        settingsAfterId: SETTING_IDS[3]!.toHexString(),
+        anomalyAfterId: null,
+      },
+    });
+    expect(third).toMatchObject({
+      result: { candidatesScanned: 1, hasMore: false },
+      checkpoint: EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    });
+    expect(model.find).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ _id: { $gt: SETTING_IDS[1] } }),
+    );
+    expect(model.find).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ _id: { $gt: SETTING_IDS[3] } }),
+    );
+
+    await service.runBounded(RUN_CONTEXT);
+    expect(model.find.mock.calls[3]![0]).not.toHaveProperty("_id");
+  });
+
+  it("returns a separately persisted anomaly checkpoint", async () => {
+    const anomalyRows = PROGRAM_IDS.slice(0, 4).map((programId, index) => ({
+      _id: ANOMALY_IDS[index]!,
+      programId,
+    }));
+    anomalyCandidateLoader.mockImplementation(
+      async (afterId: mongoose.Types.ObjectId | null, limit: number) =>
+        anomalyRows
+          .filter(
+            (candidate) =>
+              !afterId ||
+              candidate._id.toHexString() > afterId.toHexString(),
+          )
+          .slice(0, limit),
+    );
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: settingsModel([]) as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    const first = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+    const second = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      first.checkpoint,
+    );
+
+    expect(first.checkpoint).toEqual({
+      settingsAfterId: null,
+      anomalyAfterId: ANOMALY_IDS[1]!.toHexString(),
+    });
+    expect(second.checkpoint).toEqual(
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+    expect(anomalyCandidateLoader).toHaveBeenNthCalledWith(1, null, 3);
+    expect(anomalyCandidateLoader).toHaveBeenNthCalledWith(
+      2,
+      ANOMALY_IDS[1],
+      3,
+    );
+  });
+
+  it("does not wrap a persisted checkpoint when remaining candidates disappear", async () => {
+    const rows = PROGRAM_IDS.slice(0, 3).map((programId, index) => ({
+      _id: SETTING_IDS[index]!,
+      programId,
+    }));
+    const model = settingsModel(rows);
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: model as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    const first = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+    rows.splice(0, rows.length);
+    const exhausted = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      first.checkpoint,
+    );
+
+    expect(first).toMatchObject({
+      result: { hasMore: true },
+      checkpoint: {
+        settingsAfterId: SETTING_IDS[1]!.toHexString(),
+        anomalyAfterId: null,
+      },
+    });
+    expect(exhausted).toMatchObject({
+      result: { candidatesScanned: 0, hasMore: false },
+      checkpoint: EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    });
+    expect(model.find).toHaveBeenCalledTimes(2);
+    expect(model.find).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: { $gt: SETTING_IDS[1] } }),
+    );
+  });
+
+  it("does not wrap a persisted anomaly checkpoint when anomalies disappear", async () => {
+    const anomalyRows = PROGRAM_IDS.slice(0, 3).map((programId, index) => ({
+      _id: ANOMALY_IDS[index]!,
+      programId,
+    }));
+    anomalyCandidateLoader.mockImplementation(
+      async (afterId: mongoose.Types.ObjectId | null, limit: number) =>
+        anomalyRows
+          .filter(
+            (candidate) =>
+              !afterId ||
+              candidate._id.toHexString() > afterId.toHexString(),
+          )
+          .slice(0, limit),
+    );
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: settingsModel([]) as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    const first = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+    anomalyRows.splice(0, anomalyRows.length);
+    const exhausted = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      first.checkpoint,
+    );
+
+    expect(first.checkpoint.anomalyAfterId).toBe(
+      ANOMALY_IDS[1]!.toHexString(),
+    );
+    expect(exhausted).toMatchObject({
+      result: { candidatesScanned: 0, hasMore: false },
+      checkpoint: EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    });
+    expect(anomalyCandidateLoader).toHaveBeenCalledTimes(2);
+    expect(anomalyCandidateLoader).toHaveBeenLastCalledWith(ANOMALY_IDS[1], 3);
+  });
+
+  it("keeps an unvisited settings sweep pending when anomalies fill the pass", async () => {
+    anomalyCandidateLoader.mockResolvedValue(
+      PROGRAM_IDS.slice(0, 2).map((programId, index) => ({
+        _id: ANOMALY_IDS[index]!,
+        programId,
+      })),
+    );
+    const model = settingsModel([
+      { _id: SETTING_IDS[0]!, programId: PROGRAM_IDS[2]! },
+    ]);
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: model as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    const run = await service.runBoundedFromCheckpoint(
+      RUN_CONTEXT,
+      EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    );
+
+    expect(run).toMatchObject({
+      result: { candidatesScanned: 2, hasMore: true },
+      checkpoint: EMPTY_PROGRAM_MEMBERSHIP_RECONCILIATION_CHECKPOINT,
+    });
+    expect(model.find).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a supplied checkpoint unchanged when the runtime is paused", async () => {
+    runtimeReader.getOperationalRuntimeConfig.mockResolvedValue(
+      createRuntimeConfigDTO("read_only", 2),
+    );
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      settingsModel: settingsModel([]) as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+    const checkpoint = {
+      settingsAfterId: SETTING_IDS[0]!.toHexString().toUpperCase(),
+      anomalyAfterId: ANOMALY_IDS[0]!.toHexString().toUpperCase(),
+    };
+
+    const run = await service.runBoundedFromCheckpoint(RUN_CONTEXT, checkpoint);
+
+    expect(run).toMatchObject({
+      result: { paused: true, candidatesScanned: 0 },
+      checkpoint: {
+        settingsAfterId: SETTING_IDS[0]!.toHexString(),
+        anomalyAfterId: ANOMALY_IDS[0]!.toHexString(),
+      },
+    });
+    expect(authorization.assertCapability).toHaveBeenCalledWith(
+      RUN_CONTEXT,
+      "program.membership.reconcile",
+      expect.any(Object),
+    );
+    expect(anomalyCandidateLoader).not.toHaveBeenCalled();
+  });
+
+  it("retains the prior external checkpoint when a candidate races", async () => {
+    sync.reconcileProgram
+      .mockRejectedValueOnce(new Error("raced"))
+      .mockResolvedValueOnce(syncResult(PROGRAM_IDS[2]!));
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      limit: 2,
+      settingsModel: settingsModel([
+        { _id: SETTING_IDS[1]!, programId: PROGRAM_IDS[1]! },
+        { _id: SETTING_IDS[2]!, programId: PROGRAM_IDS[2]! },
+      ]) as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+    const checkpoint = {
+      settingsAfterId: SETTING_IDS[0]!.toHexString(),
+      anomalyAfterId: null,
+    };
+
+    const run = await service.runBoundedFromCheckpoint(RUN_CONTEXT, checkpoint);
+
+    expect(run).toMatchObject({
+      result: {
+        candidatesScanned: 2,
+        reconciledPrograms: 1,
+        racedOrUnavailable: 1,
+        hasMore: true,
+      },
+      checkpoint,
+    });
+  });
+
+  it("rejects malformed external checkpoints before reconciliation", async () => {
+    const service = new ProgramMembershipReconciliationService({
+      now: () => NOW,
+      settingsModel: settingsModel([]) as any,
+      sync: sync as any,
+      authorization: authorization as any,
+      runtimeReader,
+      anomalyCandidateLoader,
+    });
+
+    await expect(
+      service.runBoundedFromCheckpoint(RUN_CONTEXT, {
+        settingsAfterId: "not-an-object-id",
+        anomalyAfterId: null,
+      } as any),
+    ).rejects.toThrow("settings checkpoint must be a 24-character ObjectId");
+    expect(authorization.assertCapability).not.toHaveBeenCalled();
+    expect(anomalyCandidateLoader).not.toHaveBeenCalled();
   });
 
   it("authorizes every run and passes a fixed worker audit context to sync", async () => {

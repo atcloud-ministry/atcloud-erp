@@ -34,15 +34,34 @@ import {
   mongoTransactionService,
 } from "../reliability/MongoTransactionService";
 
-export interface AlumniAccountDeletionActor {
-  readonly id: string;
-  readonly role: string;
-}
+export const RESTORE_ACCOUNT_DELETION_ACTOR_KEY = "restore-recovery" as const;
+
+/**
+ * Ordinary account deletion is performed by an authenticated user.  The
+ * isolated restore workflow may replay an authoritative deletion manifest as
+ * a fixed system actor; it never accepts a caller-selected system identity.
+ */
+export type AlumniAccountDeletionActor =
+  | {
+      readonly type?: "user";
+      readonly id: string;
+      readonly role: string;
+    }
+  | {
+      readonly type: "system";
+      readonly key: string;
+    };
 
 export interface DeleteAlumniAccountInput {
   readonly targetUserId: string;
   readonly actor: AlumniAccountDeletionActor;
   readonly correlationId?: string;
+  /**
+   * Preserves the source deletion clock when replaying a deletion into an
+   * isolated restore.  Normal HTTP deletion continues to use the service
+   * clock.
+   */
+  readonly occurredAt?: Date;
 }
 
 export interface DeleteAlumniAccountResult {
@@ -84,6 +103,43 @@ function validNow(value: Date): Date {
   return new Date(value);
 }
 
+function systemActorKey(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value !== RESTORE_ACCOUNT_DELETION_ACTOR_KEY
+  ) {
+    throw new TypeError("Account deletion system actor key is invalid.");
+  }
+  return value;
+}
+
+function auditActor(
+  actor: AlumniAccountDeletionActor,
+): { readonly type: "user"; readonly id: string; readonly role: string } | {
+  readonly type: "system";
+  readonly key: string;
+} {
+  if (actor.type === "system") {
+    return Object.freeze({ type: "system" as const, key: systemActorKey(actor.key) });
+  }
+  if (actor.type !== undefined && actor.type !== "user") {
+    throw new TypeError("Account deletion actor type is invalid.");
+  }
+  objectId(actor.id, "actor.id");
+  if (
+    typeof actor.role !== "string" ||
+    actor.role.length < 1 ||
+    actor.role.length > 80
+  ) {
+    throw new TypeError("Account deletion actor role is invalid.");
+  }
+  return Object.freeze({
+    type: "user" as const,
+    id: actor.id,
+    role: actor.role,
+  });
+}
+
 /**
  * Applies the approved account-deletion clocks and deletes the account's live
  * delivery/session records atomically with the User record. Retained Help and
@@ -108,14 +164,19 @@ export class AlumniAccountDeletionService {
     transactionWork?: AlumniAccountDeletionTransactionWork,
   ): Promise<DeleteAlumniAccountResult> {
     const targetUserId = objectId(input.targetUserId, "targetUserId");
-    objectId(input.actor.id, "actor.id");
-    const now = validNow(this.now());
+    const actor = auditActor(input.actor);
+    if (input.occurredAt !== undefined && actor.type !== "system") {
+      throw new TypeError(
+        "Only the isolated restore actor may supply an account deletion time.",
+      );
+    }
+    const now = validNow(input.occurredAt ?? this.now());
 
     return this.transactions.run(async (session) => {
       if (transactionWork) {
         await transactionWork({ targetUserId, now, session });
       }
-      return this.deleteInTransaction(input, targetUserId, now, session);
+      return this.deleteInTransaction(input, actor, targetUserId, now, session);
     });
   }
 
@@ -295,6 +356,7 @@ export class AlumniAccountDeletionService {
 
   private async deleteInTransaction(
     input: DeleteAlumniAccountInput,
+    actor: ReturnType<typeof auditActor>,
     targetUserId: mongoose.Types.ObjectId,
     now: Date,
     session: ClientSession,
@@ -423,12 +485,8 @@ export class AlumniAccountDeletionService {
     await this.audit.recordRequiredInTransaction(
       {
         action: "alumni_account.deleted",
-        actor: {
-          type: "user",
-          id: input.actor.id,
-          role: input.actor.role,
-        },
-        source: "http",
+        actor,
+        source: actor.type === "system" ? "system" : "http",
         outcome: "success",
         target: { model: "User", id: targetUserId.toString() },
         correlationId: input.correlationId,

@@ -50,6 +50,10 @@ export interface IAuditLogModel extends mongoose.Model<IAuditLog> {
   purgeOldAuditLogs(
     retentionMonths?: number
   ): Promise<{ deletedCount: number }>;
+  purgeOldAuditLogsBounded(
+    limit: number,
+    retentionMonths?: number,
+  ): Promise<{ deletedCount: number; hasMore: boolean }>;
 }
 
 const auditLogSchema = new Schema<IAuditLog>(
@@ -160,6 +164,56 @@ auditLogSchema.statics.purgeOldAuditLogs = async function (
   });
 
   return { deletedCount: result.deletedCount || 0 };
+};
+
+/**
+ * Uses the same calendar-month policy as the scheduler while retaining a
+ * deterministic upper bound for an isolated restore-recovery pass.
+ */
+auditLogSchema.statics.purgeOldAuditLogsBounded = async function (
+  limit: number,
+  retentionMonths?: number,
+): Promise<{ deletedCount: number; hasMore: boolean }> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error("Audit log bounded purge limit must be an integer from 1 to 500.");
+  }
+  const months =
+    retentionMonths ??
+    retentionInteger(
+      process.env.AUDIT_LOG_RETENTION_MONTHS,
+      AUDIT_LOG_RETENTION_MONTHS,
+      "AUDIT_LOG_RETENTION_MONTHS",
+    );
+  if (!Number.isSafeInteger(months) || months < 1) {
+    throw new Error("Audit log retention months must be a positive safe integer.");
+  }
+  const cutoffDate = addUtcCalendarMonths(new Date(), -months);
+  const candidates = await this.find(
+    { createdAt: { $lt: cutoffDate } },
+    { _id: 1 },
+  )
+    // The `createdAt_1` retention index supports this filter/order pair.
+    // Avoid a secondary sort that could force a broad in-memory sort in a
+    // bounded restore-recovery pass.
+    .sort({ createdAt: 1 })
+    .limit(limit + 1)
+    .maxTimeMS(5_000)
+    .lean()
+    .exec();
+  const selected = candidates
+    .slice(0, limit)
+    .map((candidate: { readonly _id: mongoose.Types.ObjectId }) => candidate._id);
+  if (selected.length === 0) {
+    return { deletedCount: 0, hasMore: false };
+  }
+  const result = await this.deleteMany({
+    _id: { $in: selected },
+    createdAt: { $lt: cutoffDate },
+  });
+  return {
+    deletedCount: result.deletedCount || 0,
+    hasMore: candidates.length > limit || (result.deletedCount || 0) < selected.length,
+  };
 };
 
 interface MutableAuditLogJSON {
