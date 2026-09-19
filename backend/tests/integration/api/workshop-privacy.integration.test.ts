@@ -30,6 +30,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     await User.findOneAndUpdate(
       { email: "admin@example.com" },
@@ -54,6 +55,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550111",
     });
     await User.findOneAndUpdate(
@@ -79,6 +81,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550222",
     });
     await User.findOneAndUpdate(
@@ -104,6 +107,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550333",
     });
     await User.findOneAndUpdate(

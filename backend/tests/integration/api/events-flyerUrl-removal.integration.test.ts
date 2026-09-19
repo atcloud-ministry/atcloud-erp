@@ -33,6 +33,7 @@ describe("Events API - flyerUrl update/removal", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await retryRequest(() =>
       request(app).post("/api/auth/register").send(adminData).expect(201),

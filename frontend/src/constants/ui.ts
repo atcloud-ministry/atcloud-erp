@@ -7,11 +7,11 @@ export const UI_CONSTANTS = {
     secondary:
       "bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md font-medium transition-colors",
     success:
-      "bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium transition-colors",
+      "bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-md font-medium transition-colors",
     danger:
       "bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium transition-colors",
     warning:
-      "bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md font-medium transition-colors",
+      "bg-orange-700 hover:bg-orange-800 text-white px-4 py-2 rounded-md font-medium transition-colors",
     ghost:
       "bg-transparent text-gray-700 hover:text-gray-900 px-4 py-2 rounded-md font-medium transition-colors",
 
@@ -23,7 +23,7 @@ export const UI_CONSTANTS = {
     // Special variants
     link: "text-blue-600 hover:text-blue-800 underline",
     outline:
-      "border border-gray-300 hover:border-gray-400 bg-white text-gray-700 px-4 py-2 rounded-md font-medium transition-colors",
+      "border border-gray-500 hover:border-gray-700 bg-white text-gray-700 px-4 py-2 rounded-md font-medium transition-colors",
   },
 
   // Badge/Status styles
@@ -43,7 +43,7 @@ export const UI_CONSTANTS = {
   // Sort button styles
   SORT_BUTTON: {
     active: "bg-blue-50 border-blue-300 text-blue-700",
-    inactive: "bg-white border-gray-300 text-gray-700 hover:bg-gray-50",
+    inactive: "bg-white border-gray-500 text-gray-700 hover:bg-gray-50",
     base: "flex items-center gap-2 px-3 py-2 text-sm border rounded-md transition-colors",
   },
 
@@ -61,9 +61,9 @@ export const UI_CONSTANTS = {
 
   // Input styles
   INPUT_STYLES: {
-    base: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
-    error: "border-red-300 focus:ring-red-500 focus:border-red-500",
-    success: "border-green-300 focus:ring-green-500 focus:border-green-500",
+    base: "w-full px-3 py-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500",
+    error: "border-red-600 focus:ring-red-600 focus:border-red-600",
+    success: "border-green-700 focus:ring-green-700 focus:border-green-700",
   },
 
   // Animation classes

@@ -1,5 +1,10 @@
 import mongoose, { type ClientSession } from "mongoose";
-import { ALUMNI_HELP_TERMS } from "../../config/alumniHelpTerms";
+import {
+  ALUMNI_HELP_TERMS,
+  findAlumniHelpConsent,
+  findAlumniHelpDisclaimer,
+  type AlumniHelpTermDocument,
+} from "../../config/alumniHelpTerms";
 import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../config/alumniProfilePublicationConsent";
 import {
   ALUMNI_HELP_TRANSITIONS,
@@ -115,6 +120,11 @@ interface AlumniHelpRequestServiceDependencies {
 interface EligibleProvider {
   readonly profile: IAlumniProfile;
   readonly user: IUser;
+}
+
+interface ArchivedHelpTerms {
+  readonly consent: AlumniHelpTermDocument;
+  readonly disclaimer: AlumniHelpTermDocument;
 }
 
 function requestNotFound(): AlumniFlowError {
@@ -471,6 +481,8 @@ export class AlumniHelpRequestService {
     const request = await this.loadParticipantRequest(
       toObjectId(requestId, true),
       actorId,
+      undefined,
+      true,
     );
     const outcomes = await AlumniHelpOutcomeSubmission.find({
       helpRequestId: request._id,
@@ -507,6 +519,7 @@ export class AlumniHelpRequestService {
       }
     }
     const summary = summaryDto(request, actorId, latest);
+    const acceptedTerms = this.assertRequestTermsKnown(request);
     const dto: AlumniHelpRequestDTO = Object.freeze({
       ...summary,
       alumniProfileId: String(request.alumniProfileId),
@@ -520,6 +533,19 @@ export class AlumniHelpRequestService {
       startedAt: request.startedAt?.toISOString() ?? null,
       completedAt: request.completedAt?.toISOString() ?? null,
       closedAt: request.closedAt?.toISOString() ?? null,
+      termsAcceptedAt: request.termsAcceptedAt.toISOString(),
+      acceptedTerms: Object.freeze({
+        consent: Object.freeze({
+          version: acceptedTerms.consent.version,
+          text: acceptedTerms.consent.text,
+          effectiveAt: acceptedTerms.consent.effectiveAt,
+        }),
+        disclaimer: Object.freeze({
+          version: acceptedTerms.disclaimer.version,
+          text: acceptedTerms.disclaimer.text,
+          effectiveAt: acceptedTerms.disclaimer.effectiveAt,
+        }),
+      }),
     });
     return Object.freeze({
       request: dto,
@@ -540,7 +566,9 @@ export class AlumniHelpRequestService {
           requestedHelpType: input.requestedHelpType,
           openingNote: input.openingNote ?? null,
           consentVersion: input.consentVersion,
+          consentAccepted: input.consentAccepted,
           disclaimerVersion: input.disclaimerVersion,
+          disclaimerAccepted: input.disclaimerAccepted,
         },
         execute: async (session) => {
           // Keep time-varying policy checks inside the idempotent callback. A
@@ -590,6 +618,7 @@ export class AlumniHelpRequestService {
             consentDocumentHash: ALUMNI_HELP_TERMS.consent.documentHash,
             disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
             disclaimerDocumentHash: ALUMNI_HELP_TERMS.disclaimer.documentHash,
+            termsAcceptedAt: now,
             status: "requested",
             hasBeenAccepted: false,
             activeUniqueness: true,
@@ -702,7 +731,7 @@ export class AlumniHelpRequestService {
             );
           }
           if (input.action === "accept" || input.action === "confirm_alternative") {
-            this.assertRequestTermsCurrent(request);
+            this.assertRequestTermsKnown(request);
             const agreedType =
               input.action === "accept"
                 ? request.requestedHelpType
@@ -1167,15 +1196,20 @@ export class AlumniHelpRequestService {
     }
   }
 
-  private assertRequestTermsCurrent(request: IAlumniHelpRequest): void {
+  private assertRequestTermsKnown(
+    request: IAlumniHelpRequest,
+  ): ArchivedHelpTerms {
+    const consent = findAlumniHelpConsent(request.consentVersion);
+    const disclaimer = findAlumniHelpDisclaimer(request.disclaimerVersion);
     if (
-      request.consentVersion !== ALUMNI_HELP_TERMS.consent.version ||
-      request.consentDocumentHash !== ALUMNI_HELP_TERMS.consent.documentHash ||
-      request.disclaimerVersion !== ALUMNI_HELP_TERMS.disclaimer.version ||
-      request.disclaimerDocumentHash !== ALUMNI_HELP_TERMS.disclaimer.documentHash
+      !consent ||
+      consent.documentHash !== request.consentDocumentHash ||
+      !disclaimer ||
+      disclaimer.documentHash !== request.disclaimerDocumentHash
     ) {
       throw termsVersionInvalid();
     }
+    return Object.freeze({ consent, disclaimer });
   }
 
   private async loadEligibleProvider(

@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { User } from "../../models";
-import AuditLog from "../../models/AuditLog";
 import { ROLES } from "../../utils/roleUtils";
 import { AutoEmailNotificationService } from "../../services/infrastructure/autoEmailNotificationService";
 import { UnifiedMessageController } from "../unifiedMessageController";
@@ -10,15 +9,17 @@ import { lockService } from "../../services/LockService";
 import { ResponseHelper } from "../../utils/responseHelper";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
+
+const USER_DELETION_NOTICE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 /**
  * UserDeletionController
- * Handles deleteUser - permanent user deletion with cascade cleanup (Super Admin only)
+ * Handles account deletion and approved record lifecycles (Super Admin only)
  */
 export default class UserDeletionController {
   /**
-   * Delete user permanently (Super Admin only)
-   * WARNING: This permanently removes the user and all associated data
+   * Delete a user account (Super Admin only).
    */
   static async deleteUser(req: Request, res: Response): Promise<void> {
     try {
@@ -69,7 +70,8 @@ export default class UserDeletionController {
         async () => {
           return await UserDeletionService.deleteUserCompletely(
             userId,
-            currentUser
+            currentUser,
+            req.correlationId
           );
         },
         10000
@@ -99,26 +101,18 @@ export default class UserDeletionController {
         if (adminUsers.length > 0) {
           const adminUserIds = adminUsers.map((admin) => String(admin._id));
 
-          // Enhance admin message content to include username and full name
-          const deletedUserFullName =
-            [userToDelete.firstName, userToDelete.lastName]
-              .filter(Boolean)
-              .join(" ") ||
-            userToDelete.username ||
-            deletionReport.userEmail;
-          const deletedUserUsername = userToDelete.username;
-
           await UnifiedMessageController.createTargetedSystemMessage(
             {
               title: "User Account Deleted",
-              content: `User account ${deletedUserFullName} (@${deletedUserUsername}, ${
-                deletionReport.userEmail
-              }) was permanently deleted by ${formatActorDisplay(
+              content: `A user account was permanently deleted by ${formatActorDisplay(
                 currentUser
               )}.`,
               type: "user_management",
               priority: "high",
               hideCreator: true,
+              expiresAt: new Date(
+                Date.now() + USER_DELETION_NOTICE_RETENTION_MS,
+              ),
             },
             adminUserIds,
             {
@@ -138,7 +132,10 @@ export default class UserDeletionController {
           `✅ Sent user deletion notifications to ${adminUsers.length} admins`
         );
       } catch (error) {
-        console.error("❌ Failed to send admin deletion notifications:", error);
+        console.error("Admin deletion notification failed", {
+          targetUserId: userId,
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
       }
 
       // Additionally send admin emails about deletion using unified service
@@ -165,52 +162,17 @@ export default class UserDeletionController {
           }
         );
       } catch (notifyErr) {
-        console.error("Failed to send admin deletion emails:", notifyErr);
-      }
-
-      console.log(
-        `User completely deleted: ${deletionReport.userEmail} by Super Admin: ${currentUser.email}`
-      );
-
-      // Audit log for user deletion
-      try {
-        await AuditLog.create({
-          action: "user_deletion",
-          actor: {
-            id: currentUser._id,
-            role: currentUser.role,
-            email: currentUser.email,
-          },
-          targetModel: "User",
-          targetId: userId,
-          details: {
-            targetUser: {
-              id: userId,
-              email: deletionReport.userEmail,
-              name:
-                `${userToDelete.firstName || ""} ${
-                  userToDelete.lastName || ""
-                }`.trim() || userToDelete.username,
-              role: userToDelete.role,
-            },
-            deletionReport: {
-              registrations: deletionReport.deletedData.registrations,
-              eventsCreated: deletionReport.deletedData.eventsCreated,
-              eventOrganizations: deletionReport.deletedData.eventOrganizations,
-              messages: deletionReport.deletedData.messagesCreated,
-              affectedEvents: deletionReport.updatedStatistics.events.length,
-            },
-          },
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || "unknown",
+        console.error("Admin deletion email failed", {
+          targetUserId: userId,
+          errorType:
+            notifyErr instanceof Error ? notifyErr.name : "UnknownError",
         });
-      } catch (auditError) {
-        console.error(
-          "Failed to create audit log for user deletion:",
-          auditError
-        );
-        // Don't fail the request if audit logging fails
       }
+
+      console.log("User deletion request completed", {
+        targetUserId: userId,
+        actorId: String(currentUser._id),
+      });
 
       // Invalidate user-related caches after successful deletion
       await CachePatterns.invalidateUserCache(userId);
@@ -219,14 +181,18 @@ export default class UserDeletionController {
         res,
         {
           deletionReport,
-          summary: `Successfully deleted user ${userToDelete.firstName} ${userToDelete.lastName} and all associated data.`,
+          summary: `Successfully deleted the account for ${userToDelete.firstName} ${userToDelete.lastName}.`,
         },
-        `User ${userToDelete.firstName} ${userToDelete.lastName} has been permanently deleted along with all associated data.`,
+        `The account for ${userToDelete.firstName} ${userToDelete.lastName} has been deleted.`,
         200
       );
     } catch (error: unknown) {
-      console.error("Delete user error:", error);
-      ResponseHelper.serverError(res, error);
+      logSafeErrorEvent(
+        "ADMIN_USER_DELETION_FAILED",
+        error,
+        req.user?._id != null ? String(req.user._id) : undefined,
+      );
+      ResponseHelper.serverError(res);
     }
   }
 }

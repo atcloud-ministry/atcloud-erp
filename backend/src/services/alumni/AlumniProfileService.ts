@@ -1,5 +1,8 @@
 import mongoose, { type ClientSession } from "mongoose";
-import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../config/alumniProfilePublicationConsent";
+import {
+  ALUMNI_PROFILE_PUBLICATION_CONSENT,
+  findAlumniProfilePublicationConsent,
+} from "../../config/alumniProfilePublicationConsent";
 import {
   addUtcCalendarMonths,
   CONSENT_RECORD_RETENTION_MONTHS,
@@ -216,6 +219,20 @@ function toOwnDto(aggregate: OwnerAggregate): OwnAlumniProfileDTO {
     )
       ? aggregate.consent
       : null;
+  const acceptedDocument = pointedActiveConsent
+    ? findAlumniProfilePublicationConsent(pointedActiveConsent.consentVersion)
+    : undefined;
+  if (
+    pointedActiveConsent &&
+    (!acceptedDocument ||
+      pointedActiveConsent.documentHash !== acceptedDocument.documentHash)
+  ) {
+    throw new AlumniFlowError(
+      "ALUMNI_PROFILE_CONSENT_EVIDENCE_INVALID",
+      500,
+      "The publication consent evidence is invalid.",
+    );
+  }
   const hasCurrentPublicationConsent = Boolean(
     pointedActiveConsent?.consentVersion ===
       ALUMNI_PROFILE_PUBLICATION_CONSENT.version &&
@@ -227,6 +244,16 @@ function toOwnDto(aggregate: OwnerAggregate): OwnAlumniProfileDTO {
     publishStatus: aggregate.profile.publishStatus,
     consentVersion: pointedActiveConsent?.consentVersion ?? null,
     hasCurrentPublicationConsent,
+    acceptedPublicationConsent:
+      pointedActiveConsent && acceptedDocument
+        ? {
+            version: acceptedDocument.version,
+            text: acceptedDocument.text,
+            documentHash: acceptedDocument.documentHash,
+            effectiveAt: acceptedDocument.effectiveAt,
+            acceptedAt: pointedActiveConsent.acceptedAt,
+          }
+        : null,
     publishReadiness: publishReadiness(aggregate.user, aggregate.affiliations),
     revision: aggregate.profile.revision,
     publishedAt: aggregate.profile.publishedAt ?? null,

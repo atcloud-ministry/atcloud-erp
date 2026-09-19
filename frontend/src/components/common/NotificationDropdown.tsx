@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { useNavigate } from "react-router-dom";
 import { BellIcon } from "@heroicons/react/24/outline";
 import { Icon } from "../common";
@@ -41,6 +41,10 @@ interface BaseNotification {
 export default function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  const headingId = useId();
   const navigate = useNavigate();
   const {
     allNotifications,
@@ -65,6 +69,24 @@ export default function NotificationDropdown() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      panelRef.current?.focus();
+    });
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsOpen(false);
+      bellRef.current?.focus();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
 
   const handleNotificationClick = async (notification: BaseNotification) => {
     try {
@@ -103,10 +125,11 @@ export default function NotificationDropdown() {
 
   const handleDeleteNotification = async (
     e: React.MouseEvent,
-    notificationId: string
+    notificationId: string,
   ) => {
     e.stopPropagation(); // Prevent triggering the notification click
     await removeNotification(notificationId);
+    window.requestAnimationFrame(() => panelRef.current?.focus());
   };
 
   const formatTime = (dateString: string) => {
@@ -124,14 +147,15 @@ export default function NotificationDropdown() {
 
   const getSystemMessageTypeIcon = (
     type: string,
-    notification?: Pick<BaseNotification, "title">
+    notification?: Pick<BaseNotification, "title">,
   ) => {
     switch (type) {
       case "announcement":
         return (
           <img
             src="/marketing.svg"
-            alt="Marketing"
+            alt=""
+            aria-hidden="true"
             className="w-6 h-6"
             style={{
               filter:
@@ -140,7 +164,7 @@ export default function NotificationDropdown() {
           />
         );
       case "maintenance":
-        return <Icon name="shield-check" className="w-4 h-4 text-orange-400" />;
+        return <Icon name="shield-check" className="w-4 h-4 text-orange-700" />;
       case "update":
         return <Icon name="check-circle" className="w-4 h-4 text-green-600" />;
       case "warning":
@@ -149,7 +173,8 @@ export default function NotificationDropdown() {
         return (
           <img
             src="/permission-management.svg"
-            alt="Permission Management"
+            alt=""
+            aria-hidden="true"
             className="w-6 h-6"
             style={{
               filter:
@@ -170,7 +195,8 @@ export default function NotificationDropdown() {
         return (
           <img
             src="/change.svg"
-            alt="Role Change"
+            alt=""
+            aria-hidden="true"
             className="w-6 h-6"
             style={{
               filter:
@@ -182,7 +208,8 @@ export default function NotificationDropdown() {
         return (
           <img
             src="/marketing.svg"
-            alt="Marketing"
+            alt=""
+            aria-hidden="true"
             className="w-5 h-5"
             style={{
               filter:
@@ -244,7 +271,7 @@ export default function NotificationDropdown() {
         return (
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+              <div aria-hidden="true" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
                 {getSystemMessageTypeIcon(
                   notification.systemMessage?.type || "announcement",
                   notification
@@ -263,7 +290,7 @@ export default function NotificationDropdown() {
                   : ""}
               </p>
               {notification.systemMessage?.creator && (
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-600 mt-1">
                   From: {notification.systemMessage.creator.firstName}{" "}
                   {notification.systemMessage.creator.lastName}
                   {/* Show both authLevel and roleInAtCloud when available */}
@@ -290,7 +317,7 @@ export default function NotificationDropdown() {
         return (
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+              <div aria-hidden="true" className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
                 <Icon name="user" className="w-4 h-4 text-green-600" />
               </div>
             </div>
@@ -311,7 +338,7 @@ export default function NotificationDropdown() {
         return (
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+              <div aria-hidden="true" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
                 <Icon name="envelope" className="w-4 h-4 text-gray-600" />
               </div>
             </div>
@@ -322,7 +349,7 @@ export default function NotificationDropdown() {
               <p className="text-sm text-gray-500 break-words leading-relaxed">
                 {notification.message || "No content available"}
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 Type: {notification.type}
               </p>
             </div>
@@ -332,15 +359,36 @@ export default function NotificationDropdown() {
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+        }
+      }}
+      ref={dropdownRef}
+    >
       {/* Bell Button */}
       <button
+        aria-controls={panelId}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        aria-label={
+          totalUnreadCount > 0
+            ? `Notifications, ${totalUnreadCount} unread`
+            : "Notifications"
+        }
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+        className="relative flex min-h-11 min-w-11 items-center justify-center p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+        ref={bellRef}
+        type="button"
       >
-        <BellIcon className="w-6 h-6" />
+        <BellIcon aria-hidden="true" className="w-6 h-6" />
         {totalUnreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 min-w-5 px-1 flex items-center justify-center"
+          >
             {totalUnreadCount > 9 ? "9+" : totalUnreadCount}
           </span>
         )}
@@ -348,71 +396,107 @@ export default function NotificationDropdown() {
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+        <div
+          aria-labelledby={headingId}
+          className="fixed left-2 right-2 top-16 z-[60] mt-2 flex max-h-[calc(100vh-5rem)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg focus:outline-none sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:w-80"
+          id={panelId}
+          ref={panelRef}
+          role="dialog"
+          tabIndex={-1}
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Notifications</h3>
-            {totalUnreadCount > 0 && (
+            <h2 className="text-lg font-medium text-gray-900" id={headingId}>
+              Notifications
+            </h2>
+            <div className="flex items-center gap-1">
+              {totalUnreadCount > 0 && (
+                <button
+                  onClick={async () => {
+                    await markAllAsRead();
+                    setIsOpen(false);
+                    window.requestAnimationFrame(() => bellRef.current?.focus());
+                  }}
+                  className="min-h-11 text-sm text-blue-700 hover:text-blue-900 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                  type="button"
+                >
+                  Mark all read
+                </button>
+              )}
               <button
-                onClick={async () => {
-                  await markAllAsRead();
+                aria-label="Close notifications"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                onClick={() => {
                   setIsOpen(false);
+                  window.requestAnimationFrame(() => bellRef.current?.focus());
                 }}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                type="button"
               >
-                Mark all read
+                <Icon name="x-mark" className="h-5 w-5" />
               </button>
-            )}
+            </div>
           </div>
 
           {/* Notification List */}
-          <div className="max-h-64 sm:max-h-80 md:max-h-96 lg:max-h-[32rem] overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {/* Responsive height: mobile 16rem (256px), sm+ 20rem (320px), md+ 24rem (384px), lg+ 32rem (512px) */}
             {allNotifications.length === 0 ? (
               <div className="px-4 py-6 text-center text-gray-500">
-                <BellIcon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                <BellIcon aria-hidden="true" className="w-8 h-8 mx-auto mb-2 text-gray-400" />
                 <p>No notifications</p>
               </div>
             ) : (
-              allNotifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors duration-200 ${
-                    !notification.isRead ? "bg-blue-50" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div
-                      className="flex-1 pr-2 cursor-pointer"
-                      onClick={() => handleNotificationClick(notification)}
-                    >
-                      {renderNotificationContent(notification)}
-                    </div>
-                    <div className="flex-shrink-0 flex flex-col items-end space-y-1">
-                      <span className="text-xs text-gray-400">
-                        {formatTime(notification.createdAt)}
-                      </span>
-                      <div className="flex items-center space-x-1">
+              <ul aria-label="Recent notifications">
+                {allNotifications.map((notification) => (
+                  <li
+                    key={notification.id}
+                    className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors duration-200 ${
+                      !notification.isRead ? "bg-blue-50" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <button
+                        className="min-w-0 flex-1 pr-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                        onClick={() => handleNotificationClick(notification)}
+                        type="button"
+                      >
+                        {renderNotificationContent(notification)}
                         {!notification.isRead && (
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                          <span className="sr-only">Unread</span>
                         )}
-                        {/* Remove button - only show for READ notifications */}
-                        {notification.isRead && (
-                          <button
-                            onClick={(e) =>
-                              handleDeleteNotification(e, notification.id)
-                            }
-                            className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded"
-                            title="Remove notification"
-                          >
-                            <Icon name="x-mark" className="w-3 h-3" />
-                          </button>
-                        )}
+                      </button>
+                      <div className="flex-shrink-0 flex flex-col items-end space-y-1">
+                        <span className="text-xs text-gray-600">
+                          {formatTime(notification.createdAt)}
+                        </span>
+                        <div className="flex items-center space-x-1">
+                          {!notification.isRead && (
+                            <span
+                              aria-hidden="true"
+                              className="w-2 h-2 bg-blue-600 rounded-full"
+                            />
+                          )}
+                          {/* Remove button - only show for READ notifications */}
+                          {notification.isRead && (
+                            <button
+                              aria-label={`Remove ${
+                                notification.title || "notification"
+                              }`}
+                              onClick={(e) =>
+                                handleDeleteNotification(e, notification.id)
+                              }
+                              className="flex min-h-11 min-w-11 items-center justify-center rounded text-gray-600 transition-colors hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                              type="button"
+                            >
+                              <Icon name="x-mark" className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

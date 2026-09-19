@@ -33,4 +33,4 @@ process.env.FRONTEND_URL = "http://localhost:5173";
 // Test files run in isolated module graphs while sharing one worker database.
 // Pin schema options that would otherwise depend on whether dotenv happened to
 // load before a model import, which can create conflicting indexes per file.
-process.env.AUDIT_LOG_TTL_FALLBACK_DAYS = "730";
+process.env.AUDIT_LOG_TTL_FALLBACK_DAYS = "365";

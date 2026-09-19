@@ -15,6 +15,10 @@ import {
   type ReadinessComponent,
 } from "./OperationalMetricsBridge";
 import { awaitWithAbort } from "../../utils/abortablePromise";
+import {
+  migrationReadinessService,
+  type MigrationReadinessSnapshot,
+} from "../migrations/MigrationReadinessService";
 
 export interface ApplicationReadinessSnapshot {
   readonly ready: boolean;
@@ -32,10 +36,17 @@ interface ReliabilityReadinessPort {
   getStatusSnapshot(): ReliabilityFoundationStatusSnapshot;
 }
 
+interface MigrationReadinessPort {
+  getSnapshot(options?: {
+    readonly signal?: AbortSignal;
+  }): Promise<MigrationReadinessSnapshot>;
+}
+
 export interface ApplicationReadinessDependencies {
   readonly databaseProbe?: (signal: AbortSignal) => Promise<boolean>;
   readonly featureControl?: FeatureControlReadinessPort;
   readonly reliability?: ReliabilityReadinessPort;
+  readonly migrations?: MigrationReadinessPort;
   readonly probeTimeoutMs?: number;
   readonly cacheTtlMs?: number;
   readonly now?: () => number;
@@ -83,6 +94,7 @@ export class ApplicationReadinessService {
   private readonly databaseProbe: (signal: AbortSignal) => Promise<boolean>;
   private readonly featureControl: FeatureControlReadinessPort;
   private readonly reliability: ReliabilityReadinessPort;
+  private readonly migrations: MigrationReadinessPort;
   private readonly probeTimeoutMs: number;
   private readonly cacheTtlMs: number;
   private readonly now: () => number;
@@ -101,6 +113,7 @@ export class ApplicationReadinessService {
         "getOperationalRuntimeConfig"
       >);
     this.reliability = dependencies.reliability ?? reliabilityFoundationService;
+    this.migrations = dependencies.migrations ?? migrationReadinessService;
     this.probeTimeoutMs =
       dependencies.probeTimeoutMs ?? APPLICATION_READINESS_PROBE_TIMEOUT_MS;
     this.cacheTtlMs =
@@ -152,6 +165,7 @@ export class ApplicationReadinessService {
     let database = false;
     let reliability = false;
     let featureControl = false;
+    let migrations = false;
     let alumniNetworkMode: AlumniNetworkMode = "off";
 
     try {
@@ -179,6 +193,15 @@ export class ApplicationReadinessService {
 
       if (database) {
         try {
+          const snapshot = await awaitWithAbort(
+            this.migrations.getSnapshot({ signal: abortController.signal }),
+            abortController.signal,
+          );
+          migrations = snapshot.ready;
+        } catch {
+          migrations = false;
+        }
+        try {
           const runtime = await awaitWithAbort(
             this.featureControl.getOperationalRuntimeConfig({
               signal: abortController.signal,
@@ -191,6 +214,7 @@ export class ApplicationReadinessService {
           featureControl = false;
           alumniNetworkMode = "off";
         }
+        if (!migrations) alumniNetworkMode = "off";
       }
     } finally {
       clearTimeout(timeout);
@@ -200,6 +224,7 @@ export class ApplicationReadinessService {
       database,
       reliability,
       feature_control: featureControl,
+      migrations,
     });
     publishReadinessComponents(components);
     publishAlumniNetworkMode(alumniNetworkMode);

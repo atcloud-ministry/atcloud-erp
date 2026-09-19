@@ -47,6 +47,7 @@ describe("Guests Admin Resend Manage Link API", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(adminData);
     await User.findOneAndUpdate(
@@ -71,6 +72,7 @@ describe("Guests Admin Resend Manage Link API", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(userData);
     await User.findOneAndUpdate(

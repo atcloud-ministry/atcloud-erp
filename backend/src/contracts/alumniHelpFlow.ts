@@ -183,7 +183,11 @@ export const ALUMNI_HELP_TRANSITIONS = Object.freeze({
   }),
   decline: Object.freeze({
     actor: "provider",
-    from: Object.freeze(["requested"] as const),
+    from: Object.freeze([
+      "requested",
+      "needs_information",
+      "alternative_proposed",
+    ] as const),
     to: "declined",
   }),
   withdraw: Object.freeze({
@@ -238,7 +242,9 @@ export interface CreateHelpRequestBody {
   readonly requestedHelpType: AlumniHelpType;
   readonly openingNote?: string;
   readonly consentVersion: string;
+  readonly consentAccepted: true;
   readonly disclaimerVersion: string;
+  readonly disclaimerAccepted: true;
 }
 
 export interface HelpTransitionBody {
@@ -324,11 +330,21 @@ export interface AlumniHelpRequestDTO extends AlumniHelpRequestSummaryDTO {
   readonly withdrawnAt: string | null;
   readonly startedAt: string | null;
   readonly completedAt: string | null;
+  readonly termsAcceptedAt: string;
+  readonly acceptedTerms: AlumniHelpTermsDTO;
 }
 
 export interface AlumniHelpTermsDTO {
-  readonly consent: { readonly version: string; readonly text: string };
-  readonly disclaimer: { readonly version: string; readonly text: string };
+  readonly consent: {
+    readonly version: string;
+    readonly text: string;
+    readonly effectiveAt: string;
+  };
+  readonly disclaimer: {
+    readonly version: string;
+    readonly text: string;
+    readonly effectiveAt: string;
+  };
 }
 
 export interface AlumniHelpPaginationDTO {
@@ -457,6 +473,11 @@ function version(value: unknown, path: string): string {
   return value;
 }
 
+function literalTrue(value: unknown, path: string): true {
+  if (value !== true) return fail(path, `${path} must be true`);
+  return true;
+}
+
 export function parseCreateHelpRequestBody(
   value: unknown,
 ): CreateHelpRequestBody {
@@ -465,7 +486,9 @@ export function parseCreateHelpRequestBody(
     "requestedHelpType",
     "openingNote",
     "consentVersion",
+    "consentAccepted",
     "disclaimerVersion",
+    "disclaimerAccepted",
   ]);
   const openingNote = Object.prototype.hasOwnProperty.call(object, "openingNote")
     ? note(object.openingNote, "body.openingNote", true)
@@ -485,9 +508,17 @@ export function parseCreateHelpRequestBody(
       required(object, "consentVersion", "body"),
       "body.consentVersion",
     ),
+    consentAccepted: literalTrue(
+      required(object, "consentAccepted", "body"),
+      "body.consentAccepted",
+    ),
     disclaimerVersion: version(
       required(object, "disclaimerVersion", "body"),
       "body.disclaimerVersion",
+    ),
+    disclaimerAccepted: literalTrue(
+      required(object, "disclaimerAccepted", "body"),
+      "body.disclaimerAccepted",
     ),
   });
 }
@@ -619,10 +650,12 @@ export function buildAlumniHelpTermsDTO(): AlumniHelpTermsDTO {
     consent: Object.freeze({
       version: ALUMNI_HELP_TERMS.consent.version,
       text: ALUMNI_HELP_TERMS.consent.text,
+      effectiveAt: ALUMNI_HELP_TERMS.consent.effectiveAt,
     }),
     disclaimer: Object.freeze({
       version: ALUMNI_HELP_TERMS.disclaimer.version,
       text: ALUMNI_HELP_TERMS.disclaimer.text,
+      effectiveAt: ALUMNI_HELP_TERMS.disclaimer.effectiveAt,
     }),
   });
 }

@@ -19,6 +19,54 @@ function errorStatus(error: unknown): number | null {
   return Number.isInteger(status) ? status : null;
 }
 
+let refreshInFlight: Promise<AuthTokens> | null = null;
+
+type NavigatorWithLocks = Navigator & {
+  readonly locks?: {
+    request<T>(name: string, callback: () => Promise<T>): Promise<T>;
+  };
+};
+
+function currentAccessToken(): string | null {
+  return localStorage.getItem("authToken");
+}
+
+async function coordinateRefresh(
+  observedAccessToken: string | null,
+  refresh: () => Promise<AuthTokens>,
+): Promise<AuthTokens> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const coordinated = async (): Promise<AuthTokens> => {
+    const locks = (globalThis.navigator as NavigatorWithLocks | undefined)
+      ?.locks;
+    if (!locks) return refresh();
+
+    return locks.request("atcloud-refresh-token", async () => {
+      // Another tab may have completed rotation while this tab waited for the
+      // browser-wide lock. Reuse its access token instead of replaying the
+      // now-consumed HttpOnly refresh cookie.
+      const currentToken = currentAccessToken();
+      if (currentToken && currentToken !== observedAccessToken) {
+        socketService.updateAuthenticationToken(currentToken);
+        return {
+          accessToken: currentToken,
+          expiresAt: new Date(Date.now() + 55 * 60 * 1000).toISOString(),
+        };
+      }
+      return refresh();
+    });
+  };
+
+  const pending = coordinated();
+  refreshInFlight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (refreshInFlight === pending) refreshInFlight = null;
+  }
+}
+
 /**
  * Base API client with core request handling, authentication, and error management.
  * This class should be extended by domain-specific API modules.
@@ -257,41 +305,44 @@ export class BaseApiClient {
    * Protected so it can be overridden or exposed by subclasses
    */
   protected async refreshToken(): Promise<AuthTokens> {
-    const url = `${this.baseURL}/auth/refresh-token`;
-    const resp = await fetch(url, {
-      method: "POST",
-      credentials: "include",
-    });
-    let raw: unknown;
-    try {
-      raw = await resp.json();
-    } catch {
-      if (!resp.ok) {
-        throw httpError(
-          resp.statusText || `HTTP ${resp.status}`,
-          resp.status,
-        );
+    const observedAccessToken = currentAccessToken();
+    return coordinateRefresh(observedAccessToken, async () => {
+      const url = `${this.baseURL}/auth/refresh-token`;
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+      });
+      let raw: unknown;
+      try {
+        raw = await resp.json();
+      } catch {
+        if (!resp.ok) {
+          throw httpError(
+            resp.statusText || `HTTP ${resp.status}`,
+            resp.status,
+          );
+        }
+        throw new Error("Token refresh returned an invalid response");
       }
-      throw new Error("Token refresh returned an invalid response");
-    }
-    const data = raw as Partial<ApiResponse<AuthTokens>> &
-      Partial<AuthTokens> & {
-        data?: Partial<AuthTokens>;
-        message?: string;
-      };
-    if (!resp.ok) {
-      throw httpError(data?.message || `HTTP ${resp.status}`, resp.status);
-    }
-    const token = data.accessToken || data?.data?.accessToken;
-    if (token) {
-      localStorage.setItem("authToken", token);
-      socketService.updateAuthenticationToken(token);
-      const expiresAt =
-        data.expiresAt ||
-        data?.data?.expiresAt ||
-        new Date(Date.now() + 55 * 60 * 1000).toISOString();
-      return { accessToken: token, expiresAt };
-    }
-    throw new Error(data?.message || "Token refresh failed");
+      const data = raw as Partial<ApiResponse<AuthTokens>> &
+        Partial<AuthTokens> & {
+          data?: Partial<AuthTokens>;
+          message?: string;
+        };
+      if (!resp.ok) {
+        throw httpError(data?.message || `HTTP ${resp.status}`, resp.status);
+      }
+      const token = data.accessToken || data?.data?.accessToken;
+      if (token) {
+        localStorage.setItem("authToken", token);
+        socketService.updateAuthenticationToken(token);
+        const expiresAt =
+          data.expiresAt ||
+          data?.data?.expiresAt ||
+          new Date(Date.now() + 55 * 60 * 1000).toISOString();
+        return { accessToken: token, expiresAt };
+      }
+      throw new Error(data?.message || "Token refresh failed");
+    });
   }
 }

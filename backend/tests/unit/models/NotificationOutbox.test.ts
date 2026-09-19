@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import NotificationOutbox from "../../../src/models/NotificationOutbox";
+import NotificationOutbox, {
+  notificationOutboxTerminalPurgeAt,
+} from "../../../src/models/NotificationOutbox";
 import {
   hashOutboxDedupeKey,
   hashOutboxPayload,
@@ -66,6 +68,26 @@ describe("NotificationOutbox model", () => {
     await expect(dead.validate()).rejects.toThrow("deadAt");
   });
 
+  it("requires exact terminal retention clocks and no active purge clock", async () => {
+    const deliveredAt = new Date("2026-09-08T12:00:00.000Z");
+    const delivered = validDocument();
+    delivered.status = "delivered";
+    delivered.nextAttemptAt = null;
+    delivered.deliveredAt = deliveredAt;
+    delivered.purgeAt = notificationOutboxTerminalPurgeAt(
+      "delivered",
+      deliveredAt,
+    );
+    await expect(delivered.validate()).resolves.toBeUndefined();
+
+    delivered.purgeAt = new Date(delivered.purgeAt.getTime() - 1);
+    await expect(delivered.validate()).rejects.toThrow("30 fixed days");
+
+    const active = validDocument();
+    active.purgeAt = new Date("2026-10-08T12:00:00.000Z");
+    await expect(active.validate()).rejects.toThrow("cannot have purgeAt");
+  });
+
   it("rejects unsafe or oversized payloads", async () => {
     const unsafe = validDocument();
     unsafe.payload = { "$operator": "not-allowed" };
@@ -84,6 +106,13 @@ describe("NotificationOutbox model", () => {
         [
           { topic: 1, dedupeKeyHash: 1 },
           expect.objectContaining({ unique: true }),
+        ],
+        [
+          { purgeAt: 1 },
+          expect.objectContaining({
+            name: "purgeAt_1",
+            expireAfterSeconds: 0,
+          }),
         ],
       ]),
     );

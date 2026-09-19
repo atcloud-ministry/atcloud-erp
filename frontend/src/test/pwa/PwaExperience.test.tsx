@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PwaExperience from "../../components/pwa/PwaExperience";
 
@@ -102,10 +103,13 @@ describe("PWA installation and lifecycle UX", () => {
     setNavigatorValue("platform", "iPhone");
 
     render(<PwaExperience registrationEnabled={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Show steps" }));
+    const stepsButton = screen.getByRole("button", { name: "Show steps" });
+    expect(stepsButton).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(stepsButton);
 
     expect(screen.getByText("Open the browser Share menu.")).toBeVisible();
     expect(screen.getByText(/Add to Home Screen/)).toBeVisible();
+    expect(screen.getByRole("list")).toHaveFocus();
   });
 
   it("does not offer installation in standalone mode", () => {
@@ -125,6 +129,64 @@ describe("PWA installation and lifecycle UX", () => {
 
     expect(screen.getByRole("region", { name: "You are offline" })).toBeVisible();
     expect(screen.getByText(/Reconnect for current data/)).toBeVisible();
+  });
+
+  it("keeps keyboard focus from being obscured by its fixed card", () => {
+    render(
+      <>
+        <button type="button">Page action</button>
+        <PwaExperience registrationEnabled={false} />
+      </>,
+    );
+    act(() => window.dispatchEvent(new Event("offline")));
+    const card = screen.getByRole("region", { name: "You are offline" });
+    const action = screen.getByRole("button", { name: "Page action" });
+    const scrollIntoView = vi.fn();
+    action.scrollIntoView = scrollIntoView;
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+      bottom: 760,
+      height: 200,
+      left: 0,
+      right: 320,
+      top: 560,
+      width: 320,
+      x: 0,
+      y: 560,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(action, "getBoundingClientRect").mockReturnValue({
+      bottom: 620,
+      height: 40,
+      left: 20,
+      right: 180,
+      top: 580,
+      width: 160,
+      x: 20,
+      y: 580,
+      toJSON: () => ({}),
+    });
+
+    action.focus();
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "center",
+      inline: "nearest",
+    });
+  });
+
+  it("restores prior focus when an install card is dismissed", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Page action</button>
+        <PwaExperience registrationEnabled={false} />
+      </>,
+    );
+    const pageAction = screen.getByRole("button", { name: "Page action" });
+    pageAction.focus();
+    act(() => window.dispatchEvent(new InstallPromptEvent("dismissed")));
+
+    await user.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(pageAction).toHaveFocus());
   });
 
   it("lets the user activate a waiting Service Worker", async () => {

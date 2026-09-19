@@ -36,6 +36,7 @@ describe("Participant multi-role capability (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 
@@ -72,6 +73,7 @@ describe("Participant multi-role capability (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 

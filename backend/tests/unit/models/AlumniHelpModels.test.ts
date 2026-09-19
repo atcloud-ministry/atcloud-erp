@@ -32,6 +32,7 @@ function requested(overrides: Record<string, unknown> = {}) {
     consentDocumentHash: ALUMNI_HELP_TERMS.consent.documentHash,
     disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
     disclaimerDocumentHash: ALUMNI_HELP_TERMS.disclaimer.documentHash,
+    termsAcceptedAt: occurredAt,
     status: "requested",
     hasBeenAccepted: false,
     lifecycleTimeline: [

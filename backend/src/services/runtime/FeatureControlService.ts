@@ -26,6 +26,10 @@ import {
   MongoTransactionCommitUncertainError,
 } from "../reliability/MongoTransactionService";
 import { awaitWithAbort } from "../../utils/abortablePromise";
+import {
+  migrationReadinessService,
+  type MigrationReadinessService,
+} from "../migrations/MigrationReadinessService";
 
 const ACTOR_ID_PATTERN = /^[a-fA-F0-9]{24}$/;
 const ACTOR_ROLE_PATTERN = /^[A-Za-z][A-Za-z0-9 _-]*$/;
@@ -58,6 +62,7 @@ export interface FeatureControlServiceDependencies {
   readonly writeRequiredAudit?: RequiredAuditWriter;
   readonly casUpdate?: FeatureControlCasUpdate;
   readonly releaseAvailable?: () => boolean;
+  readonly migrationReadiness?: Pick<MigrationReadinessService, "assertReady">;
   readonly readTimeoutMs?: number;
 }
 
@@ -130,6 +135,10 @@ export class FeatureControlService {
   private readonly writeRequiredAudit: RequiredAuditWriter;
   private readonly casUpdate: FeatureControlCasUpdate;
   private readonly releaseAvailable: () => boolean;
+  private readonly migrationReadiness: Pick<
+    MigrationReadinessService,
+    "assertReady"
+  >;
   private readonly readTimeoutMs: number;
 
   constructor(dependencies: FeatureControlServiceDependencies = {}) {
@@ -143,6 +152,8 @@ export class FeatureControlService {
       ((input) => CasService.update<IFeatureControl>(input));
     this.releaseAvailable =
       dependencies.releaseAvailable ?? readAlumniNetworkReleaseAvailable;
+    this.migrationReadiness =
+      dependencies.migrationReadiness ?? migrationReadinessService;
     this.readTimeoutMs =
       dependencies.readTimeoutMs ?? FEATURE_CONTROL_READ_TIMEOUT_MS;
     if (!Number.isSafeInteger(this.readTimeoutMs) || this.readTimeoutMs < 1) {
@@ -171,7 +182,11 @@ export class FeatureControlService {
       throw new Error("Stored feature control mode is invalid.");
     }
 
-    const effectiveMode = this.releaseAvailable() ? storedMode : "off";
+    const releaseAvailable = this.releaseAvailable();
+    if (releaseAvailable && storedMode !== "off") {
+      await awaitWithAbort(this.migrationReadiness.assertReady({ signal }), signal);
+    }
+    const effectiveMode = releaseAvailable ? storedMode : "off";
     return createRuntimeConfigDTO(effectiveMode, revision);
   }
 
@@ -197,6 +212,13 @@ export class FeatureControlService {
     }
     if (input.mode !== "off" && !releaseAvailable) {
       throw new FeatureControlReleaseUnavailableError();
+    }
+    if (input.mode !== "off") {
+      const signal = AbortSignal.timeout(this.readTimeoutMs);
+      await awaitWithAbort(
+        this.migrationReadiness.assertReady({ signal }),
+        signal,
+      );
     }
 
     let updated: HydratedDocument<IFeatureControl>;

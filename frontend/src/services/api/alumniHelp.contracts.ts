@@ -155,11 +155,13 @@ export interface AlumniHelpRequestDetailDTO
   withdrawnAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  termsAcceptedAt: string;
+  acceptedTerms: AlumniHelpTermsDTO;
 }
 
 export interface AlumniHelpTermsDTO {
-  consent: { version: string; text: string };
-  disclaimer: { version: string; text: string };
+  consent: { version: string; text: string; effectiveAt: string };
+  disclaimer: { version: string; text: string; effectiveAt: string };
 }
 
 export interface AlumniHelpRequestPageDTO {
@@ -503,6 +505,8 @@ const DETAIL_KEYS = [
   "withdrawnAt",
   "startedAt",
   "completedAt",
+  "termsAcceptedAt",
+  "acceptedTerms",
 ] as const;
 
 export function decodeAlumniHelpRequestDetail(
@@ -534,6 +538,14 @@ export function decodeAlumniHelpRequestDetail(
     withdrawnAt: nullableDateAt(detail.withdrawnAt, `${path}.withdrawnAt`),
     startedAt: nullableDateAt(detail.startedAt, `${path}.startedAt`),
     completedAt: nullableDateAt(detail.completedAt, `${path}.completedAt`),
+    termsAcceptedAt: dateAt(
+      detail.termsAcceptedAt,
+      `${path}.termsAcceptedAt`,
+    ),
+    acceptedTerms: decodeTerms(
+      detail.acceptedTerms,
+      `${path}.acceptedTerms`,
+    ),
   };
 }
 
@@ -629,22 +641,24 @@ export function decodeAlumniHelpActionRequiredCount(value: unknown): number {
 function decodeTerm(
   value: unknown,
   path: string,
-): { version: string; text: string } {
-  const term = exactObjectAt(value, path, ["version", "text"]);
+): { version: string; text: string; effectiveAt: string } {
+  const term = exactObjectAt(value, path, ["version", "text", "effectiveAt"]);
   return {
     version: nonemptyStringAt(term.version, `${path}.version`),
     text: nonemptyStringAt(term.text, `${path}.text`),
+    effectiveAt: dateAt(term.effectiveAt, `${path}.effectiveAt`),
+  };
+}
+
+function decodeTerms(value: unknown, path: string): AlumniHelpTermsDTO {
+  const terms = exactObjectAt(value, path, ["consent", "disclaimer"]);
+  return {
+    consent: decodeTerm(terms.consent, `${path}.consent`),
+    disclaimer: decodeTerm(terms.disclaimer, `${path}.disclaimer`),
   };
 }
 
 export function decodeAlumniHelpTerms(value: unknown): AlumniHelpTermsDTO {
   const data = exactObjectAt(value, "data", ["terms"]);
-  const terms = exactObjectAt(data.terms, "data.terms", [
-    "consent",
-    "disclaimer",
-  ]);
-  return {
-    consent: decodeTerm(terms.consent, "data.terms.consent"),
-    disclaimer: decodeTerm(terms.disclaimer, "data.terms.disclaimer"),
-  };
+  return decodeTerms(data.terms, "data.terms");
 }

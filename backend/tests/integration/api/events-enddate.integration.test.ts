@@ -21,6 +21,7 @@ describe("Event endDate support", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = reg.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

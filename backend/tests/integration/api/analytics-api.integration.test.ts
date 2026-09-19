@@ -23,6 +23,7 @@ describe("Analytics API integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(p).expect(201);
     await User.findOneAndUpdate({ email: p.email }, { isVerified: true });
@@ -44,6 +45,7 @@ describe("Analytics API integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(a).expect(201);
     await User.findOneAndUpdate(

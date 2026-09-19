@@ -19,6 +19,7 @@ describe("Auth Username Validation (Option C)", () => {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   };
 
   it("rejects invalid username format", async () => {

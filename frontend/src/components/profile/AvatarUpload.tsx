@@ -42,12 +42,17 @@ export default function AvatarUpload({
       <div className="relative mb-4">
         <img
           src={displayAvatar}
-          alt="Profile Avatar"
+          alt={fullName ? `${fullName}'s Profile Avatar` : "Profile Avatar"}
           className="w-32 h-32 rounded-full object-cover border-4 border-gray-200"
         />
         {isEditing && (
-          <label className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 transition-colors">
+          <label
+            className="absolute bottom-0 right-0 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-blue-600 p-2 text-white transition-colors hover:bg-blue-700 focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2"
+            htmlFor="profile-avatar-upload"
+          >
+            <span className="sr-only">Change profile picture</span>
             <svg
+              aria-hidden="true"
               className="w-4 h-4"
               fill="none"
               stroke="currentColor"
@@ -67,17 +72,20 @@ export default function AvatarUpload({
               />
             </svg>
             <input
+              aria-describedby="profile-avatar-upload-help"
+              aria-label="Change profile picture"
               type="file"
               accept={AVATAR_UPLOAD_CONFIG.acceptedTypes}
+              id="profile-avatar-upload"
               onChange={handleAvatarChange}
-              className="hidden"
+              className="sr-only"
             />
           </label>
         )}
       </div>
       {isEditing && (
-        <p className="text-sm text-gray-600 text-center">
-          Click the camera icon to change your profile picture
+        <p className="text-sm text-gray-600 text-center" id="profile-avatar-upload-help">
+          Choose the camera button to change your profile picture
         </p>
       )}
 

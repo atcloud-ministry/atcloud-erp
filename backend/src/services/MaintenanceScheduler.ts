@@ -10,6 +10,7 @@ import AuditLog from "../models/AuditLog";
 import { alumniRetentionCleanupService } from "./alumni/AlumniRetentionCleanupService";
 import { alumniOutcomeDeadlineService } from "./alumni/AlumniOutcomeDeadlineService";
 import { chatUnreadReconciliationService } from "./chat/ChatUnreadReconciliationService";
+import { fileCleanupService } from "./privacy/FileCleanupService";
 import {
   PROGRAM_MEMBERSHIP_RECONCILIATION_CAPACITY,
   programMembershipReconciliationService,
@@ -47,6 +48,7 @@ class MaintenanceScheduler {
       await this.purgeOldAuditLogs();
       await this.purgeAlumniRetentionData(WORKER_RUN_TRIGGERS.SCHEDULED);
       await this.reconcileChatUnread(WORKER_RUN_TRIGGERS.SCHEDULED);
+      await this.retryFileCleanup();
     }, 60 * 60 * 1000);
 
     this.intervals.push(hourly);
@@ -65,7 +67,28 @@ class MaintenanceScheduler {
       await this.purgeOldAuditLogs();
       await this.purgeAlumniRetentionData(WORKER_RUN_TRIGGERS.STARTUP);
       await this.reconcileChatUnread(WORKER_RUN_TRIGGERS.STARTUP);
+      await this.retryFileCleanup();
     }, 10 * 1000);
+  }
+
+  private async retryFileCleanup(): Promise<void> {
+    try {
+      const results = await fileCleanupService.processPending();
+      const completed = results.filter(
+        ({ outcome }) =>
+          outcome === "deleted" || outcome === "already_absent",
+      ).length;
+      if (completed > 0) {
+        log.info("Completed durable file cleanup", undefined, { completed });
+      }
+    } catch (error) {
+      log.error(
+        "Failed to process durable file cleanup",
+        error instanceof Error ? error : undefined,
+        undefined,
+        { errorType: error instanceof Error ? error.name : "UnknownError" },
+      );
+    }
   }
 
   public stop(): void {

@@ -35,7 +35,9 @@ export interface CreateAlumniHelpRequestInput {
   requestedHelpType: AlumniHelpType;
   openingNote?: string;
   consentVersion: string;
+  consentAccepted: true;
   disclaimerVersion: string;
+  disclaimerAccepted: true;
 }
 
 type LifecycleEndpoint =

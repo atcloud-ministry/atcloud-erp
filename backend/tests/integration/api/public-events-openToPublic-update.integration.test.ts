@@ -32,6 +32,7 @@ describe("Public Events API - openToPublic role update behavior", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await request(app).post("/api/auth/register").send(adminData).expect(201);
     await User.findOneAndUpdate(

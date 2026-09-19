@@ -37,6 +37,7 @@ describe("Publish necessary fields enforcement", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(admin);

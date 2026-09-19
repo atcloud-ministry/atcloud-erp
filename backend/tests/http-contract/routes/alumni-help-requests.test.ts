@@ -104,6 +104,19 @@ const DETAIL = Object.freeze({
   withdrawnAt: null,
   startedAt: null,
   completedAt: null,
+  termsAcceptedAt: "2026-09-12T12:00:00.000Z",
+  acceptedTerms: Object.freeze({
+    consent: Object.freeze({
+      version: "alumni-help-consent-v1",
+      text: "Archived consent",
+      effectiveAt: "2026-09-12T00:00:00.000Z",
+    }),
+    disclaimer: Object.freeze({
+      version: "alumni-help-disclaimer-v1",
+      text: "Archived disclaimer",
+      effectiveAt: "2026-09-12T00:00:00.000Z",
+    }),
+  }),
 });
 
 const REQUEST_DATA = Object.freeze({
@@ -197,7 +210,9 @@ describe("alumni help request HTTP contracts", () => {
       alumniProfileId: PROFILE_ID,
       requestedHelpType: "career_advice",
       consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
       disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
     };
 
     setRuntimeMode("off");
@@ -259,10 +274,12 @@ describe("alumni help request HTTP contracts", () => {
           consent: {
             version: ALUMNI_HELP_TERMS.consent.version,
             text: ALUMNI_HELP_TERMS.consent.text,
+            effectiveAt: ALUMNI_HELP_TERMS.consent.effectiveAt,
           },
           disclaimer: {
             version: ALUMNI_HELP_TERMS.disclaimer.version,
             text: ALUMNI_HELP_TERMS.disclaimer.text,
+            effectiveAt: ALUMNI_HELP_TERMS.disclaimer.effectiveAt,
           },
         },
       },
@@ -292,7 +309,9 @@ describe("alumni help request HTTP contracts", () => {
       alumniProfileId: PROFILE_ID,
       requestedHelpType: "career_advice",
       consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
       disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
     };
 
     const unknownQuery = await member(
@@ -345,7 +364,9 @@ describe("alumni help request HTTP contracts", () => {
         requestedHelpType: "career_advice",
         openingNote: "  Could   we discuss product management?  ",
         consentVersion: ALUMNI_HELP_TERMS.consent.version,
+        consentAccepted: true,
         disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+        disclaimerAccepted: true,
       })
       .expect(201);
 
@@ -354,7 +375,9 @@ describe("alumni help request HTTP contracts", () => {
       requestedHelpType: "career_advice",
       openingNote: "Could we discuss product management?",
       consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
       disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
       actor: { id: USER_ID, role: "Participant" },
       idempotencyKey: IDEMPOTENCY_KEY,
       correlationId: "alumni-help-http",

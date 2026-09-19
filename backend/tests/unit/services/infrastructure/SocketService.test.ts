@@ -237,6 +237,11 @@ describe("SocketService", () => {
       (vi.mocked(jwt.verify) as any).mockReturnValue({
         userId: USER_ID,
         exp: ACCESS_TOKEN_EXP,
+        iat: 1_700_000_002,
+      });
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        passwordChangedAt: new Date(1_700_000_001_750),
       });
 
       await authenticateSocketFn(mockSocket, nextFn);
@@ -244,7 +249,15 @@ describe("SocketService", () => {
       expect(jwt.verify).toHaveBeenCalledWith(
         "valid-jwt-token",
         process.env.JWT_ACCESS_SECRET || "your-access-secret-key",
-        { issuer: "atcloud-system", audience: "atcloud-users" },
+        {
+          issuer: "atcloud-system",
+          audience: "atcloud-users",
+          algorithms: ["HS256"],
+        },
+      );
+      expect(User.findById).toHaveBeenCalledWith(
+        USER_ID,
+        "_id firstName lastName role isActive isVerified +passwordChangedAt",
       );
       expect(mockSocket.userId).toBe(USER_ID);
       expect(mockSocket.user).toEqual({
@@ -337,6 +350,39 @@ describe("SocketService", () => {
       );
     });
 
+    it("rejects a socket access token issued before the password changed", async () => {
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+        iat: 1_700_000_000,
+      });
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        passwordChangedAt: new Date(1_700_000_001_000),
+      });
+
+      await authenticateSocketFn(mockSocket, nextFn);
+
+      expect(nextFn).toHaveBeenCalledWith(new Error("Authentication failed"));
+      expect(mockSocket.userId).toBe("user123");
+    });
+
+    it("rejects a socket access token from the ambiguous password-change second", async () => {
+      (vi.mocked(jwt.verify) as any).mockReturnValue({
+        userId: USER_ID,
+        exp: ACCESS_TOKEN_EXP,
+        iat: 1_700_000_001,
+      });
+      vi.mocked(User.findById).mockResolvedValue({
+        ...mockUser,
+        passwordChangedAt: new Date(1_700_000_001_750),
+      });
+
+      await authenticateSocketFn(mockSocket, nextFn);
+
+      expect(nextFn).toHaveBeenCalledWith(new Error("Authentication failed"));
+    });
+
     it("should fallback to empty firstName/lastName when missing on user", async () => {
       (vi.mocked(jwt.verify) as any).mockReturnValue({
         userId: NAMELESS_USER_ID,
@@ -403,7 +449,7 @@ describe("SocketService", () => {
         "disconnect",
         expect.any(Function)
       );
-      expect(mockSocket.on).toHaveBeenCalledWith(
+      expect(mockSocket.on).not.toHaveBeenCalledWith(
         "update_status",
         expect.any(Function)
       );
@@ -655,40 +701,11 @@ describe("SocketService", () => {
       ).toBe(false);
     });
 
-    it("should handle status updates", () => {
+    it("does not expose a global presence update event", () => {
       connectionHandler(mockSocket);
-
-      // Get the status update handler
-      const statusCall = vi
-        .mocked(mockSocket.on)
-        .mock.calls.find((call) => call[0] === "update_status");
-      const statusHandler = statusCall?.[1];
-
-      statusHandler("away");
-
-      expect(mockSocket.broadcast.emit).toHaveBeenCalledWith(
-        "user_status_update",
-        {
-          userId: "user123",
-          status: "away",
-          user: {
-            id: mockSocket.user.id,
-            firstName: mockSocket.user.firstName,
-            lastName: mockSocket.user.lastName,
-          },
-        }
-      );
-    });
-
-    it("ignores invalid presence values", () => {
-      connectionHandler(mockSocket);
-      const statusCall = vi
-        .mocked(mockSocket.on)
-        .mock.calls.find((call) => call[0] === "update_status");
-
-      statusCall?.[1]("administrator");
-
-      expect(mockSocket.broadcast.emit).not.toHaveBeenCalled();
+      expect(
+        vi.mocked(mockSocket.on).mock.calls.some((call) => call[0] === "update_status"),
+      ).toBe(false);
     });
 
     it("should handle join_event_room", async () => {
@@ -1510,12 +1527,11 @@ describe("SocketService", () => {
 
       errorHandler(mockError);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Socket.IO engine connection error:",
-        "mock-request",
-        "CONNECTION_ERROR",
-        "Connection failed"
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledOnce();
+      const serializedLog = JSON.stringify(consoleErrorSpy.mock.calls);
+      expect(serializedLog).toContain("CONNECTION_ERROR");
+      expect(serializedLog).not.toContain("mock-request");
+      expect(serializedLog).not.toContain("Connection failed");
 
       consoleErrorSpy.mockRestore();
     });
@@ -1541,7 +1557,10 @@ describe("SocketService", () => {
       const mockError = new Error("Socket error occurred");
       socketErrorHandler(mockError);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith("Socket error:", mockError);
+      expect(consoleErrorSpy).toHaveBeenCalledOnce();
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(
+        "Socket error occurred",
+      );
 
       consoleErrorSpy.mockRestore();
     });

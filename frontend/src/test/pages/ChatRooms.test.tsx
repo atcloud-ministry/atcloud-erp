@@ -113,7 +113,7 @@ describe("ChatRooms page", () => {
   it("loads Current Rooms, publishes counters, and links to the Room", async () => {
     renderPage();
     const link = await screen.findByRole("link", {
-      name: "Amy Chen, 1 unread messages",
+      name: "Amy Chen, 1 unread message",
     });
     expect(link).toHaveAttribute("href", `/dashboard/chat-rooms/${room.id}`);
     expect(mocks.list).toHaveBeenCalledWith(
@@ -126,7 +126,7 @@ describe("ChatRooms page", () => {
   it("keeps Past / Read-only selection in the URL contract", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("link", { name: "Amy Chen, 1 unread messages" });
+    await screen.findByRole("link", { name: "Amy Chen, 1 unread message" });
     await user.click(screen.getByRole("link", { name: "Past / Read-only" }));
     await waitFor(() =>
       expect(mocks.list).toHaveBeenLastCalledWith(
@@ -134,6 +134,52 @@ describe("ChatRooms page", () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  it("keeps pagination focus available while the next page loads", async () => {
+    const user = userEvent.setup();
+    const firstPage = {
+      ...result,
+      pagination: {
+        ...result.pagination,
+        totalPages: 2,
+        totalCount: 2,
+        hasNext: true,
+      },
+    };
+    const secondPage = {
+      ...result,
+      pagination: {
+        ...result.pagination,
+        currentPage: 2,
+        totalPages: 2,
+        totalCount: 2,
+        hasPrev: true,
+      },
+    };
+    let resolveSecondPage!: (value: typeof secondPage) => void;
+    const secondPageRequest = new Promise<typeof secondPage>((resolve) => {
+      resolveSecondPage = resolve;
+    });
+    mocks.list
+      .mockResolvedValueOnce(firstPage)
+      .mockReturnValueOnce(secondPageRequest);
+    renderPage();
+    await screen.findByText("Page 1 of 2");
+    const next = screen.getByRole("button", { name: "Next page" });
+
+    await user.click(next);
+    await waitFor(() =>
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        { view: "current", page: 2, limit: 30 },
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => resolveSecondPage(secondPage));
+    await waitFor(() => expect(screen.getByText("Page 2 of 2")).toHaveFocus());
   });
 
   it("identifies a live-titled Program Room with its Past and read-only state", async () => {

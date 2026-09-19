@@ -410,6 +410,52 @@ export default function HelpRequestDetail() {
             />
           </div>
 
+          <details className="mt-8 rounded-lg border border-gray-200 p-4">
+            <summary className="cursor-pointer font-medium text-gray-900">
+              Accepted consent and disclaimer
+            </summary>
+            <p className="mt-3 text-xs text-gray-500">
+              Accepted on{" "}
+              <time dateTime={request.termsAcceptedAt}>
+                {formatHelpDate(request.termsAcceptedAt)}
+              </time>
+            </p>
+            <section
+              aria-labelledby="accepted-help-consent-heading"
+              className="mt-4"
+            >
+              <h2
+                className="text-sm font-semibold text-gray-900"
+                id="accepted-help-consent-heading"
+              >
+                Consent ({request.acceptedTerms.consent.version})
+              </h2>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                {request.acceptedTerms.consent.text}
+              </p>
+            </section>
+            <section
+              aria-labelledby="accepted-help-disclaimer-heading"
+              className="mt-4"
+            >
+              <h2
+                className="text-sm font-semibold text-gray-900"
+                id="accepted-help-disclaimer-heading"
+              >
+                Disclaimer ({request.acceptedTerms.disclaimer.version})
+              </h2>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                {request.acceptedTerms.disclaimer.text}
+              </p>
+            </section>
+            <Link
+              className="mt-4 inline-flex min-h-11 items-center font-medium text-blue-700 underline hover:text-blue-900"
+              to="/privacy"
+            >
+              Privacy &amp; Data Use
+            </Link>
+          </details>
+
           <p className="mt-8 border-t border-gray-100 pt-4 text-xs text-gray-500">
             Request ID: {request.id}
           </p>

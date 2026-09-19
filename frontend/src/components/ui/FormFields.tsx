@@ -45,13 +45,20 @@ export function FormField<
         htmlFor={name}
         className="block text-sm font-medium text-gray-700 mb-2"
       >
-        {label} {required && <span className="text-red-500">*</span>}
+        {label}{" "}
+        {required && (
+          <>
+            <span aria-hidden="true" className="text-red-600">*</span>
+            <span className="sr-only"> (required)</span>
+          </>
+        )}
       </label>
       <input
         {...register(name as unknown as Parameters<typeof register>[0])}
         id={name}
         type={type}
         disabled={disabled}
+        required={required}
         aria-invalid={hasError}
         aria-describedby={hasError ? errorId : helperText ? helperId : undefined}
         className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
@@ -59,7 +66,7 @@ export function FormField<
         } ${
           (errors as Record<string, unknown>)[name]
             ? "border-red-500 focus:ring-red-500"
-            : "border-gray-300"
+            : "border-gray-500"
         }`}
         placeholder={placeholder}
       />
@@ -70,7 +77,7 @@ export function FormField<
       )}
       {typeof (errors as Record<string, { message?: unknown }>)[name]
         ?.message === "string" && (
-        <p id={errorId} className="mt-1 text-sm text-red-600">
+        <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
           {
             (errors as Record<string, { message?: unknown }>)[name]
               ?.message as string
@@ -112,13 +119,20 @@ export function TextareaField<
         htmlFor={name}
         className="block text-sm font-medium text-gray-700 mb-2"
       >
-        {label} {required && <span className="text-red-500">*</span>}
+        {label}{" "}
+        {required && (
+          <>
+            <span aria-hidden="true" className="text-red-600">*</span>
+            <span className="sr-only"> (required)</span>
+          </>
+        )}
       </label>
       <textarea
         {...register(name as unknown as Parameters<typeof register>[0])}
         id={name}
         rows={rows}
         disabled={disabled}
+        required={required}
         aria-invalid={hasError}
         aria-describedby={hasError ? errorId : helperText ? helperId : undefined}
         className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors resize-vertical ${
@@ -126,7 +140,7 @@ export function TextareaField<
         } ${
           (errors as Record<string, unknown>)[name]
             ? "border-red-500 focus:ring-red-500"
-            : "border-gray-300"
+            : "border-gray-500"
         }`}
         placeholder={placeholder}
       />
@@ -137,7 +151,7 @@ export function TextareaField<
       )}
       {typeof (errors as Record<string, { message?: unknown }>)[name]
         ?.message === "string" && (
-        <p id={errorId} className="mt-1 text-sm text-red-600">
+        <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
           {
             (errors as Record<string, { message?: unknown }>)[name]
               ?.message as string
@@ -185,7 +199,13 @@ export function SelectField<
         htmlFor={name}
         className="block text-sm font-medium text-gray-700 mb-2"
       >
-        {label} {required && <span className="text-red-500">*</span>}
+        {label}{" "}
+        {required && (
+          <>
+            <span aria-hidden="true" className="text-red-600">*</span>
+            <span className="sr-only"> (required)</span>
+          </>
+        )}
       </label>
       <select
         {...register(name as unknown as Parameters<typeof register>[0])}
@@ -194,16 +214,16 @@ export function SelectField<
         required={required}
         aria-invalid={hasError}
         aria-describedby={hasError ? errorId : helperText ? helperId : undefined}
-        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors invalid:text-gray-400 ${
+        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors invalid:text-gray-600 ${
           disabled ? "bg-gray-50 text-gray-500 cursor-not-allowed" : "bg-white"
         } ${
           (errors as Record<string, unknown>)[name]
             ? "border-red-500 focus:ring-red-500"
-            : "border-gray-300"
+            : "border-gray-500"
         }`}
       >
         {!hasEmptyOption && (
-          <option value="" disabled className="text-gray-400">
+          <option value="" disabled className="text-gray-600">
             {placeholder}
           </option>
         )}
@@ -219,7 +239,7 @@ export function SelectField<
         </p>
       )}
       {typeof errors[name]?.message === "string" && (
-        <p id={errorId} className="mt-1 text-sm text-red-600">
+        <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
           {errors[name]?.message}
         </p>
       )}

@@ -2,11 +2,17 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { Response } from "express";
 import mongoose from "mongoose";
 import UserReactivationController from "../../../../src/controllers/user-admin/UserReactivationController";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 // Mock dependencies
 vi.mock("../../../../src/models", () => ({
   User: {
     findById: vi.fn(),
+  },
+}));
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    revokeAllForUser: vi.fn().mockResolvedValue(0),
   },
 }));
 
@@ -254,7 +260,15 @@ describe("UserReactivationController", () => {
         );
 
         expect(targetUser.isActive).toBe(true);
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          testUserId,
+          "account_deactivated",
+        );
         expect(targetUser.save).toHaveBeenCalled();
+        expect(
+          vi.mocked(RefreshSessionService.revokeAllForUser).mock
+            .invocationCallOrder[0],
+        ).toBeLessThan(targetUser.save.mock.invocationCallOrder[0]);
         expect(
           programMembershipMutationSyncTrigger.userEligibilityChanged,
         ).toHaveBeenCalledWith(testUserId, {

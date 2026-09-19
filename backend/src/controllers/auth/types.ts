@@ -46,6 +46,7 @@ export type UserDocLike = {
   password?: string;
   passwordResetToken?: string;
   passwordResetExpires?: Date | string;
+  passwordChangedAt?: Date;
   generateEmailVerificationToken: () => string;
   isAccountLocked?: () => boolean;
   comparePassword?: (pwd: string) => Promise<boolean>;
@@ -80,6 +81,7 @@ export interface RegisterRequest {
   weeklyChurch?: string;
   churchAddress?: string;
   acceptTerms: boolean;
+  registrationNoticeVersion: string;
 }
 
 // Interface for login request

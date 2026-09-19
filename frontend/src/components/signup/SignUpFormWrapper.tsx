@@ -5,12 +5,14 @@ interface SignUpFormWrapperProps {
   children: React.ReactNode;
   onSubmit: (e: React.FormEvent) => void;
   isSubmitting: boolean;
+  submitDisabled?: boolean;
 }
 
 export default function SignUpFormWrapper({
   children,
   onSubmit,
   isSubmitting,
+  submitDisabled = false,
 }: SignUpFormWrapperProps) {
   return (
     <Card>
@@ -22,7 +24,7 @@ export default function SignUpFormWrapper({
           <Button
             type="submit"
             variant="primary"
-            disabled={isSubmitting}
+            disabled={isSubmitting || submitDisabled}
             loading={isSubmitting}
             className="w-full"
           >

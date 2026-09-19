@@ -114,7 +114,7 @@ export class AuditLogController {
         title?: string;
       }
       interface LeanAuditLog
-        extends Omit<IAuditLog, "actorId" | "eventId" | "actor"> {
+        extends Omit<IAuditLog, "_id" | "actorId" | "eventId" | "actor"> {
         _id: { toString(): string };
         actorId?: PopulatedUserRef | string;
         eventId?: PopulatedEventRef | string;

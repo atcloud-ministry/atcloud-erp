@@ -84,6 +84,13 @@ export interface OwnAlumniProfileSource extends DirectoryProfileSource {
   readonly publishStatus: AlumniProfilePublishStatus;
   readonly consentVersion?: string | null;
   readonly hasCurrentPublicationConsent: boolean;
+  readonly acceptedPublicationConsent?: {
+    readonly version: string;
+    readonly text: string;
+    readonly documentHash: string;
+    readonly effectiveAt: Date | string;
+    readonly acceptedAt: Date | string;
+  } | null;
   readonly publishReadiness: {
     readonly ready: boolean;
     readonly issues: readonly AlumniProfilePublishReadinessIssueDTO[];
@@ -392,6 +399,46 @@ function nonNegativeInteger(value: unknown, path: string): number {
   return Number(value);
 }
 
+function publicationConsentEvidence(
+  value: OwnAlumniProfileSource["acceptedPublicationConsent"],
+): OwnAlumniProfileDTO["acceptedPublicationConsent"] {
+  if (value == null) return null;
+  if (
+    typeof value.version !== "string" ||
+    !CONSENT_VERSION_PATTERN.test(value.version) ||
+    typeof value.text !== "string" ||
+    value.text.length === 0 ||
+    typeof value.documentHash !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(value.documentHash)
+  ) {
+    return fail(
+      "acceptedPublicationConsent",
+      "acceptedPublicationConsent is invalid",
+    );
+  }
+  const effectiveAt = isoDate(
+    value.effectiveAt,
+    "acceptedPublicationConsent.effectiveAt",
+  );
+  const acceptedAt = isoDate(
+    value.acceptedAt,
+    "acceptedPublicationConsent.acceptedAt",
+  );
+  if (!effectiveAt || !acceptedAt) {
+    return fail(
+      "acceptedPublicationConsent",
+      "acceptedPublicationConsent dates are required",
+    );
+  }
+  return Object.freeze({
+    version: value.version,
+    text: value.text,
+    documentHash: value.documentHash,
+    effectiveAt,
+    acceptedAt,
+  });
+}
+
 function cloneReadinessIssues(
   values: readonly AlumniProfilePublishReadinessIssueDTO[],
 ): AlumniProfilePublishReadinessIssueDTO[] {
@@ -467,6 +514,9 @@ export function buildOwnAlumniProfileDTO(
       version: ALUMNI_PROFILE_PUBLICATION_CONSENT.version,
       text: ALUMNI_PROFILE_PUBLICATION_CONSENT.text,
     }),
+    acceptedPublicationConsent: publicationConsentEvidence(
+      input.acceptedPublicationConsent,
+    ),
     publishReadiness: Object.freeze({
       ready: input.publishReadiness.ready,
       issues: readinessIssues,

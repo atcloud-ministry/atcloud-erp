@@ -51,6 +51,8 @@ describe("Username Validation Rules", () => {
     lastName: "Doe",
     gender: "male",
     isAtCloudLeader: false,
+    acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   };
 
   describe("username custom validation", () => {

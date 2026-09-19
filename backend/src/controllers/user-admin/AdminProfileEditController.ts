@@ -4,7 +4,6 @@ import {
   type EmploymentStatus,
 } from "@atcloud/shared-time/registration-profile";
 import { User } from "../../models";
-import AuditLog from "../../models/AuditLog";
 import { hasPermission, PERMISSIONS } from "../../utils/roleUtils";
 import { cleanupOldAvatar } from "../../utils/avatarCleanup";
 import { socketService } from "../../services/infrastructure/SocketService";
@@ -18,6 +17,8 @@ import {
   synchronizeExistingAlumniProfileProjection,
 } from "../../services/alumni/AlumniProfileProjectionSyncService";
 import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
+import { AuditLogService } from "../../services/AuditLogService";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
 
 interface AdminProfileEditRequest {
   avatar?: string;
@@ -81,6 +82,11 @@ export default class AdminProfileEditController {
       }
 
       const { id: targetUserId } = req.params;
+      const auditActor = {
+        type: "user" as const,
+        id: String(req.user._id),
+        role: req.user.role,
+      };
       const edit = selectAdminProfileEditFields(req.body);
       const { avatar, isAtCloudLeader, roleInAtCloud } = edit;
 
@@ -140,6 +146,23 @@ export default class AdminProfileEditController {
         }
         const updatedUser = await targetUser.save({ session });
         await synchronizeExistingAlumniProfileProjection(updatedUser, session);
+        const changedFields = AUDITED_PROFILE_FIELDS.filter(
+          (field) => oldValues[field] !== updatedUser[field],
+        );
+        if (changedFields.length > 0) {
+          await AuditLogService.recordRequiredInTransaction(
+            {
+              action: "admin_profile_edit",
+              actor: auditActor,
+              source: "http",
+              outcome: "success",
+              target: { model: "User", id: String(targetUserId) },
+              correlationId: req.correlationId,
+              details: { changedFields },
+            },
+            session,
+          );
+        }
         return { kind: "updated", updatedUser, oldValues, update } as const;
       });
 
@@ -181,47 +204,6 @@ export default class AdminProfileEditController {
               error,
             );
           },
-        );
-      }
-
-      try {
-        const changes: Record<string, { old: unknown; new: unknown }> = {};
-        for (const field of AUDITED_PROFILE_FIELDS) {
-          const nextValue = updatedUser[field];
-          if (oldValues[field] !== nextValue) {
-            changes[field] = { old: oldValues[field], new: nextValue };
-          }
-        }
-
-        if (Object.keys(changes).length > 0) {
-          await AuditLog.create({
-            action: "admin_profile_edit",
-            actor: {
-              id: req.user._id,
-              role: req.user.role,
-              email: req.user.email,
-            },
-            targetModel: "User",
-            targetId: targetUserId,
-            details: {
-              targetUser: {
-                id: updatedUser._id,
-                email: updatedUser.email,
-                name:
-                  `${updatedUser.firstName || ""} ${
-                    updatedUser.lastName || ""
-                  }`.trim() || updatedUser.username,
-              },
-              changes,
-            },
-            ipAddress: req.ip,
-            userAgent: req.get("user-agent") || "unknown",
-          });
-        }
-      } catch (auditError) {
-        console.error(
-          "Failed to create audit log for admin profile edit:",
-          auditError,
         );
       }
 
@@ -278,7 +260,11 @@ export default class AdminProfileEditController {
         },
       });
     } catch (error: unknown) {
-      console.error("Admin edit profile error:", error);
+      logSafeErrorEvent(
+        "ADMIN_PROFILE_EDIT_FAILED",
+        error,
+        req.user?._id != null ? String(req.user._id) : undefined,
+      );
       if (
         error &&
         typeof error === "object" &&

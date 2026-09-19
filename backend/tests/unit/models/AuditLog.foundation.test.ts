@@ -54,7 +54,8 @@ describe("AuditLog versioned foundation", () => {
   });
 
   it("declares actor/time and target/time compound indexes", () => {
-    const indexes = AuditLog.schema.indexes().map(([fields]) => fields);
+    const declaredIndexes = AuditLog.schema.indexes();
+    const indexes = declaredIndexes.map(([fields]) => fields);
 
     expect(indexes).toContainEqual({
       actorType: 1,
@@ -66,5 +67,12 @@ describe("AuditLog versioned foundation", () => {
       targetId: 1,
       createdAt: -1,
     });
+    expect(declaredIndexes).toContainEqual([
+      { createdAt: 1 },
+      expect.objectContaining({
+        name: "createdAt_1",
+        expireAfterSeconds: 365 * 24 * 60 * 60,
+      }),
+    ]);
   });
 });

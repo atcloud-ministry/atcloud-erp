@@ -45,6 +45,7 @@ const ownProfile: OwnAlumniProfileDTO = {
     version: "alumni-profile-publication-v1",
     text: "I consent to publish this profile to active, verified members.",
   },
+  acceptedPublicationConsent: null,
   publishReadiness: { ready: true, issues: [] },
   revision: 3,
   publishedAt: null,
@@ -92,6 +93,32 @@ describe("own alumni profile response contract", () => {
     expect(decodeOwnAlumniProfileResponse({ profile: ownProfile })).toEqual(
       ownProfile,
     );
+  });
+
+  it("validates and preserves exact historical publication-consent evidence", () => {
+    const acceptedPublicationConsent = {
+      version: "directory-v1",
+      text: "Earlier publication consent.",
+      documentHash: "a".repeat(64),
+      effectiveAt: "2026-09-01T00:00:00.000Z",
+      acceptedAt: "2026-09-12T12:00:00.000Z",
+    };
+    expect(
+      decodeOwnAlumniProfileResponse({
+        profile: { ...ownProfile, acceptedPublicationConsent },
+      }).acceptedPublicationConsent,
+    ).toEqual(acceptedPublicationConsent);
+    expect(() =>
+      decodeOwnAlumniProfileResponse({
+        profile: {
+          ...ownProfile,
+          acceptedPublicationConsent: {
+            ...acceptedPublicationConsent,
+            documentHash: "not-a-hash",
+          },
+        },
+      }),
+    ).toThrow(/SHA-256/);
   });
 
   it.each([

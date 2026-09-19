@@ -2,6 +2,7 @@ import {
   BellSlashIcon,
   ChatBubbleOvalLeftEllipsisIcon,
 } from "@heroicons/react/24/outline";
+import { useId } from "react";
 import { Link } from "react-router-dom";
 import type { ConversationDTO } from "../../services/api";
 import ChatAvatar from "./ChatAvatar";
@@ -34,13 +35,21 @@ export default function ChatRoomRow({
   room: ConversationDTO;
   unreadCount?: number;
 }) {
+  const descriptionId = useId();
   const accessibleName =
     unreadCount > 0
-      ? `${room.title}, ${unreadCount} unread messages`
+      ? `${room.title}, ${unreadCount} unread ${
+          unreadCount === 1 ? "message" : "messages"
+        }`
       : room.title;
+  const unreadDescription =
+    unreadCount > 0
+      ? `${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}. `
+      : "";
   return (
     <li>
       <Link
+        aria-describedby={descriptionId}
         aria-label={accessibleName}
         className="group flex min-h-[76px] items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:p-4"
         to={`/dashboard/chat-rooms/${encodeURIComponent(room.id)}`}
@@ -97,6 +106,17 @@ export default function ChatRoomRow({
                 ? "Read/write"
                 : "Read-only"
             }`}
+          </span>
+          <span className="sr-only" id={descriptionId}>
+            {unreadDescription}
+            {messagePreview(room)}. Notifications{" "}
+            {room.viewer.muted ? "muted" : "active"}.{" "}
+            {room.kind === "alumni_help" ? "Alumni Help" : "Program"} Room,{" "}
+            {room.section === "current" ? "current" : "past"},{" "}
+            {room.viewer.accessMode === "read_write"
+              ? "read and write"
+              : "read only"}
+            .
           </span>
         </span>
       </Link>

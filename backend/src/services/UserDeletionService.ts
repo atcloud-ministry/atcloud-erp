@@ -7,13 +7,25 @@ import Message from "../models/Message";
 import PromoCode from "../models/PromoCode";
 import Program from "../models/Program";
 import ShortLink from "../models/ShortLink";
-import PushSubscription from "../models/PushSubscription";
-import NotificationPreference from "../models/NotificationPreference";
 import { CachePatterns } from "./infrastructure/CacheService";
 import { resourceAuthorizationInvalidationService } from "./authorization/ResourceAuthorizationInvalidationService";
 import { socketService } from "./infrastructure/SocketService";
-import fs from "fs/promises";
-import path from "path";
+import { alumniAccountDeletionService } from "./alumni/AlumniAccountDeletionService";
+import {
+  canonicalizeLocalUploadReference,
+  fileCleanupService,
+  type FileCleanupTarget,
+  type NormalizedFileCleanupTarget,
+} from "./privacy/FileCleanupService";
+
+function canonicalizeFlyerReference(
+  reference: string | null | undefined,
+): FileCleanupTarget | null {
+  return (
+    canonicalizeLocalUploadReference(reference, "images") ??
+    canonicalizeLocalUploadReference(reference, "events")
+  );
+}
 
 export interface UserDeletionReport {
   userId: string;
@@ -42,12 +54,13 @@ export interface UserDeletionReport {
 
 export class UserDeletionService {
   /**
-   * Completely delete a user and all associated data
-   * WARNING: This is irreversible and removes all traces of the user
+   * Delete a user account and apply each associated record's approved
+   * deletion or retention lifecycle.
    */
   static async deleteUserCompletely(
     userId: string,
-    performedBy: IUser
+    performedBy: IUser,
+    correlationId?: string,
   ): Promise<UserDeletionReport> {
     const report: UserDeletionReport = {
       userId,
@@ -75,239 +88,255 @@ export class UserDeletionService {
     };
 
     try {
-      // 1. Get user data before deletion
+      // Read-only preparation is safe outside the transaction; every database
+      // mutation is supplied to the account-deletion transaction below.
       const userToDelete = await User.findById(userId);
       if (!userToDelete) {
         throw new Error("User not found");
       }
       report.userEmail = userToDelete.email;
+      let eventsCreatedByUser: Array<{
+        _id: mongoose.Types.ObjectId;
+        flyerUrl?: string | null;
+        secondaryFlyerUrl?: string | null;
+      }> = [];
+      let fileCleanupTargets: readonly NormalizedFileCleanupTarget[] = [];
 
-      // 2. Delete all registrations (as participant)
-      const deletedRegistrations = await Registration.deleteMany({
-        userId: new mongoose.Types.ObjectId(userId),
-      });
-      report.deletedData.registrations = deletedRegistrations.deletedCount || 0;
-
-      // 3. Delete registrations where user was the registrar
-      const deletedAsRegistrar = await Registration.deleteMany({
-        registeredBy: new mongoose.Types.ObjectId(userId),
-      });
-      report.deletedData.registrations += deletedAsRegistrar.deletedCount || 0;
-
-      // 4. Clean up audit histories where user performed actions
-      // Use a targeted filter instead of collection-wide scan for performance
-      await Registration.updateMany(
+      await alumniAccountDeletionService.deleteAccount(
         {
-          "actionHistory.performedBy": new mongoose.Types.ObjectId(userId),
+          targetUserId: userId,
+          actor: {
+            id: String(performedBy._id),
+            role: performedBy.role,
+          },
+          correlationId,
         },
-        {
-          $pull: {
-            actionHistory: {
-              performedBy: new mongoose.Types.ObjectId(userId),
+        async ({ targetUserId, session }) => {
+          // The transaction runner may retry the callback after a transient
+          // commit error, so rebuild all in-memory reporting from this attempt.
+          const transactionalUser = await User.findById(
+            targetUserId,
+            "email avatar",
+            { session },
+          );
+          if (!transactionalUser) {
+            throw new Error("User not found during account deletion.");
+          }
+          report.userEmail = transactionalUser.email;
+          eventsCreatedByUser = [];
+          fileCleanupTargets = [];
+          Object.assign(report.deletedData, {
+            userRecord: false,
+            registrations: 0,
+            eventsCreated: 0,
+            eventOrganizations: 0,
+            messageStates: 0,
+            messagesCreated: 0,
+            promoCodes: 0,
+            programMentorships: 0,
+            programClassReps: 0,
+            programMentees: 0,
+            shortLinks: 0,
+            avatarFile: false,
+            eventFlyerFiles: 0,
+          });
+          const deletedRegistrations = await Registration.deleteMany(
+            { userId: targetUserId },
+            { session },
+          );
+          report.deletedData.registrations =
+            deletedRegistrations.deletedCount || 0;
+
+          const deletedAsRegistrar = await Registration.deleteMany(
+            { registeredBy: targetUserId },
+            { session },
+          );
+          report.deletedData.registrations +=
+            deletedAsRegistrar.deletedCount || 0;
+
+          await Registration.updateMany(
+            { "actionHistory.performedBy": targetUserId },
+            {
+              $pull: {
+                actionHistory: { performedBy: targetUserId },
+              },
             },
-          },
-        }
-      );
+            { session },
+          );
 
-      // 5. Handle events created by the user
-      const eventsCreatedByUser = await Event.find({
-        createdBy: new mongoose.Types.ObjectId(userId),
-      });
+          eventsCreatedByUser = (await Event.find(
+            { createdBy: targetUserId },
+            "_id flyerUrl secondaryFlyerUrl",
+            { session },
+          )) as typeof eventsCreatedByUser;
+          for (const event of eventsCreatedByUser) {
+            await Event.findByIdAndDelete(event._id, { session });
+            await Registration.deleteMany(
+              { eventId: event._id },
+              { session },
+            );
+            report.deletedData.eventsCreated += 1;
+          }
 
-      for (const event of eventsCreatedByUser) {
-        // Delete events created by user
-        await Event.findByIdAndDelete(event._id);
-        resourceAuthorizationInvalidationService.invalidateEventRoom(
-          (event._id as mongoose.Types.ObjectId).toString()
-        );
-        // Also delete all registrations for these events
-        await Registration.deleteMany({ eventId: event._id });
-        report.deletedData.eventsCreated++;
-      }
+          const eventsAsOrganizer = await Event.updateMany(
+            { "organizerDetails.userId": targetUserId },
+            {
+              $pull: {
+                organizerDetails: { userId: targetUserId },
+              },
+            },
+            { session },
+          );
+          report.deletedData.eventOrganizations =
+            eventsAsOrganizer.modifiedCount || 0;
 
-      // 6. Remove user from organizer lists in other events
-      const eventsAsOrganizer = await Event.updateMany(
-        {
-          "organizerDetails.userId": new mongoose.Types.ObjectId(userId),
+          const messagesWithUserStates = await Message.updateMany(
+            { [`userStates.${userId}`]: { $exists: true } },
+            { $unset: { [`userStates.${userId}`]: 1 } },
+            { session },
+          );
+          report.deletedData.messageStates =
+            messagesWithUserStates.modifiedCount || 0;
+
+          const deletedMessages = await Message.deleteMany(
+            {
+              $or: [
+                { "creator.id": userId },
+                { createdBy: targetUserId },
+              ],
+            },
+            { session },
+          );
+          report.deletedData.messagesCreated =
+            deletedMessages.deletedCount || 0;
+
+          const deletedPromoCodes = await PromoCode.deleteMany(
+            { ownerId: targetUserId },
+            { session },
+          );
+          report.deletedData.promoCodes = deletedPromoCodes.deletedCount || 0;
+
+          const programsAsMentor = await Program.updateMany(
+            { "mentors.userId": targetUserId },
+            { $pull: { mentors: { userId: targetUserId } } },
+            { session },
+          );
+          report.deletedData.programMentorships =
+            programsAsMentor.modifiedCount || 0;
+
+          const programsAsClassRep = await Program.updateMany(
+            { "adminEnrollments.classReps": targetUserId },
+            {
+              $pull: { "adminEnrollments.classReps": targetUserId },
+              $inc: { classRepCount: -1 },
+            },
+            { session },
+          );
+          report.deletedData.programClassReps =
+            programsAsClassRep.modifiedCount || 0;
+
+          const programsAsMentee = await Program.updateMany(
+            { "adminEnrollments.mentees": targetUserId },
+            { $pull: { "adminEnrollments.mentees": targetUserId } },
+            { session },
+          );
+          report.deletedData.programMentees =
+            programsAsMentee.modifiedCount || 0;
+
+          const eventIds = eventsCreatedByUser.map((event) =>
+            event._id.toString(),
+          );
+          const deletedShortLinks = await ShortLink.deleteMany(
+            { targetEventId: { $in: eventIds } },
+            { session },
+          );
+          report.deletedData.shortLinks =
+            deletedShortLinks.deletedCount || 0;
+
+          const avatarCleanupTarget = canonicalizeLocalUploadReference(
+            transactionalUser.avatar,
+            "avatars",
+          );
+          fileCleanupTargets = await fileCleanupService.enqueueInTransaction(
+            [
+              ...(avatarCleanupTarget ? [avatarCleanupTarget] : []),
+              ...eventsCreatedByUser.flatMap((event) =>
+                [event.flyerUrl, event.secondaryFlyerUrl].flatMap(
+                  (reference) => {
+                    const target = canonicalizeFlyerReference(reference);
+                    return target ? [target] : [];
+                  },
+                ),
+              ),
+            ],
+            session,
+          );
         },
-        {
-          $pull: {
-            organizerDetails: {
-              userId: new mongoose.Types.ObjectId(userId),
-            },
-          },
-        }
       );
-      report.deletedData.eventOrganizations =
-        eventsAsOrganizer.modifiedCount || 0;
-      socketService.disconnectUser(userId);
-
-      // 7. Clean up message states (only where user key exists)
-      const messagesWithUserStates = await Message.updateMany(
-        { [`userStates.${userId}`]: { $exists: true } },
-        {
-          $unset: {
-            [`userStates.${userId}`]: 1,
-          },
-        }
+      report.deletedData.userRecord = true;
+      const eventIdsCreatedByUser = eventsCreatedByUser.map((event) =>
+        event._id.toString(),
       );
-      report.deletedData.messageStates =
-        messagesWithUserStates.modifiedCount || 0;
+      report.updatedStatistics.events = eventIdsCreatedByUser;
 
-      // 8. Delete messages created by the user
-      const deletedMessages = await Message.deleteMany({
-        $or: [
-          { "creator.id": userId },
-          { createdBy: new mongoose.Types.ObjectId(userId) },
-        ],
-      });
-      report.deletedData.messagesCreated = deletedMessages.deletedCount || 0;
-
-      // 9. Delete promo codes where user is in allowedUsers array
-      const deletedPromoCodes = await PromoCode.deleteMany({
-        ownerId: new mongoose.Types.ObjectId(userId),
-      });
-      report.deletedData.promoCodes = deletedPromoCodes.deletedCount || 0;
-
-      // 10. Remove user from program mentors arrays
-      const programsAsMentor = await Program.updateMany(
-        { "mentors.userId": new mongoose.Types.ObjectId(userId) },
-        {
-          $pull: {
-            mentors: { userId: new mongoose.Types.ObjectId(userId) },
-          },
-        }
-      );
-      report.deletedData.programMentorships =
-        programsAsMentor.modifiedCount || 0;
-      socketService.disconnectUser(userId);
-
-      // 11. Remove user from program adminEnrollments.classReps arrays
-      const programsAsClassRep = await Program.updateMany(
-        { "adminEnrollments.classReps": new mongoose.Types.ObjectId(userId) },
-        {
-          $pull: {
-            "adminEnrollments.classReps": new mongoose.Types.ObjectId(userId),
-          },
-          $inc: {
-            classRepCount: -1,
-          },
-        }
-      );
-      report.deletedData.programClassReps =
-        programsAsClassRep.modifiedCount || 0;
-      socketService.disconnectUser(userId);
-
-      // 12. Remove user from program adminEnrollments.mentees arrays
-      const programsAsMentee = await Program.updateMany(
-        { "adminEnrollments.mentees": new mongoose.Types.ObjectId(userId) },
-        {
-          $pull: {
-            "adminEnrollments.mentees": new mongoose.Types.ObjectId(userId),
-          },
-        }
-      );
-      report.deletedData.programMentees = programsAsMentee.modifiedCount || 0;
-
-      // 13. Delete shortlinks for events created by this user
-      const eventIdsCreatedByUser = eventsCreatedByUser.map((e) =>
-        (e._id as mongoose.Types.ObjectId).toString()
-      );
-      const deletedShortLinks = await ShortLink.deleteMany({
-        targetEventId: { $in: eventIdsCreatedByUser },
-      });
-      report.deletedData.shortLinks = deletedShortLinks.deletedCount || 0;
-
-      // 14. Delete avatar file if exists
-      if (userToDelete.avatar) {
-        try {
-          const uploadsDir = path.join(__dirname, "../../uploads/avatars");
-          const avatarPath = path.join(
-            uploadsDir,
-            path.basename(userToDelete.avatar)
-          );
-          await fs.unlink(avatarPath);
-          report.deletedData.avatarFile = true;
-        } catch (error) {
-          // File might not exist or already deleted, log but don't fail
-          console.warn(
-            `Failed to delete avatar file: ${userToDelete.avatar}`,
-            error
-          );
-        }
-      }
-
-      // 15. Delete event flyer files for events created by user
-      for (const event of eventsCreatedByUser) {
-        if (event.flyerUrl) {
-          try {
-            const uploadsDir = path.join(
-              __dirname,
-              "../../uploads/event-flyers"
-            );
-            const flyerPath = path.join(
-              uploadsDir,
-              path.basename(event.flyerUrl)
-            );
-            await fs.unlink(flyerPath);
-            report.deletedData.eventFlyerFiles++;
-          } catch (error) {
-            // File might not exist, log but don't fail
-            console.warn(
-              `Failed to delete flyer file: ${event.flyerUrl}`,
-              error
-            );
+      // Jobs were committed with account deletion. Try them immediately;
+      // transient failures remain durable for the maintenance worker.
+      try {
+        const cleanupResults =
+          await fileCleanupService.processTargets(fileCleanupTargets);
+        for (const result of cleanupResults) {
+          if (
+            result.outcome !== "deleted" &&
+            result.outcome !== "already_absent"
+          ) {
+            continue;
+          }
+          if (result.target.storageArea === "avatars") {
+            report.deletedData.avatarFile = true;
+          } else {
+            report.deletedData.eventFlyerFiles += 1;
           }
         }
+      } catch (error) {
+        console.warn("Immediate file cleanup processing failed", {
+          targetUserId: userId,
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
       }
 
-      // 16. Remove per-account notification delivery data before the account.
-      // Push endpoints and encryption keys are secrets and must not survive a
-      // permanent account deletion; preferences must not become orphaned.
-      const deletedUserId = new mongoose.Types.ObjectId(userId);
-      await Promise.all([
-        PushSubscription.deleteMany({ userId: deletedUserId }),
-        NotificationPreference.deleteMany({ userId: deletedUserId }),
-      ]);
-
-      // 17. Finally, delete the user record
-      await User.findByIdAndDelete(userId);
+      for (const eventId of eventIdsCreatedByUser) {
+        resourceAuthorizationInvalidationService.invalidateEventRoom(eventId);
+      }
       socketService.disconnectUser(userId);
-      report.deletedData.userRecord = true;
 
-      // 18. Update statistics for affected events
-      const affectedEvents = await Event.find({
-        _id: {
-          $in: eventsCreatedByUser.map((e) => e._id),
-        },
+      try {
+        await CachePatterns.invalidateUserCache(userId);
+        await CachePatterns.invalidateAllUserCaches();
+        await CachePatterns.invalidateAnalyticsCache();
+        for (const eventId of eventIdsCreatedByUser) {
+          await CachePatterns.invalidateEventCache(eventId);
+        }
+      } catch (error) {
+        console.warn("Post-deletion cache invalidation failed", {
+          targetUserId: userId,
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+
+      console.log("User deletion completed", {
+        targetUserId: userId,
+        actorId: String(performedBy._id),
+        deletedCounts: report.deletedData,
       });
-
-      for (const event of affectedEvents) {
-        await event.save(); // Triggers pre-save middleware to recalculate stats
-        report.updatedStatistics.events.push(
-          (event._id as mongoose.Types.ObjectId).toString()
-        );
-      }
-
-      // 19. Invalidate all relevant caches after user deletion
-      await CachePatterns.invalidateUserCache(userId);
-      await CachePatterns.invalidateAllUserCaches(); // For user listings
-      await CachePatterns.invalidateAnalyticsCache(); // For user count analytics
-      // Invalidate event caches for all affected events
-      for (const eventId of report.updatedStatistics.events) {
-        await CachePatterns.invalidateEventCache(eventId);
-      }
-
-      console.log(
-        `✅ User completely deleted: ${report.userEmail} by Super Admin: ${performedBy.email}`
-      );
-      console.log(`📊 Deletion Report:`, report);
 
       return report;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       report.errors.push(message);
-      console.error("❌ User deletion failed:", error);
+      console.error("User deletion failed", {
+        targetUserId: userId,
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
       throw error;
     }
   }
@@ -410,11 +439,15 @@ export class UserDeletionService {
       });
 
       // Check if avatar file exists
-      const hasAvatarFile = !!user.avatar;
+      const hasAvatarFile = Boolean(
+        canonicalizeLocalUploadReference(user.avatar, "avatars"),
+      );
 
       // Count event flyer files
-      const eventFlyerFilesCount = eventsCreated.filter(
-        (event) => !!event.flyerUrl
+      const eventFlyerFilesCount = eventsCreated.flatMap((event) =>
+        [event.flyerUrl, event.secondaryFlyerUrl].filter((reference) =>
+          Boolean(canonicalizeFlyerReference(reference)),
+        ),
       ).length;
 
       // Analyze risks

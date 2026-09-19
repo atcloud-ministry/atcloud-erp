@@ -50,6 +50,7 @@ describe("Public Events API - audit logs", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await request(app).post("/api/auth/register").send(adminData);
     console.log("[audit-test] admin registered");

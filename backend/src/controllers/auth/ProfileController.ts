@@ -10,9 +10,11 @@ import {
   SELF_USER_QUERY_PROJECTION,
   serializeSelfUser,
 } from "../../serializers/userReadSerializers";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
 
 export default class ProfileController {
   static async getProfile(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       if (!req.user) {
         res.status(401).json({
@@ -21,8 +23,9 @@ export default class ProfileController {
         });
         return;
       }
+      userId = String(req.user._id);
 
-      const user = await User.findById(req.user._id).select(
+      const user = await User.findById(userId).select(
         SELF_USER_QUERY_PROJECTION,
       );
       if (!user) {
@@ -40,7 +43,11 @@ export default class ProfileController {
         },
       });
     } catch (error: unknown) {
-      console.error("Get profile error:", error);
+      logSafeErrorEvent(
+        "AUTH_PROFILE_READ_FAILED",
+        error,
+        userId,
+      );
       res.status(500).json({
         success: false,
         message: "Failed to retrieve profile.",

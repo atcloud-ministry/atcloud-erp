@@ -35,6 +35,7 @@ describe("Guests Manage Token API Integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     await request(app).post("/api/auth/register").send(adminData);

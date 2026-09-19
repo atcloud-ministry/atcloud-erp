@@ -281,8 +281,11 @@ describe("authorizeEventManagement middleware", () => {
       message: "Authorization check failed.",
     });
     expect(console.error).toHaveBeenCalledWith(
-      "Event management authorization error:",
-      expect.any(Error),
+      "Application operation failed",
+      {
+        eventCode: "AUTH_EVENT_MANAGEMENT_POLICY_FAILED",
+        errorName: "AuthorizationPolicyError",
+      },
     );
     expect(mockNext).not.toHaveBeenCalled();
   });

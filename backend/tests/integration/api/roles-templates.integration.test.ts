@@ -56,6 +56,7 @@ describe("Roles Templates API Integration Tests", () => {
       isVerified: true,
       isActive: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any);
     superAdminId = superAdminUser._id.toString();
     const superAdminLogin = await request(app).post("/api/auth/login").send({
@@ -78,6 +79,7 @@ describe("Roles Templates API Integration Tests", () => {
       isVerified: true,
       isActive: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any);
     adminId = adminUser._id.toString();
     const adminLogin = await request(app).post("/api/auth/login").send({
@@ -100,6 +102,7 @@ describe("Roles Templates API Integration Tests", () => {
       isVerified: true,
       isActive: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any);
     leaderId = leaderUser._id.toString();
     const leaderLogin = await request(app).post("/api/auth/login").send({
@@ -122,6 +125,7 @@ describe("Roles Templates API Integration Tests", () => {
       isVerified: true,
       isActive: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any);
     participantId = participantUser._id.toString();
     const participantLogin = await request(app).post("/api/auth/login").send({

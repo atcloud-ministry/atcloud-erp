@@ -17,6 +17,15 @@ interface ProfileFormFieldsProps {
   originalIsAtCloudLeader?: string;
 }
 
+function RequiredIndicator() {
+  return (
+    <>
+      <span aria-hidden="true" className="text-red-600"> *</span>
+      <span className="sr-only"> (required)</span>
+    </>
+  );
+}
+
 export default function ProfileFormFields({
   form,
   isEditing,
@@ -36,37 +45,43 @@ export default function ProfileFormFields({
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Username */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Username{isEditing && <span className="text-red-500"> *</span>}
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="username">
+          Username{isEditing && <RequiredIndicator />}
         </label>
         <input
           {...register("username")}
+          aria-describedby={errors.username ? "username-error" : undefined}
+          aria-invalid={Boolean(errors.username)}
+          id="username"
           type="text"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.username ? "border-red-500" : ""}`}
         />
         {errors.username && (
-          <p className="mt-1 text-sm text-red-600">{errors.username.message}</p>
+          <p className="mt-1 text-sm text-red-700" id="username-error" role="alert">{errors.username.message}</p>
         )}
       </div>
 
       {/* First Name */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          First Name{isEditing && <span className="text-red-500"> *</span>}
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="firstName">
+          First Name{isEditing && <RequiredIndicator />}
         </label>
         <input
           {...register("firstName")}
+          aria-describedby={errors.firstName ? "firstName-error" : undefined}
+          aria-invalid={Boolean(errors.firstName)}
+          id="firstName"
           type="text"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.firstName ? "border-red-500" : ""}`}
         />
         {errors.firstName && (
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-red-700" id="firstName-error" role="alert">
             {errors.firstName.message}
           </p>
         )}
@@ -74,36 +89,42 @@ export default function ProfileFormFields({
 
       {/* Last Name */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Last Name{isEditing && <span className="text-red-500"> *</span>}
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="lastName">
+          Last Name{isEditing && <RequiredIndicator />}
         </label>
         <input
           {...register("lastName")}
+          aria-describedby={errors.lastName ? "lastName-error" : undefined}
+          aria-invalid={Boolean(errors.lastName)}
+          id="lastName"
           type="text"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.lastName ? "border-red-500" : ""}`}
         />
         {errors.lastName && (
-          <p className="mt-1 text-sm text-red-600">{errors.lastName.message}</p>
+          <p className="mt-1 text-sm text-red-700" id="lastName-error" role="alert">{errors.lastName.message}</p>
         )}
       </div>
 
       {/* Gender */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Gender{isEditing && <span className="text-red-500"> *</span>}
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="gender">
+          Gender{isEditing && <RequiredIndicator />}
         </label>
         <select
           {...register("gender")}
+          aria-describedby={errors.gender ? "gender-error" : undefined}
+          aria-invalid={Boolean(errors.gender)}
           disabled={!isEditing}
+          id="gender"
           required={isEditing}
-          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 invalid:text-gray-400 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 invalid:text-gray-600 ${
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.gender ? "border-red-500" : ""}`}
         >
-          <option value="" disabled className="text-gray-400">
+          <option value="" disabled className="text-gray-600">
             Select Gender
           </option>
           {GENDER_OPTIONS.map((option) => (
@@ -113,25 +134,28 @@ export default function ProfileFormFields({
           ))}
         </select>
         {errors.gender && (
-          <p className="mt-1 text-sm text-red-600">{errors.gender.message}</p>
+          <p className="mt-1 text-sm text-red-700" id="gender-error" role="alert">{errors.gender.message}</p>
         )}
       </div>
 
       {/* Email */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Email{isEditing && <span className="text-red-500"> *</span>}
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="email">
+          Email{isEditing && <RequiredIndicator />}
         </label>
         <input
           {...register("email")}
+          aria-describedby={errors.email ? "email-error" : undefined}
+          aria-invalid={Boolean(errors.email)}
+          id="email"
           type="email"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.email ? "border-red-500" : ""}`}
         />
         {errors.email && (
-          <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+          <p className="mt-1 text-sm text-red-700" id="email-error" role="alert">{errors.email.message}</p>
         )}
       </div>
 
@@ -160,14 +184,16 @@ export default function ProfileFormFields({
           className="block text-sm font-medium text-gray-700 mb-2"
         >
           Are you an @Cloud Co-worker?
-          {isEditing && <span className="text-red-500"> *</span>}
+          {isEditing && <RequiredIndicator />}
         </label>
         <select
           id="isAtCloudLeader"
           {...register("isAtCloudLeader")}
+          aria-describedby={errors.isAtCloudLeader ? "isAtCloudLeader-error" : undefined}
+          aria-invalid={Boolean(errors.isAtCloudLeader)}
           disabled={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.isAtCloudLeader ? "border-red-500" : ""}`}
         >
           {AT_CLOUD_LEADER_OPTIONS.map((option) => (
@@ -177,7 +203,7 @@ export default function ProfileFormFields({
           ))}
         </select>
         {errors.isAtCloudLeader && (
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-red-700" id="isAtCloudLeader-error" role="alert">
             {errors.isAtCloudLeader.message}
           </p>
         )}
@@ -191,20 +217,22 @@ export default function ProfileFormFields({
             className="block text-sm font-medium text-gray-700 mb-2"
           >
             Role in @Cloud
-            {isEditing && <span className="text-red-500"> *</span>}
+            {isEditing && <RequiredIndicator />}
           </label>
           <input
             id="roleInAtCloud"
             {...register("roleInAtCloud")}
+            aria-describedby={errors.roleInAtCloud ? "roleInAtCloud-error" : undefined}
+            aria-invalid={Boolean(errors.roleInAtCloud)}
             type="text"
             readOnly={!isEditing}
             className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+              !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
             } ${errors.roleInAtCloud ? "border-red-500" : ""}`}
             placeholder="e.g., Founder, CFO, Event Director, IT Director, etc."
           />
           {errors.roleInAtCloud && (
-            <p className="mt-1 text-sm text-red-600">
+            <p className="mt-1 text-sm text-red-700" id="roleInAtCloud-error" role="alert">
               {errors.roleInAtCloud.message}
             </p>
           )}
@@ -248,20 +276,23 @@ export default function ProfileFormFields({
 
       {/* Weekly Church */}
       <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="weeklyChurch">
           Weekly Church
         </label>
         <input
           {...register("weeklyChurch")}
+          aria-describedby={errors.weeklyChurch ? "weeklyChurch-error" : undefined}
+          aria-invalid={Boolean(errors.weeklyChurch)}
+          id="weeklyChurch"
           type="text"
           placeholder="Which church do you attend weekly?"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.weeklyChurch ? "border-red-500" : ""}`}
         />
         {errors.weeklyChurch && (
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-red-700" id="weeklyChurch-error" role="alert">
             {errors.weeklyChurch.message}
           </p>
         )}
@@ -269,20 +300,23 @@ export default function ProfileFormFields({
 
       {/* Church Address */}
       <div className="md:col-span-2">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="churchAddress">
           Church Address
         </label>
         <textarea
           {...register("churchAddress")}
+          aria-describedby={errors.churchAddress ? "churchAddress-error" : undefined}
+          aria-invalid={Boolean(errors.churchAddress)}
+          id="churchAddress"
           rows={3}
           placeholder="Please enter the church's full address"
           readOnly={!isEditing}
           className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            !isEditing ? "bg-gray-50 text-gray-500" : "border-gray-300"
+            !isEditing ? "border-gray-500 bg-gray-50 text-gray-600" : "border-gray-500"
           } ${errors.churchAddress ? "border-red-500" : ""}`}
         />
         {errors.churchAddress && (
-          <p className="mt-1 text-sm text-red-600">
+          <p className="mt-1 text-sm text-red-700" id="churchAddress-error" role="alert">
             {errors.churchAddress.message}
           </p>
         )}

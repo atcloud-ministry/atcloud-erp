@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -8,7 +8,10 @@ import {
   calculatePasswordStrength,
   type PasswordStrength,
 } from "../utils/passwordUtils";
-import { authService } from "../services/api";
+import {
+  authService,
+  type RegistrationNoticeDTO,
+} from "../services/api";
 import {
   inferPhoneCountry,
   prepareRegistrationProfileSubmission,
@@ -19,6 +22,12 @@ export function useSignUpForm() {
   const [migrationNoticeEmail, setMigrationNoticeEmail] = useState<
     string | null
   >(null);
+  const [registrationNotice, setRegistrationNotice] =
+    useState<RegistrationNoticeDTO | null>(null);
+  const [registrationNoticeError, setRegistrationNoticeError] = useState<
+    string | null
+  >(null);
+  const [registrationNoticeReload, setRegistrationNoticeReload] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const notification = useToastReplacement();
@@ -50,6 +59,8 @@ export function useSignUpForm() {
       // Ensure selects start on placeholder instead of defaulting to first option
       gender: "",
       isAtCloudLeader: "false",
+      acceptTerms: false,
+      registrationNoticeVersion: "",
     },
     mode: "onChange", // Enable real-time validation
   });
@@ -68,6 +79,37 @@ export function useSignUpForm() {
   const password = watch("password");
   const isAtCloudLeader = watch("isAtCloudLeader");
   const email = watch("email");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setRegistrationNotice(null);
+    setRegistrationNoticeError(null);
+    setValue("acceptTerms", false, { shouldValidate: false });
+    setValue("registrationNoticeVersion", "", { shouldValidate: false });
+    void authService
+      .getRegistrationNotice(controller.signal)
+      .then((notice) => {
+        if (controller.signal.aborted) return;
+        setRegistrationNotice(notice);
+        setValue("registrationNoticeVersion", notice.version, {
+          shouldValidate: true,
+        });
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setRegistrationNoticeError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to load the registration privacy notice.",
+        );
+      });
+    return () => controller.abort();
+  }, [registrationNoticeReload, setValue]);
+
+  const reloadRegistrationNotice = useCallback(
+    () => setRegistrationNoticeReload((value) => value + 1),
+    [],
+  );
 
   // Calculate password strength
   const passwordStrength: PasswordStrength = calculatePasswordStrength(
@@ -103,7 +145,8 @@ export function useSignUpForm() {
         ...profile.value,
         weeklyChurch: data.weeklyChurch,
         churchAddress: data.churchAddress,
-        acceptTerms: true, // This is handled by validation in the form
+        acceptTerms: data.acceptTerms,
+        registrationNoticeVersion: data.registrationNoticeVersion,
       };
 
       // Informational: surface a soft notice that we will link past guest registrations
@@ -221,9 +264,12 @@ export function useSignUpForm() {
     isAtCloudLeader,
     email,
     passwordStrength,
+    registrationNotice,
+    registrationNoticeError,
 
     // Actions
     handleSubmit,
     onSubmit: handleSubmit(onSubmit), // Wrap with react-hook-form validation
+    reloadRegistrationNotice,
   };
 }

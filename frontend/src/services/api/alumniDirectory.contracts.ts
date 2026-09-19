@@ -50,6 +50,13 @@ export interface OwnAlumniProfileDTO extends DirectoryDetailDTO {
     version: string;
     text: string;
   };
+  acceptedPublicationConsent: {
+    version: string;
+    text: string;
+    documentHash: string;
+    effectiveAt: string;
+    acceptedAt: string;
+  } | null;
   publishReadiness: {
     ready: boolean;
     issues: AlumniProfilePublishReadinessIssueDTO[];
@@ -114,6 +121,14 @@ function stringAt(value: unknown, path: string): string {
 function nonemptyStringAt(value: unknown, path: string): string {
   const result = stringAt(value, path);
   if (!result.trim()) return contractError(path, "non-empty string");
+  return result;
+}
+
+function sha256At(value: unknown, path: string): string {
+  const result = stringAt(value, path);
+  if (!/^[a-f0-9]{64}$/u.test(result)) {
+    return contractError(path, "lowercase SHA-256 hex string");
+  }
   return result;
 }
 
@@ -320,6 +335,12 @@ function nullableDateAt(value: unknown, path: string): string | null {
   return result;
 }
 
+function dateAt(value: unknown, path: string): string {
+  const result = nullableDateAt(value, path);
+  if (result === null) return contractError(path, "ISO date string");
+  return result;
+}
+
 function decodeReadinessIssue(
   value: unknown,
   path: string,
@@ -345,6 +366,7 @@ export function decodeOwnAlumniProfile(
     "consentVersion",
     "hasCurrentPublicationConsent",
     "publicationConsent",
+    "acceptedPublicationConsent",
     "publishReadiness",
     "revision",
     "publishedAt",
@@ -356,6 +378,14 @@ export function decodeOwnAlumniProfile(
     `${path}.publicationConsent`,
     ["version", "text"],
   );
+  const acceptedConsent =
+    profile.acceptedPublicationConsent == null
+      ? null
+      : exactObjectAt(
+          profile.acceptedPublicationConsent,
+          `${path}.acceptedPublicationConsent`,
+          ["version", "text", "documentHash", "effectiveAt", "acceptedAt"],
+        );
   const readiness = exactObjectAt(
     profile.publishReadiness,
     `${path}.publishReadiness`,
@@ -400,6 +430,31 @@ export function decodeOwnAlumniProfile(
         `${path}.publicationConsent.text`,
       ),
     },
+    acceptedPublicationConsent:
+      acceptedConsent === null
+        ? null
+        : {
+            version: nonemptyStringAt(
+              acceptedConsent.version,
+              `${path}.acceptedPublicationConsent.version`,
+            ),
+            text: nonemptyStringAt(
+              acceptedConsent.text,
+              `${path}.acceptedPublicationConsent.text`,
+            ),
+            documentHash: sha256At(
+              acceptedConsent.documentHash,
+              `${path}.acceptedPublicationConsent.documentHash`,
+            ),
+            effectiveAt: dateAt(
+              acceptedConsent.effectiveAt,
+              `${path}.acceptedPublicationConsent.effectiveAt`,
+            ),
+            acceptedAt: dateAt(
+              acceptedConsent.acceptedAt,
+              `${path}.acceptedPublicationConsent.acceptedAt`,
+            ),
+          },
     publishReadiness: {
       ready: booleanAt(readiness.ready, `${path}.publishReadiness.ready`),
       issues: arrayAt(

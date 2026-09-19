@@ -152,11 +152,10 @@ describe("AuditLog retention and cleanup", () => {
 
     it("should delete only logs strictly older than retention cutoff and keep boundary log", async () => {
       vi.useFakeTimers();
-      const frozenNow = new Date("2025-10-06T12:00:00.000Z");
+      const frozenNow = new Date("2024-02-29T23:30:00.000Z");
       vi.setSystemTime(frozenNow);
       try {
-        const boundaryDate = new Date(frozenNow);
-        boundaryDate.setMonth(boundaryDate.getMonth() - 12);
+        const boundaryDate = new Date("2023-02-28T23:30:00.000Z");
         const olderDate = new Date(boundaryDate.getTime() - 1000);
 
         await AuditLog.create({

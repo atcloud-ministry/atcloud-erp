@@ -37,6 +37,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     await User.findOneAndUpdate(
       { email: "admin@example.com" },
@@ -61,6 +62,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550111",
     });
     await User.findOneAndUpdate(
@@ -86,6 +88,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550333",
     });
     await User.findOneAndUpdate(
@@ -111,6 +114,7 @@ describe("Workshop privacy realtime contact updates", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       phone: "+12065550444",
     });
     await User.findOneAndUpdate(

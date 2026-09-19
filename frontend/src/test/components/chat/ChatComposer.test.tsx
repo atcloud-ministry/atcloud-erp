@@ -54,7 +54,11 @@ describe("ChatComposer", () => {
 
   it("keeps accessible composer controls unavailable while sending", () => {
     render(<ChatComposer onSend={vi.fn()} sending />);
-    expect(screen.getByLabelText("Message")).toBeDisabled();
+    expect(screen.getByLabelText("Message")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Message")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     expect(screen.getByRole("button", { name: "Add a safe link" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });

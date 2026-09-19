@@ -7,7 +7,7 @@ import User from "../../../src/models/User";
 // Note: validation middleware already covered; here we do happy paths and auth behavior
 
 // Run this suite sequentially to avoid concurrent beforeEach collisions
-describe.sequential("Search API integration", () => {
+describe("Search API integration", { concurrent: false }, () => {
   let token: string;
   // Track the unique email pattern we generate so cleanup is scoped and safe for parallel suites
   const emailPrefix = "srchuser"; // keep short to satisfy username max length (<=20)
@@ -34,6 +34,7 @@ describe.sequential("Search API integration", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(u).expect(201);
     await User.findOneAndUpdate(

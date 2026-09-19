@@ -155,6 +155,15 @@ export const validateUserRegistration = [
     .isLength({ max: 100 })
     .withMessage("Role in @Cloud must be less than 100 characters"),
 
+  body("acceptTerms")
+    .custom((value) => value === true)
+    .withMessage("The registration privacy notice must be accepted"),
+
+  body("registrationNoticeVersion")
+    .isString()
+    .isLength({ min: 1, max: 80 })
+    .withMessage("registrationNoticeVersion is invalid"),
+
   handleValidationErrors,
 ];
 

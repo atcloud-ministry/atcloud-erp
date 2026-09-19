@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：3.9
-- 更新时间：2026-09-12
+- 版本：4.0
+- 更新时间：2026-09-18
 - 状态：Approved
-- 实施进度：M0–M6 已完成
-- 下一任务：G1-01（待确认）
+- 实施进度：M0–M6、G1-01 已完成
+- 下一任务：G1-02（待确认）
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
@@ -343,7 +343,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### G1 — Production release
 
-- [ ] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
+- [x] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
+  - 验证：backend unit 7,027、HTTP 458、MongoDB integration 1,946、frontend 2,281；7 migrations、production full-stack E2E、lint、type-check、production/PWA build、deployment guards 与 browser keyboard/narrow-layout review 通过。
 - [ ] G1-02 完成 production migration（含 affiliation canonical identity index replacement）、alumni import dry-run 和 data verification。
 - [ ] G1-03 完成 backup/restore、rollback、outbox/deadline/membership/Service Worker recovery。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。

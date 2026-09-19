@@ -39,6 +39,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -66,6 +67,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
         gender: "female",
         isAtCloudLeader: false, // not required for signup
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     guestExpertId = regGuest.body.data.user.id as string;

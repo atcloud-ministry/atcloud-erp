@@ -41,8 +41,8 @@ function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 flex-shrink-0 rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? "bg-blue-600" : "bg-gray-300"
+      className={`relative inline-flex h-7 w-12 flex-shrink-0 rounded-full ring-1 ring-inset ring-black/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked ? "bg-blue-700" : "bg-gray-600"
       }`}
     >
       <span
@@ -242,15 +242,15 @@ export default function NotificationSettings() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-8" aria-busy="true">
-        <p className="text-gray-600">Loading notification settings…</p>
-      </main>
+      <div className="mx-auto max-w-3xl px-4 py-8" aria-busy="true" aria-live="polite" role="status">
+        <p className="text-gray-700">Loading notification settings…</p>
+      </div>
     );
   }
 
   if (!config || !preferences) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <div className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-2xl font-semibold text-gray-900">
           Notification Settings
         </h1>
@@ -259,7 +259,7 @@ export default function NotificationSettings() {
         </div>
         <button
           type="button"
-          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="mt-4 min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           onClick={() => {
             setLoading(true);
             void refresh()
@@ -273,7 +273,7 @@ export default function NotificationSettings() {
         >
           Try again
         </button>
-      </main>
+      </div>
     );
   }
 
@@ -285,12 +285,19 @@ export default function NotificationSettings() {
     !needsAppleInstall;
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
+    <div aria-busy={saving} className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-2xl font-semibold text-gray-900">
         Notification Settings
       </h1>
       <p className="mt-2 text-sm text-gray-600">
         Choose how Alumni Help and Chat Room updates reach you.
+      </p>
+      <p className="mt-2 text-sm text-gray-600">
+        See how notification and chat records are used and retained in{" "}
+        <a className="font-medium text-blue-700 underline hover:text-blue-900" href="/#/privacy">
+          Privacy &amp; Data Use
+        </a>
+        .
       </p>
 
       {error && (
@@ -370,7 +377,7 @@ export default function NotificationSettings() {
               type="button"
               disabled={saving || !canEnableBrowser}
               onClick={enableThisBrowser}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Enable Push on this browser"}
             </button>
@@ -379,13 +386,13 @@ export default function NotificationSettings() {
               type="button"
               disabled={saving}
               onClick={disableThisBrowser}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 rounded-lg border border-gray-500 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Remove Push from this browser"}
             </button>
           )}
         </div>
       </section>
-    </main>
+    </div>
   );
 }

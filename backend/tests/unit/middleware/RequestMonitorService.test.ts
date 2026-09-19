@@ -38,6 +38,7 @@ describe("RequestMonitorService", () => {
       suspiciousUserAgent: 20,
     };
     delete process.env.ENABLE_RATE_LIMITING;
+    process.env.NODE_ENV = "test";
   });
 
   function completeRequest(options: {
@@ -191,6 +192,19 @@ describe("RequestMonitorService", () => {
     });
 
     service.emergencyEnableRateLimit();
+    expect(service.getRateLimitingStatus()).toEqual({
+      enabled: true,
+      status: "enabled",
+    });
+  });
+
+  it("cannot disable rate limiting at runtime in production", () => {
+    process.env.NODE_ENV = "production";
+    process.env.ENABLE_RATE_LIMITING = "true";
+
+    expect(() => service.emergencyDisableRateLimit()).toThrow(
+      "Production rate limiting cannot be disabled",
+    );
     expect(service.getRateLimitingStatus()).toEqual({
       enabled: true,
       status: "enabled",

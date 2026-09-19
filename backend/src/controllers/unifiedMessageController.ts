@@ -17,6 +17,7 @@ export class UnifiedMessageController {
       hideCreator?: boolean;
       targetRoles?: string[];
       metadata?: Record<string, unknown>;
+      expiresAt?: Date;
     },
     targetUserIds: string[],
     creator?: {

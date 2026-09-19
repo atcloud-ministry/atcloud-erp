@@ -109,6 +109,7 @@ describe("ProgramCommunitySettingsService", () => {
     ensurePrimaryRoomInTransaction: ReturnType<typeof vi.fn>;
   };
   let writeRequiredAudit: ReturnType<typeof vi.fn>;
+  let authorizeFreshManager: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     programs = { findById: vi.fn(() => query(program())) };
@@ -126,6 +127,10 @@ describe("ProgramCommunitySettingsService", () => {
       ensurePrimaryRoomInTransaction: vi.fn().mockResolvedValue(ROOM_ID),
     };
     writeRequiredAudit = vi.fn().mockResolvedValue(undefined);
+    authorizeFreshManager = vi.fn().mockResolvedValue({
+      allowed: true,
+      role: "Administrator",
+    });
   });
 
   function service(idempotency = replayingIdempotency()) {
@@ -137,8 +142,20 @@ describe("ProgramCommunitySettingsService", () => {
       idempotency: idempotency as unknown as IdempotencyService,
       roomProvisioner,
       writeRequiredAudit,
+      authorizeFreshManager,
     });
   }
+
+  it("fails closed when transaction-time authorization is no longer current", async () => {
+    authorizeFreshManager.mockResolvedValueOnce({ allowed: false, role: null });
+
+    await expect(service().update(updateInput())).rejects.toMatchObject({
+      code: "PROGRAM_NOT_FOUND",
+      httpStatus: 404,
+    });
+    expect(settings.findOne).not.toHaveBeenCalled();
+    expect(roomProvisioner.ensurePrimaryRoomInTransaction).not.toHaveBeenCalled();
+  });
 
   it("returns a virtual disabled DTO with deterministic candidate mappings", async () => {
     await expect(service().get(PROGRAM_ID.toString())).resolves.toEqual({

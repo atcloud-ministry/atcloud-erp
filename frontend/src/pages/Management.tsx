@@ -58,9 +58,14 @@ export default function Management({ scope }: ManagementProps = {}) {
   const loading = enhancedLoading;
   const error = enhancedError;
   const canBrowseWithFilters = isAdminView || currentUserRole === "Leader";
+  const hasResultSnapshot =
+    users.length > 0 ||
+    communityMembers.length > 0 ||
+    pagination.totalPages > 0 ||
+    pagination.totalUsers > 0;
 
   return (
-    <div className="max-w-[1280px] xl:max-w-[1360px] 2xl:max-w-[1440px] mx-auto px-4 lg:px-6 space-y-6">
+    <div className="mx-auto max-w-[1280px] space-y-6 px-0 sm:px-4 lg:px-6 xl:max-w-[1360px] 2xl:max-w-[1440px]">
       {/* Header Section with Statistics */}
       <ManagementHeader
         currentUserRole={currentUserRole}
@@ -80,41 +85,49 @@ export default function Management({ scope }: ManagementProps = {}) {
       )}
 
       {/* User Management Table */}
-      <Card className="overflow-visible">
+      <Card className="overflow-visible" padding="sm">
         <CardContent className="overflow-visible">
-          {loading ? (
-            <div className="flex justify-center items-center py-8">
+          <div aria-busy={loading}>
+          {loading && !hasResultSnapshot ? (
+            <div aria-live="polite" className="flex justify-center items-center py-8" role="status">
               <div className="text-gray-500">Loading users...</div>
-            </div>
-          ) : error ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="text-red-500">Error loading users: {error}</div>
             </div>
           ) : (
             <>
-              {isAdminView ? (
-                <UserTable
-                  users={users}
-                  getActionsForUser={getActionsForUser}
-                  openDropdown={openDropdown}
-                  onToggleDropdown={toggleDropdown}
-                  currentUserRole={currentUserRole}
-                />
-              ) : (
-                <CommunityMemberTable
-                  members={communityMembers}
-                  currentUserRole={currentUserRole}
-                />
+              {error && (
+                <div className="flex justify-center items-center py-4" role="alert">
+                  <div className="text-red-700">Error loading users: {error}</div>
+                </div>
               )}
-              <UserPagination
-                currentPage={pagination.currentPage}
-                totalPages={pagination.totalPages}
-                hasNext={pagination.hasNext}
-                hasPrev={pagination.hasPrev}
-                onPageChange={handleEnhancedPageChange}
-              />
+              {(!error || hasResultSnapshot) && (
+                <>
+                  {isAdminView ? (
+                    <UserTable
+                      users={users}
+                      getActionsForUser={getActionsForUser}
+                      openDropdown={openDropdown}
+                      onToggleDropdown={toggleDropdown}
+                      currentUserRole={currentUserRole}
+                    />
+                  ) : (
+                    <CommunityMemberTable
+                      members={communityMembers}
+                      currentUserRole={currentUserRole}
+                    />
+                  )}
+                  <UserPagination
+                    currentPage={pagination.currentPage}
+                    totalPages={pagination.totalPages}
+                    hasNext={pagination.hasNext}
+                    hasPrev={pagination.hasPrev}
+                    busy={loading}
+                    onPageChange={handleEnhancedPageChange}
+                  />
+                </>
+              )}
             </>
           )}
+          </div>
         </CardContent>
       </Card>
 

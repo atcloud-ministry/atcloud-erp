@@ -18,8 +18,74 @@ import {
   validateRegistrationProfile,
   type RegistrationProfileFields,
 } from "@atcloud/shared-time/registration-profile";
+import { REGISTRATION_PRIVACY_NOTICE } from "../../config/registrationPrivacyNotice";
+
+const REGISTRATION_LOG_CONTEXT = "Registration";
+
+const registrationLogger = createLogger(
+  "RegistrationController",
+) as unknown as LoggerLike;
+
+function getSafeErrorName(error: unknown): string {
+  const candidate =
+    error instanceof Error
+      ? error.name
+      : typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          typeof error.name === "string"
+        ? error.name
+        : "UnknownError";
+
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(candidate)
+    ? candidate
+    : "UnknownError";
+}
+
+function logRegistrationEvent(
+  level: "info" | "error",
+  eventCode: string,
+  options: { userId?: string; error?: unknown } = {},
+): void {
+  const metadata = {
+    eventCode,
+    ...(options.userId ? { userId: options.userId } : {}),
+    ...(level === "error"
+      ? { errorName: getSafeErrorName(options.error) }
+      : {}),
+  };
+
+  if (level === "info") {
+    registrationLogger.info?.(
+      "Registration event completed",
+      REGISTRATION_LOG_CONTEXT,
+      metadata,
+    );
+    return;
+  }
+
+  registrationLogger.error(
+    "Registration event failed",
+    undefined,
+    REGISTRATION_LOG_CONTEXT,
+    metadata,
+  );
+}
 
 export default class RegistrationController {
+  static notice(_req: Request, res: Response): void {
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).json(
+      createSuccessResponse({
+        notice: {
+          version: REGISTRATION_PRIVACY_NOTICE.version,
+          text: REGISTRATION_PRIVACY_NOTICE.text,
+          effectiveAt: REGISTRATION_PRIVACY_NOTICE.effectiveAt,
+        },
+      }),
+    );
+  }
+
   static async register(req: Request, res: Response): Promise<void> {
     try {
       const {
@@ -43,17 +109,31 @@ export default class RegistrationController {
         weeklyChurch,
         churchAddress,
         acceptTerms,
+        registrationNoticeVersion,
       }: RegisterRequest = req.body;
 
       // Input validation
-      if (!acceptTerms) {
+      if (acceptTerms !== true) {
         res
           .status(400)
           .json(
             createErrorResponse(
-              "You must accept the terms and conditions to register",
+              "You must accept the registration privacy notice to register",
               400
             )
+          );
+        return;
+      }
+      if (
+        registrationNoticeVersion !== REGISTRATION_PRIVACY_NOTICE.version
+      ) {
+        res
+          .status(409)
+          .json(
+            createErrorResponse(
+              "The registration privacy notice has changed. Review and accept the current notice.",
+              409,
+            ),
           );
         return;
       }
@@ -160,6 +240,9 @@ export default class RegistrationController {
         isVerified: boolean;
         loginAttempts: number;
         avatar?: string;
+        registrationPrivacyNoticeVersion: string;
+        registrationPrivacyNoticeDocumentHash: string;
+        registrationPrivacyNoticeAcceptedAt: Date;
       } = {
         username,
         email: email.toLowerCase(),
@@ -183,6 +266,10 @@ export default class RegistrationController {
         isActive: true,
         isVerified: false, // Will be verified via email
         loginAttempts: 0,
+        registrationPrivacyNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        registrationPrivacyNoticeDocumentHash:
+          REGISTRATION_PRIVACY_NOTICE.documentHash,
+        registrationPrivacyNoticeAcceptedAt: new Date(),
       };
 
       // Set default avatar based on gender
@@ -220,13 +307,17 @@ export default class RegistrationController {
               role: "System",
             },
           });
-          console.log(
-            `Admin notifications sent for new @Cloud co-worker signup: ${user.email}`
-          );
+          logRegistrationEvent("info", "REGISTRATION_ADMIN_NOTIFICATION_SENT", {
+            userId: String((user as unknown as UserDocLike)._id),
+          });
         } catch (notificationError) {
-          console.error(
-            "Failed to send @Cloud admin notifications:",
-            notificationError
+          logRegistrationEvent(
+            "error",
+            "REGISTRATION_ADMIN_NOTIFICATION_FAILED",
+            {
+              userId: String((user as unknown as UserDocLike)._id),
+              error: notificationError,
+            },
           );
           // Don't fail the registration if notification fails
         }
@@ -240,7 +331,14 @@ export default class RegistrationController {
       );
 
       if (!emailSent) {
-        console.warn("Failed to send verification email to:", user.email);
+        logRegistrationEvent(
+          "error",
+          "REGISTRATION_VERIFICATION_EMAIL_NOT_SENT",
+          {
+            userId: String((user as unknown as UserDocLike)._id),
+            error: { name: "VerificationEmailNotSent" },
+          },
+        );
       }
 
       // Note: No system message or bell notification needed here since
@@ -280,19 +378,13 @@ export default class RegistrationController {
           );
         } catch (e) {
           // Non-fatal: don't block signup
-          const log: LoggerLike = (
-            createLogger && typeof createLogger === "function"
-              ? createLogger("AuthController")
-              : console
-          ) as LoggerLike;
-          log.error(
-            "Guest auto-migration after register failed",
-            e,
-            "GuestMigration",
+          logRegistrationEvent(
+            "error",
+            "REGISTRATION_GUEST_MIGRATION_FAILED",
             {
               userId: String((user as unknown as UserDocLike)._id),
-              email: user.email,
-            }
+              error: e,
+            },
           );
         }
       }
@@ -306,7 +398,7 @@ export default class RegistrationController {
           )
         );
     } catch (error) {
-      console.error("Registration error:", error);
+      logRegistrationEvent("error", "REGISTRATION_FAILED", { error });
 
       const dup = error as {
         code?: number;

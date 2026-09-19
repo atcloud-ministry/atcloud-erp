@@ -12,6 +12,10 @@ import {
 } from "../middleware/alumniNetworkFeatureGate";
 import { authenticate, authorizePermission } from "../middleware/auth";
 import { PERMISSIONS } from "../utils/roleUtils";
+import {
+  directoryAccountLimiter,
+  directoryIpLimiter,
+} from "../middleware/rateLimiting";
 
 const router = Router();
 
@@ -45,12 +49,16 @@ router.post(
 
 router.get(
   "/",
+  directoryIpLimiter,
+  directoryAccountLimiter,
   authorizePermission(PERMISSIONS.VIEW_USER_PROFILES),
   requireAlumniNetworkReadable,
   alumniDirectoryController.list,
 );
 router.get(
   "/:profileId",
+  directoryIpLimiter,
+  directoryAccountLimiter,
   authorizePermission(PERMISSIONS.VIEW_USER_PROFILES),
   requireAlumniNetworkReadable,
   alumniDirectoryController.get,

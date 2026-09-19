@@ -36,6 +36,7 @@ function expectPublicProbeShape(body: Record<string, unknown>): void {
   expect(serialized).not.toContain("database");
   expect(serialized).not.toContain("reliability");
   expect(serialized).not.toContain("feature_control");
+  expect(serialized).not.toContain("migrations");
   expect(serialized).not.toContain("alumniNetworkMode");
   expect(serialized).not.toContain("private-component-detail");
 }
@@ -52,6 +53,7 @@ describe("readiness probe routes", () => {
         database: true,
         reliability: true,
         feature_control: true,
+        migrations: true,
         private_component_detail: "private-component-detail",
       },
       alumniNetworkMode: "on",
@@ -74,6 +76,7 @@ describe("readiness probe routes", () => {
         database: false,
         reliability: false,
         feature_control: false,
+        migrations: false,
         private_component_detail: "private-component-detail",
       },
       alumniNetworkMode: "off",

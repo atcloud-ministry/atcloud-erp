@@ -194,6 +194,15 @@ function checkRenderTemplateContract() {
     ["NOTIFICATION_OUTBOX_ENABLED", "true"],
     ["ALUMNI_NETWORK_RELEASE_AVAILABLE", "false"],
     ["WEB_PUSH_ENABLED", "false"],
+    ["ENABLE_RATE_LIMITING", "true"],
+    ["RATE_LIMIT_WINDOW_MS", "900000"],
+    ["RATE_LIMIT_MAX_REQUESTS", "100"],
+    ["AUTH_RATE_LIMIT_WINDOW_MS", "900000"],
+    ["AUTH_RATE_LIMIT_MAX_REQUESTS", "20"],
+    ["DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS", "60000"],
+    ["DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS", "60"],
+    ["AUDIT_LOG_RETENTION_MONTHS", "12"],
+    ["AUDIT_LOG_TTL_FALLBACK_DAYS", "365"],
   ]) {
     const keyPattern = new RegExp(
       `^[ \\t]*- key:\\s*${key}\\s*$`,
@@ -286,6 +295,18 @@ function checkRenderTemplateContract() {
     [
       /key:\s*WEB_PUSH_ENABLED\s*\n\s*value:\s*false/,
       "Web Push must default to disabled until backend-only VAPID secrets are provisioned.",
+    ],
+    [
+      /key:\s*ENABLE_RATE_LIMITING\s*\n\s*value:\s*true/,
+      "production rate limiting must remain enabled.",
+    ],
+    [
+      /key:\s*AUDIT_LOG_RETENTION_MONTHS\s*\n\s*value:\s*12/,
+      "AuditLog primary retention must be 12 UTC calendar months.",
+    ],
+    [
+      /key:\s*AUDIT_LOG_TTL_FALLBACK_DAYS\s*\n\s*value:\s*365/,
+      "AuditLog fallback TTL must be 365 elapsed days.",
     ],
     [
       /key:\s*JWT_ACCESS_EXPIRE\s*\n\s*value:\s*3h/,

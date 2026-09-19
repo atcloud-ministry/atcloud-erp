@@ -47,6 +47,7 @@ export default class TargetedSystemMessagesController {
       hideCreator?: boolean;
       targetRoles?: string[];
       metadata?: Record<string, unknown>;
+      expiresAt?: Date;
     },
     targetUserIds: string[],
     creator?: {
@@ -93,6 +94,7 @@ export default class TargetedSystemMessagesController {
         isActive: true,
         targetRoles: messageData.targetRoles,
         metadata: messageData.metadata,
+        expiresAt: messageData.expiresAt,
         // For single-recipient messages that target specific users, persist the target for frontend filtering
         targetUserId:
           (messageData.type === "auth_level_change" ||

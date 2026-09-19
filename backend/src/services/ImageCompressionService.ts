@@ -12,7 +12,7 @@
  * - Size and format optimization
  */
 
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 import path from "path";
 import fs from "fs/promises";
 // import { Request } from "express"; // unused
@@ -218,7 +218,7 @@ export class ImageCompressionService {
    */
   static async validateImageFile(filePath: string): Promise<{
     isValid: boolean;
-    metadata?: sharp.Metadata;
+    metadata?: Metadata;
     error?: string;
   }> {
     try {

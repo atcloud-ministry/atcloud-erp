@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { Response } from "express";
 import mongoose from "mongoose";
 import UserDeactivationController from "../../../../src/controllers/user-admin/UserDeactivationController";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 // Mock dependencies
 vi.mock("../../../../src/models", () => ({
@@ -48,6 +49,12 @@ vi.mock(
     },
   }),
 );
+
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    revokeAllForUser: vi.fn().mockResolvedValue(0),
+  },
+}));
 
 vi.mock("../../../../src/services/infrastructure/EmailServiceFacade", () => ({
   EmailService: {
@@ -284,7 +291,12 @@ describe("UserDeactivationController", () => {
         );
 
         expect(targetUser.isActive).toBe(false);
+        expect(targetUser.passwordChangedAt).toBeInstanceOf(Date);
         expect(targetUser.save).toHaveBeenCalled();
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          testUserId,
+          "account_deactivated",
+        );
         expect(
           programMembershipMutationSyncTrigger.userEligibilityChanged,
         ).toHaveBeenCalledWith(testUserId, {
@@ -509,6 +521,7 @@ describe("UserDeactivationController", () => {
       _id: string;
       role: string;
       isActive: boolean;
+      passwordChangedAt: Date | null;
       email: string;
       username: string;
       firstName: string;
@@ -523,6 +536,7 @@ describe("UserDeactivationController", () => {
       lastName: "User",
       role: ROLES.PARTICIPANT,
       isActive: true,
+      passwordChangedAt: null,
       save: vi.fn().mockResolvedValue(true),
       ...overrides,
     };

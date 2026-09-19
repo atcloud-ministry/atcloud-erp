@@ -34,6 +34,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -62,6 +63,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
         // Not an @Cloud co-worker to avoid requiring roleInAtCloud in validation
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     leaderId = regLeader.body.data.user.id;

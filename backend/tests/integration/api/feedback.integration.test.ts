@@ -26,6 +26,7 @@ describe("Feedback API Integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const registerResponse = await request(app)

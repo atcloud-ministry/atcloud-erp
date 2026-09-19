@@ -7,7 +7,9 @@ import {
   expect,
   it,
 } from "vitest";
-import NotificationOutbox from "../../../src/models/NotificationOutbox";
+import NotificationOutbox, {
+  notificationOutboxTerminalPurgeAt,
+} from "../../../src/models/NotificationOutbox";
 import { MongoTransactionService } from "../../../src/services/reliability/MongoTransactionService";
 import {
   NotificationOutboxLeaseLostError,
@@ -234,6 +236,11 @@ describe("M0 durable outbox leases", () => {
     expect(delivered).toMatchObject({
       status: "delivered",
       attemptCount: 2,
+      deliveredAt: new Date(nowMs),
+      purgeAt: notificationOutboxTerminalPurgeAt(
+        "delivered",
+        new Date(nowMs),
+      ),
       revision: 4,
     });
   });
@@ -342,6 +349,8 @@ describe("M0 durable outbox leases", () => {
     expect(persisted).toMatchObject({
       status: "dead",
       unsupportedSince: restartedGraceAt,
+      deadAt: new Date(nowMs),
+      purgeAt: notificationOutboxTerminalPurgeAt("dead", new Date(nowMs)),
       lastErrorCode: "HANDLER_NOT_REGISTERED",
     });
   });

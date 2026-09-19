@@ -57,6 +57,7 @@ describe("Public Event Capacity - Includes Guests", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     adminUserId = adminResponse.body.data.user.id;
@@ -87,6 +88,7 @@ describe("Public Event Capacity - Includes Guests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     userId = userResponse.body.data.user.id;
@@ -181,6 +183,7 @@ describe("Public Event Capacity - Includes Guests", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     await User.findByIdAndUpdate(user2Response.body.data.user.id, {
@@ -286,6 +289,7 @@ describe("Public Event Capacity - Includes Guests", () => {
           gender: i % 2 === 0 ? "female" : "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         });
 
       await User.findByIdAndUpdate(userRes.body.data.user.id, {

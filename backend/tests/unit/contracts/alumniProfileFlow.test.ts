@@ -7,7 +7,11 @@ import {
   parseAlumniProfileUpdateBody,
   parseAlumniProfileWithdrawBody,
 } from "../../../src/contracts/alumniProfileFlow";
-import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../../src/config/alumniProfilePublicationConsent";
+import {
+  ALUMNI_PROFILE_PUBLICATION_CONSENT,
+  ALUMNI_PROFILE_PUBLICATION_CONSENT_REGISTRY,
+  findAlumniProfilePublicationConsent,
+} from "../../../src/config/alumniProfilePublicationConsent";
 
 const PROFILE_ID = "507f191e810c19729de860ea";
 const AFFILIATION_ID = "507f191e810c19729de860eb";
@@ -44,6 +48,18 @@ function directorySource() {
 }
 
 describe("alumni profile mutation contracts", () => {
+  it("keeps the immutable v1 consent while pointing publication to v2", () => {
+    expect(
+      ALUMNI_PROFILE_PUBLICATION_CONSENT_REGISTRY.map(
+        (entry) => entry.version,
+      ),
+    ).toEqual(["directory-v1", "directory-v2"]);
+    expect(ALUMNI_PROFILE_PUBLICATION_CONSENT.version).toBe("directory-v2");
+    expect(findAlumniProfilePublicationConsent("directory-v1")).toBe(
+      ALUMNI_PROFILE_PUBLICATION_CONSENT_REGISTRY[0],
+    );
+  });
+
   it("normalizes editable fields and keeps all offerings independent", () => {
     const parsed = parseAlumniProfileUpdateBody({
       expectedRevision: 3,

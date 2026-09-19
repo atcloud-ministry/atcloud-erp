@@ -72,6 +72,7 @@ describe("Donation API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 

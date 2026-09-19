@@ -48,6 +48,7 @@ describe("Auto-migrate guest registrations on email verify", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
     expect(res.status).toBe(201);
 

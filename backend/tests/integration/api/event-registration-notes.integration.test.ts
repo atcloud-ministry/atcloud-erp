@@ -34,6 +34,7 @@ describe("Event registration notes exposure", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findByIdAndUpdate(userId, { isVerified: true });

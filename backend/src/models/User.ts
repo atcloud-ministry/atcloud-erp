@@ -76,6 +76,9 @@ export interface IUser extends Document {
   loginAttempts: number;
   lockUntil?: Date;
   hasReceivedWelcomeMessage: boolean; // Track if user has received welcome message
+  registrationPrivacyNoticeVersion?: string;
+  registrationPrivacyNoticeDocumentHash?: string;
+  registrationPrivacyNoticeAcceptedAt?: Date;
 
   // Timestamps
   createdAt: Date;
@@ -419,6 +422,22 @@ const userSchema: Schema = new Schema(
       type: Boolean,
       default: false, // New users haven't received welcome message yet
     },
+    registrationPrivacyNoticeVersion: {
+      type: String,
+      immutable: true,
+      select: false,
+    },
+    registrationPrivacyNoticeDocumentHash: {
+      type: String,
+      immutable: true,
+      select: false,
+      match: /^[a-f\d]{64}$/,
+    },
+    registrationPrivacyNoticeAcceptedAt: {
+      type: Date,
+      immutable: true,
+      select: false,
+    },
   },
   {
     timestamps: true,
@@ -432,6 +451,13 @@ const userSchema: Schema = new Schema(
           emailVerificationExpires?: unknown;
           passwordResetToken?: unknown;
           passwordResetExpires?: unknown;
+          passwordChangeToken?: unknown;
+          passwordChangeExpires?: unknown;
+          pendingPassword?: unknown;
+          passwordChangedAt?: unknown;
+          registrationPrivacyNoticeVersion?: unknown;
+          registrationPrivacyNoticeDocumentHash?: unknown;
+          registrationPrivacyNoticeAcceptedAt?: unknown;
         };
         r.id = r._id as unknown as string;
         delete r._id;
@@ -441,6 +467,13 @@ const userSchema: Schema = new Schema(
         delete r.emailVerificationExpires;
         delete r.passwordResetToken;
         delete r.passwordResetExpires;
+        delete r.passwordChangeToken;
+        delete r.passwordChangeExpires;
+        delete r.pendingPassword;
+        delete r.passwordChangedAt;
+        delete r.registrationPrivacyNoticeVersion;
+        delete r.registrationPrivacyNoticeDocumentHash;
+        delete r.registrationPrivacyNoticeAcceptedAt;
         return r;
       },
     },

@@ -2,15 +2,30 @@
 import type { MigrationSourceDefinition } from "./types";
 import { migration as migrationSource0 } from "./versions/20260911_001_inventory-registration-profile";
 import { migration as migrationSource1 } from "./versions/20260912_001_backfill-program-purchase-student-roles";
+import { migration as migrationSource2 } from "./versions/20260918_001_enforce-audit-log-ttl";
+import { migration as migrationSource3 } from "./versions/20260918_002_create-refresh-session-indexes";
+import { migration as migrationSource4 } from "./versions/20260918_003_create-file-cleanup-job-index";
+import { migration as migrationSource5 } from "./versions/20260918_004_enforce-notification-outbox-retention";
+import { migration as migrationSource6 } from "./versions/20260918_005_reconcile-user-deletion-notices";
 
 export const MIGRATION_CHECKSUMS: Readonly<Record<string, string>> =
   Object.freeze({
   "20260911_001_inventory-registration-profile": "28122c7ef015cc679e2f546ef1a93e22be267c8e4a94091d6679e97030560bcd",
   "20260912_001_backfill-program-purchase-student-roles": "8990317879638b3fb7ab81fb43107fbdaaa6d68fd0df03daa646e9e23abbd8e0",
+  "20260918_001_enforce-audit-log-ttl": "d0156bade34688adf2a4a5317fca39ffd39ec7b287d1dd0eddbbe1c60caab9da",
+  "20260918_002_create-refresh-session-indexes": "f990bb619f582de6620430ad742e2194d065aba383fd59cda21082bc6386a622",
+  "20260918_003_create-file-cleanup-job-index": "c0e0eefd24596553c9fa4757dfae7a1e81a39af4416e9cee5fc3f60a6c843eab",
+  "20260918_004_enforce-notification-outbox-retention": "ba4f47c6137e0b480979bb485c3b14ed224d157f357be38a7df7f85673b39648",
+  "20260918_005_reconcile-user-deletion-notices": "4581ffa10649f39177466528d2635d8ada51a0c5da93af66aa792472c10ca0df",
   });
 
 export const MIGRATION_SOURCE_DEFINITIONS: readonly MigrationSourceDefinition[] =
   Object.freeze([
   migrationSource0,
   migrationSource1,
+  migrationSource2,
+  migrationSource3,
+  migrationSource4,
+  migrationSource5,
+  migrationSource6,
   ]);

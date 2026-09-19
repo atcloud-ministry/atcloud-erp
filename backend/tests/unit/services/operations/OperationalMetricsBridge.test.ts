@@ -15,6 +15,7 @@ describe("OperationalMetricsBridge", () => {
       database: true,
       reliability: true,
       feature_control: false,
+      migrations: true,
     });
     publishRecoveryStatus({
       operation: "notification_outbox_reconcile",
@@ -34,6 +35,9 @@ describe("OperationalMetricsBridge", () => {
     );
     expect(metrics).toContain(
       'atcloud_application_readiness{component="feature_control"} 0',
+    );
+    expect(metrics).toContain(
+      'atcloud_application_readiness{component="migrations"} 1',
     );
     expect(metrics).toContain(
       'atcloud_notification_outbox_backlog{status="pending"} 3',

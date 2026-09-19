@@ -44,13 +44,11 @@
     "pre-deploy": "npm run clean-install && npm run verify && npm run build && npm test",
     "check-deps": "cd backend && npm ls --depth=0 && cd ../frontend && npm ls --depth=0"
   },
-  "dependencies": {
-    "concurrently": "^8.2.2"
-  },
   "devDependencies": {
     "@types/express": "5.0.3",
     "@types/express-serve-static-core": "5.0.7",
     "@types/node": "24.0.15",
+    "concurrently": "9.2.1",
     "ts-prune": "^0.10.3",
     "typescript": "5.8.3"
   },
@@ -58,8 +56,16 @@
     "@types/express": "5.0.3",
     "@types/express-serve-static-core": "5.0.7",
     "@types/node": "24.0.15",
-    "mongoose": "8.16.4",
+    "dompurify": "3.4.15",
+    "fast-uri": "3.1.6",
+    "js-yaml": "4.3.2",
+    "jspdf": "4.2.1",
+    "mongoose": "8.24.4",
+    "qs": "6.16.0",
+    "shell-quote": "1.10.0",
+    "socket.io-parser": "4.2.7",
     "stripe": "19.1.0",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vite": "6.4.3"
   }
 }

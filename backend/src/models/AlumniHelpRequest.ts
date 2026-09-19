@@ -66,6 +66,7 @@ export interface IAlumniHelpRequest extends Document {
   consentDocumentHash: string;
   disclaimerVersion: string;
   disclaimerDocumentHash: string;
+  termsAcceptedAt: Date;
   status: AlumniHelpRequestStatus;
   hasBeenAccepted: boolean;
   activeUniqueness: boolean;
@@ -266,6 +267,11 @@ const alumniHelpRequestSchema = new Schema<IAlumniHelpRequest>(
       lowercase: true,
       match: SHA256_HEX_PATTERN,
       select: false,
+    },
+    termsAcceptedAt: {
+      type: Date,
+      required: true,
+      immutable: true,
     },
     status: {
       type: String,

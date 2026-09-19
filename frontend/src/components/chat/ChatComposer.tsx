@@ -1,5 +1,11 @@
 import { LinkIcon, PaperAirplaneIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { useMemo, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   CHAT_MESSAGE_MAX_CODE_POINTS,
   CHAT_SAFE_LINK_MAX_URL_LENGTH,
@@ -26,6 +32,9 @@ export default function ChatComposer({
   const [showLink, setShowLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
+  const linkButtonRef = useRef<HTMLButtonElement>(null);
+  const linkUrlRef = useRef<HTMLInputElement>(null);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
   const contentLength = Array.from(content).length;
   const normalizedContent = content.normalize("NFC").trim();
   const normalizedUrl = linkUrl.trim();
@@ -66,9 +75,26 @@ export default function ChatComposer({
     !sending &&
     (!!normalizedContent || (showLink && !!normalizedUrl)) &&
     !error;
+  const linkHasError = Boolean(
+    error &&
+      (error.startsWith("The link") || error.startsWith("Links must")),
+  );
+  const messageHasError = Boolean(error && !linkHasError);
+
+  useEffect(() => {
+    if (showLink) linkUrlRef.current?.focus();
+  }, [showLink]);
+
+  const removeLink = () => {
+    setShowLink(false);
+    setLinkUrl("");
+    setLinkLabel("");
+    window.requestAnimationFrame(() => linkButtonRef.current?.focus());
+  };
 
   const submit = () => {
     if (!canSubmit) return;
+    messageRef.current?.focus();
     onSend({
       content: normalizedContent || null,
       ...(showLink && normalizedUrl
@@ -99,6 +125,8 @@ export default function ChatComposer({
 
   return (
     <form
+      aria-busy={sending}
+      aria-label="Send a Chat Room message"
       className="border-t border-gray-200 bg-white p-3 sm:p-4"
       onSubmit={(event) => {
         event.preventDefault();
@@ -106,7 +134,15 @@ export default function ChatComposer({
       }}
     >
       {showLink && (
-        <fieldset className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <fieldset
+          className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3"
+          id="chat-safe-link-fields"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            removeLink();
+          }}
+        >
           <legend className="px-1 text-sm font-semibold text-gray-800">
             Safe link
           </legend>
@@ -116,12 +152,15 @@ export default function ChatComposer({
                 URL
               </label>
               <input
-                className="mt-1 min-h-11 w-full rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-describedby={linkHasError ? "chat-message-error" : undefined}
+                aria-invalid={linkHasError}
+                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={disabled || sending}
                 id="chat-link-url"
                 inputMode="url"
                 onChange={(event) => setLinkUrl(event.target.value)}
                 placeholder="https://example.com"
+                ref={linkUrlRef}
                 type="url"
                 value={linkUrl}
               />
@@ -131,7 +170,7 @@ export default function ChatComposer({
                 Link label (optional)
               </label>
               <input
-                className="mt-1 min-h-11 w-full rounded-md border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={disabled || sending}
                 id="chat-link-label"
                 maxLength={200}
@@ -144,11 +183,7 @@ export default function ChatComposer({
           </div>
           <button
             className="mt-2 inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            onClick={() => {
-              setShowLink(false);
-              setLinkUrl("");
-              setLinkLabel("");
-            }}
+            onClick={removeLink}
             type="button"
           >
             <XMarkIcon aria-hidden="true" className="h-4 w-4" />
@@ -158,11 +193,14 @@ export default function ChatComposer({
       )}
       <div className="flex items-end gap-2">
         <button
-          aria-label={showLink ? "Edit shared link" : "Add a safe link"}
+          aria-controls="chat-safe-link-fields"
+          aria-expanded={showLink}
+          aria-label={showLink ? "Hide safe link fields" : "Add a safe link"}
           aria-pressed={showLink}
           className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
           disabled={disabled || sending}
           onClick={() => setShowLink((value) => !value)}
+          ref={linkButtonRef}
           type="button"
         >
           <LinkIcon aria-hidden="true" className="h-5 w-5" />
@@ -173,24 +211,27 @@ export default function ChatComposer({
           </label>
           <textarea
             aria-describedby="chat-message-help chat-message-error"
-            className="block min-h-11 max-h-36 w-full resize-y rounded-2xl border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-            disabled={disabled || sending}
+            aria-disabled={disabled || sending}
+            aria-invalid={messageHasError}
+            className="block min-h-11 max-h-36 w-full resize-y rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
             id="chat-message-composer"
             onChange={(event) => setContent(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Write a message…"
+            ref={messageRef}
+            readOnly={disabled || sending}
             rows={1}
             value={content}
           />
           <div className="mt-1 flex justify-between gap-2 px-1 text-xs">
-            <span className={error ? "text-red-700" : "text-gray-500"} id="chat-message-error">
+            <span aria-live="polite" className={error ? "text-red-700" : "text-gray-600"} id="chat-message-error" role={error ? "alert" : undefined}>
               {error ?? ""}
             </span>
             <span
               className={
                 contentLength > CHAT_MESSAGE_MAX_CODE_POINTS
                   ? "text-red-700"
-                  : "text-gray-500"
+                  : "text-gray-600"
               }
               id="chat-message-help"
             >
@@ -208,6 +249,9 @@ export default function ChatComposer({
         </button>
       </div>
       <p className="sr-only">Press Enter to send. Press Shift and Enter for a new line.</p>
+      <span aria-live="polite" className="sr-only">
+        {sending ? "Sending message." : ""}
+      </span>
     </form>
   );
 }

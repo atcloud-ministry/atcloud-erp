@@ -17,6 +17,7 @@ import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
 import PwaExperience from "./components/pwa/PwaExperience";
 import PwaBadgeSync from "./components/pwa/PwaBadgeSync";
+import RouteDocumentTitle from "./components/common/RouteDocumentTitle";
 import {
   AlumniNetworkReadableRoute,
   LegacyManagementEntry,
@@ -25,6 +26,7 @@ import {
 
 const Home = lazy(() => import("./pages/Home"));
 const SignUp = lazy(() => import("./pages/SignUp"));
+const PrivacyDataUse = lazy(() => import("./pages/PrivacyDataUse"));
 const Login = lazy(() => import("./pages/Login"));
 const CheckEmail = lazy(() => import("./pages/CheckEmail"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification"));
@@ -152,6 +154,7 @@ function RootRoute() {
 function App() {
   return (
     <>
+      <RouteDocumentTitle />
       <PwaExperience />
       <RuntimeConfigProvider>
         <AuthProvider>
@@ -165,6 +168,7 @@ function App() {
                 <Routes>
             <Route path="/" element={<RootRoute />} />
             <Route path="/signup" element={<SignUp />} />
+            <Route path="/privacy" element={<PrivacyDataUse />} />
             <Route path="/login" element={<Login />} />
             {/* Public guest routes (migrated to root) */}
             <Route path="/guest-register/:id" element={<GuestRegistration />} />

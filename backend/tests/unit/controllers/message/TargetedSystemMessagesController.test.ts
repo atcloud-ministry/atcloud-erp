@@ -286,6 +286,20 @@ describe("TargetedSystemMessagesController", () => {
         expectRecipientSafe(payload);
       });
 
+      it("persists an explicit message expiry", async () => {
+        const expiresAt = new Date("2032-03-01T20:15:00.000Z");
+
+        await TargetedSystemMessagesController.createTargetedSystemMessage(
+          { ...validMessageData, expiresAt },
+          validTargetUserIds,
+          validCreator,
+        );
+
+        expect(Message).toHaveBeenCalledWith(
+          expect.objectContaining({ expiresAt }),
+        );
+      });
+
       it("should include metadata when provided", async () => {
         const metadata = { eventId: "event123", action: "assignment" };
 

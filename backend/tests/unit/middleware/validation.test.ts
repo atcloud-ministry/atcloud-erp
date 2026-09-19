@@ -3,30 +3,37 @@ import { Request, Response, NextFunction } from "express";
 import { validationResult } from "express-validator";
 
 // Mock express-validator
-vi.mock("express-validator", () => ({
-  body: vi.fn().mockReturnThis(),
-  param: vi.fn().mockReturnThis(),
-  query: vi.fn().mockReturnThis(),
-  validationResult: vi.fn(),
-  check: vi.fn().mockReturnThis(),
-  meta: vi.fn().mockReturnThis(),
-  isLength: vi.fn().mockReturnThis(),
-  withMessage: vi.fn().mockReturnThis(),
-  matches: vi.fn().mockReturnThis(),
-  isEmail: vi.fn().mockReturnThis(),
-  isBoolean: vi.fn().mockReturnThis(),
-  isIn: vi.fn().mockReturnThis(),
-  optional: vi.fn().mockReturnThis(),
-  trim: vi.fn().mockReturnThis(),
-  custom: vi.fn().mockReturnThis(),
-  isISO8601: vi.fn().mockReturnThis(),
-  toDate: vi.fn().mockReturnThis(),
-  isArray: vi.fn().mockReturnThis(),
-  isInt: vi.fn().mockReturnThis(),
-  isURL: vi.fn().mockReturnThis(),
-  isMongoId: vi.fn().mockReturnThis(),
-  notEmpty: vi.fn().mockReturnThis(),
-}));
+vi.mock("express-validator", () => {
+  const validationChain = {
+    isLength: vi.fn().mockReturnThis(),
+    isString: vi.fn().mockReturnThis(),
+    withMessage: vi.fn().mockReturnThis(),
+    matches: vi.fn().mockReturnThis(),
+    isEmail: vi.fn().mockReturnThis(),
+    isBoolean: vi.fn().mockReturnThis(),
+    isIn: vi.fn().mockReturnThis(),
+    optional: vi.fn().mockReturnThis(),
+    trim: vi.fn().mockReturnThis(),
+    custom: vi.fn().mockReturnThis(),
+    isISO8601: vi.fn().mockReturnThis(),
+    toDate: vi.fn().mockReturnThis(),
+    isArray: vi.fn().mockReturnThis(),
+    isInt: vi.fn().mockReturnThis(),
+    isURL: vi.fn().mockReturnThis(),
+    isMongoId: vi.fn().mockReturnThis(),
+    notEmpty: vi.fn().mockReturnThis(),
+  };
+
+  return {
+    body: vi.fn(() => validationChain),
+    param: vi.fn(() => validationChain),
+    query: vi.fn(() => validationChain),
+    validationResult: vi.fn(),
+    check: vi.fn(() => validationChain),
+    meta: vi.fn(() => validationChain),
+    ...validationChain,
+  };
+});
 
 // Import after mocking
 import {

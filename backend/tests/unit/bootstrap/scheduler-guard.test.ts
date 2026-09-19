@@ -150,6 +150,13 @@ describe("Server bootstrap scheduler guard (Option A)", () => {
       "scheduler-test-access-secret-at-least-thirty-two-characters";
     process.env.JWT_REFRESH_SECRET =
       "scheduler-test-refresh-secret-at-least-thirty-two-characters";
+    process.env.ENABLE_RATE_LIMITING = "true";
+    process.env.RATE_LIMIT_WINDOW_MS = "900000";
+    process.env.RATE_LIMIT_MAX_REQUESTS = "100";
+    process.env.AUTH_RATE_LIMIT_WINDOW_MS = "900000";
+    process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = "20";
+    process.env.DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS = "60000";
+    process.env.DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS = "60";
   });
 
   it("does not start scheduler when SCHEDULER_ENABLED is not true", async () => {

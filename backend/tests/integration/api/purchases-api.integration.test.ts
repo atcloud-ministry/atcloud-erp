@@ -66,6 +66,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const userResponse = await request(app)
       .post("/api/auth/register")
@@ -94,6 +95,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const adminResponse = await request(app)
       .post("/api/auth/register")
@@ -123,6 +125,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "female",
       isAtCloudLeader: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const mentorResponse = await request(app)
       .post("/api/auth/register")
@@ -508,6 +511,7 @@ describe("Purchase API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
       await request(app).post("/api/auth/register").send(otherUserData);
       await User.findOneAndUpdate(
@@ -629,6 +633,7 @@ describe("Purchase API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
       await request(app).post("/api/auth/register").send(otherUserData);
       await User.findOneAndUpdate(

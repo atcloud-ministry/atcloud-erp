@@ -7,6 +7,7 @@ import { AutoEmailNotificationService } from "../../services/infrastructure/auto
 import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
 import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 /**
  * UserReactivationController
@@ -71,6 +72,13 @@ export default class UserReactivationController {
           return;
         }
       }
+
+      // Revoke before reactivation so a family left live by an interrupted
+      // deactivation can never regain authority when isActive flips back.
+      await RefreshSessionService.revokeAllForUser(
+        String(targetUser._id),
+        "account_deactivated",
+      );
 
       // Reactivate user
       targetUser.isActive = true;

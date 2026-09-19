@@ -16,6 +16,7 @@ export const READINESS_COMPONENTS = [
   "database",
   "reliability",
   "feature_control",
+  "migrations",
 ] as const;
 export type ReadinessComponent = (typeof READINESS_COMPONENTS)[number];
 

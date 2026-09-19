@@ -43,6 +43,7 @@ describe("Mentor Circle – Attendee eligibility (Participant & Guest)", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findByIdAndUpdate(userId, { isVerified: true });

@@ -37,6 +37,7 @@ export const normalizeUsername = (
 };
 
 // Public routes (no authentication required)
+router.get("/registration-notice", RegistrationController.notice);
 router.post(
   "/register",
   normalizeUsername,

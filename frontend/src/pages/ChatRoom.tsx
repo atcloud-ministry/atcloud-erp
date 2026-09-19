@@ -1406,6 +1406,13 @@ export default function ChatRoom() {
           </div>
         )}
       </section>
+      <p className="mt-3 text-sm text-gray-600">
+        Learn how Room messages, access history, and notifications are handled in{" "}
+        <Link className="font-medium text-blue-700 underline hover:text-blue-900" to="/privacy">
+          Privacy &amp; Data Use
+        </Link>
+        .
+      </p>
     </div>
   );
 }

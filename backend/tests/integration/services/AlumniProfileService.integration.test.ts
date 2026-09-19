@@ -7,7 +7,10 @@ import {
   expect,
   it,
 } from "vitest";
-import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../../src/config/alumniProfilePublicationConsent";
+import {
+  ALUMNI_PROFILE_PUBLICATION_CONSENT,
+  ALUMNI_PROFILE_PUBLICATION_CONSENT_REGISTRY,
+} from "../../../src/config/alumniProfilePublicationConsent";
 import { addUtcCalendarMonths } from "../../../src/contracts/alumniDirectoryData";
 import AuditLog from "../../../src/models/AuditLog";
 import AlumniAffiliation from "../../../src/models/AlumniAffiliation";
@@ -357,13 +360,42 @@ describe("M2-03 alumni profile lifecycle", () => {
       httpStatus: 409,
     });
 
+    const invalidEvidenceFixture = await createProfileFixture();
+    const invalidConsent = await ConsentRecord.create({
+      subjectUserId: invalidEvidenceFixture.userId,
+      alumniProfileId: invalidEvidenceFixture.profileId,
+      purpose: "alumni_profile_publication",
+      consentVersion: "directory-v0",
+      documentHash: "b".repeat(64),
+      status: "active",
+      acceptedAt: new Date("2030-09-01T12:00:00.000Z"),
+      revision: 0,
+    });
+    await AlumniProfile.collection.updateOne(
+      { _id: invalidEvidenceFixture.profileId },
+      {
+        $set: {
+          publishStatus: "published",
+          currentPublicationConsentId: invalidConsent._id,
+          publishedAt: new Date("2030-09-01T12:00:00.000Z"),
+        },
+      },
+    );
+    await expect(
+      service.getOwn(invalidEvidenceFixture.userId.toString()),
+    ).rejects.toMatchObject({
+      code: "ALUMNI_PROFILE_CONSENT_EVIDENCE_INVALID",
+      httpStatus: 500,
+    });
+
     const priorVersionFixture = await createProfileFixture();
+    const priorDocument = ALUMNI_PROFILE_PUBLICATION_CONSENT_REGISTRY[0];
     const oldConsent = await ConsentRecord.create({
       subjectUserId: priorVersionFixture.userId,
       alumniProfileId: priorVersionFixture.profileId,
       purpose: "alumni_profile_publication",
-      consentVersion: "directory-v0",
-      documentHash: "b".repeat(64),
+      consentVersion: priorDocument.version,
+      documentHash: priorDocument.documentHash,
       status: "active",
       acceptedAt: new Date("2030-09-01T12:00:00.000Z"),
       revision: 0,
@@ -380,8 +412,15 @@ describe("M2-03 alumni profile lifecycle", () => {
     );
     expect(await service.getOwn(priorVersionFixture.userId.toString())).toMatchObject({
       publishStatus: "published",
-      consentVersion: "directory-v0",
+      consentVersion: priorDocument.version,
       hasCurrentPublicationConsent: false,
+      acceptedPublicationConsent: {
+        version: priorDocument.version,
+        text: priorDocument.text,
+        documentHash: priorDocument.documentHash,
+        effectiveAt: priorDocument.effectiveAt,
+        acceptedAt: "2030-09-01T12:00:00.000Z",
+      },
     });
     await service.publishOwn({
       expectedRevision: 0,

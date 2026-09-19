@@ -43,6 +43,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (adminRegResponse.status !== 201) {
@@ -85,6 +86,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (leaderRegResponse.status !== 201) {
@@ -125,6 +127,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (memberRegResponse.status !== 201) {

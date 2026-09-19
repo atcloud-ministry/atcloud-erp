@@ -181,7 +181,7 @@ describe("MigrationTransactionDatabase", () => {
     }
   });
 
-  it("forces the framework session into every batch read and write operation", () => {
+  it("binds every batch data operation to the framework session while index metadata stays unbound", () => {
     const {
       callerSession,
       connection,
@@ -206,7 +206,7 @@ describe("MigrationTransactionDatabase", () => {
     );
     void collection.estimatedDocumentCount(callerOptions);
     void collection.distinct("role", { active: true }, callerOptions);
-    collection.listIndexes(callerOptions);
+    collection.listIndexes({ comment: "caller-option" });
     collection.aggregate(
       [{ $match: { active: true } }],
       { comment: "caller-option" },
@@ -259,7 +259,11 @@ describe("MigrationTransactionDatabase", () => {
     expectFrameworkSession(raw.countDocuments, 1, frameworkSession);
     expectFrameworkSession(raw.estimatedDocumentCount, 0, frameworkSession);
     expectFrameworkSession(raw.distinct, 2, frameworkSession);
-    expectFrameworkSession(raw.listIndexes, 0, frameworkSession);
+    expect(raw.listIndexes).toHaveBeenCalledOnce();
+    expect(raw.listIndexes).toHaveBeenCalledWith({
+      comment: "caller-option",
+    });
+    expect(raw.listIndexes.mock.calls[0]?.[0]).not.toHaveProperty("session");
     expectFrameworkSession(raw.aggregate, 1, frameworkSession);
     expectFrameworkSession(raw.insertOne, 1, frameworkSession);
     expectFrameworkSession(raw.insertMany, 1, frameworkSession);
@@ -275,7 +279,7 @@ describe("MigrationTransactionDatabase", () => {
     expect(callerOptions.session).toBe(callerSession);
   });
 
-  it("forces the framework session into verify reads and wraps cursors", () => {
+  it("binds verify data reads while keeping wrapped index metadata reads unbound", () => {
     const {
       callerSession,
       connection,
@@ -290,7 +294,7 @@ describe("MigrationTransactionDatabase", () => {
     const options = { comment: "caller-option", session: callerSession };
 
     const findCursor = collection.find({}, options);
-    const indexCursor = collection.listIndexes(options);
+    const indexCursor = collection.listIndexes({ comment: "caller-option" });
     const aggregateCursor = collection.aggregate([], {
       comment: "caller-option",
     });
@@ -319,8 +323,58 @@ describe("MigrationTransactionDatabase", () => {
     }
 
     expectFrameworkSession(raw.find, 1, frameworkSession);
-    expectFrameworkSession(raw.listIndexes, 0, frameworkSession);
+    expect(raw.listIndexes).toHaveBeenCalledWith({
+      comment: "caller-option",
+    });
+    expect(raw.listIndexes.mock.calls[0]?.[0]).not.toHaveProperty("session");
     expectFrameworkSession(raw.aggregate, 1, frameworkSession);
+  });
+
+  it("rejects caller sessions from unbound index reads in batch and verify wrappers", () => {
+    for (const mode of ["batch", "verify"] as const) {
+      const {
+        callerSession,
+        connection,
+        cursors,
+        frameworkSession,
+        raw,
+      } = createHarness();
+      const collection =
+        mode === "batch"
+          ? createMigrationTransactionDatabase(
+              connection,
+              frameworkSession,
+            ).collection("users")
+          : createMigrationTransactionReadDatabase(
+              connection,
+              frameworkSession,
+            ).collection("users");
+      const callerOptions = Object.freeze({
+        batchSize: 5,
+        comment: "index-metadata",
+        session: callerSession,
+      });
+
+      expect(() => collection.listIndexes(callerOptions)).toThrowError(
+        MigrationUsageError,
+      );
+      expect(raw.listIndexes).not.toHaveBeenCalled();
+
+      const indexCursor = collection.listIndexes({
+        batchSize: 5,
+        comment: "index-metadata",
+      });
+      expect(indexCursor).not.toBe(cursors.indexes);
+      expect(Object.isFrozen(indexCursor)).toBe(true);
+      expect(raw.listIndexes).toHaveBeenCalledWith({
+        batchSize: 5,
+        comment: "index-metadata",
+      });
+      expect(raw.listIndexes.mock.calls[0]?.[0]).not.toHaveProperty(
+        "session",
+      );
+      expect(callerOptions.session).toBe(callerSession);
+    }
   });
 
   it("keeps every cursor chain on the same safe wrapper", async () => {
@@ -380,9 +434,7 @@ describe("MigrationTransactionDatabase", () => {
       {},
       { session: frameworkSession },
     );
-    expect(raw.listIndexes).toHaveBeenCalledWith({
-      session: frameworkSession,
-    });
+    expect(raw.listIndexes).toHaveBeenCalledWith();
     expect(raw.aggregate).toHaveBeenCalledWith(
       [],
       { session: frameworkSession },

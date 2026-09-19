@@ -29,6 +29,7 @@ describe("Events API — role deletion/capacity protections", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     await User.findOneAndUpdate(
       { email: "admin@example.com" },
@@ -54,6 +55,7 @@ describe("Events API — role deletion/capacity protections", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     await User.findOneAndUpdate(
       { email: "user1@example.com" },

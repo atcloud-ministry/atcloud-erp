@@ -78,6 +78,9 @@ describe("Notification Settings", () => {
       await screen.findByRole("heading", { name: "Notification Settings" }),
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("link", { name: "Privacy & Data Use" }),
+    ).toHaveAttribute("href", "/#/privacy");
+    expect(
       screen.getByText("Push is not enabled for this browser."),
     ).toBeInTheDocument();
     expect(enablePushForCurrentBrowser).not.toHaveBeenCalled();
@@ -87,6 +90,25 @@ describe("Notification Settings", () => {
     expect(
       screen.getByRole("switch", { name: "Email fallback" }),
     ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("switch", { name: "Push notifications" }),
+    ).toHaveClass("bg-blue-700");
+    expect(document.querySelector("main")).not.toBeInTheDocument();
+  });
+
+  it("uses a high-contrast off state while preserving switch semantics", async () => {
+    vi.mocked(pushNotificationsService.getPreferences).mockResolvedValue({
+      pushEnabled: false,
+      emailEnabled: false,
+      updatedAt: timestamp,
+    });
+    render(<NotificationSettings />);
+
+    const push = await screen.findByRole("switch", {
+      name: "Push notifications",
+    });
+    expect(push).toHaveAttribute("aria-checked", "false");
+    expect(push).toHaveClass("bg-gray-600");
   });
 
   it("saves the Email fallback preference independently", async () => {

@@ -13,6 +13,7 @@ import {
 import app from "../../../src/app";
 import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../../src/config/alumniProfilePublicationConsent";
 import { deriveAlumniAffiliationKey } from "../../../src/contracts/alumniDirectoryData";
+import { MIGRATION_REGISTRY } from "../../../src/migrations/registry";
 import { TokenService } from "../../../src/middleware/auth";
 import AlumniAffiliation from "../../../src/models/AlumniAffiliation";
 import AlumniProfile from "../../../src/models/AlumniProfile";
@@ -21,6 +22,7 @@ import ConsentRecord from "../../../src/models/ConsentRecord";
 import FeatureControl, {
   FEATURE_CONTROL_SINGLETON_ID,
 } from "../../../src/models/FeatureControl";
+import SchemaMigration from "../../../src/models/SchemaMigration";
 import User, { type IUser } from "../../../src/models/User";
 import {
   authorizationService,
@@ -39,8 +41,46 @@ const collections = [
   AuditLog,
   ConsentRecord,
   FeatureControl,
+  SchemaMigration,
   User,
 ] as const;
+
+async function seedAppliedMigrationLedger(): Promise<void> {
+  const appliedAt = new Date("2032-09-12T11:00:00.000Z");
+  await SchemaMigration.insertMany(
+    MIGRATION_REGISTRY.map((definition) => ({
+      _id: definition.id,
+      migrationId: definition.id,
+      description: definition.description,
+      checksum: definition.checksum,
+      status: "applied",
+      direction: "up",
+      applyCheckpoint: null,
+      rollbackCheckpoint: null,
+      counts: {
+        examined: 0,
+        matched: 0,
+        modified: 0,
+        skipped: 0,
+        errors: 0,
+      },
+      attempt: 1,
+      runId: "11111111-1111-4111-8111-111111111111",
+      operator: "alumni-directory-integration-test",
+      appVersion: "g1-integration",
+      runStartedAt: appliedAt,
+      runFinishedAt: appliedAt,
+      lastHeartbeatAt: appliedAt,
+      appliedAt,
+      rolledBackAt: null,
+      rollbackReasonCode: null,
+      lastError: null,
+      revision: 1,
+      createdAt: appliedAt,
+      updatedAt: appliedAt,
+    })),
+  );
+}
 
 async function createUser(input: {
   readonly label: string;
@@ -200,6 +240,7 @@ describe("M2-06 Alumni Directory HTTP authorization and DTO boundary", () => {
 
   beforeEach(async () => {
     await Promise.all(collections.map((model) => model.deleteMany({})));
+    await seedAppliedMigrationLedger();
   });
 
   afterEach(() => {

@@ -1,10 +1,25 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import Footer from "../../components/common/Footer";
 
-// Mock the global __APP_VERSION__
+const originalAppVersion = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "__APP_VERSION__",
+);
+
 beforeAll(() => {
-  (globalThis as unknown as Record<string, string>).__APP_VERSION__ = "1.0.0";
+  Object.defineProperty(globalThis, "__APP_VERSION__", {
+    configurable: true,
+    value: "1.0.0",
+  });
+});
+
+afterAll(() => {
+  if (originalAppVersion) {
+    Object.defineProperty(globalThis, "__APP_VERSION__", originalAppVersion);
+  } else {
+    Reflect.deleteProperty(globalThis, "__APP_VERSION__");
+  }
 });
 
 describe("Footer component", () => {

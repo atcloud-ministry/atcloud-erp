@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-namespace */
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { Request, Response, NextFunction } from "express";
@@ -16,6 +17,8 @@ import { AUTHORIZATION_ACTIONS } from "../services/authorization/types";
 import type { AuthorizationPrincipal } from "../services/authorization/types";
 import { getRequestUserPrincipal } from "./authorization";
 import { recordAuthorizationDenial } from "../services/authorization/AuthorizationAuditService";
+import { isTokenCurrentForPasswordChange } from "../utils/tokenRevocation";
+import { logSafeErrorEvent } from "../utils/safeEventLogger";
 
 // Narrow JWT payloads used in this module
 type AccessTokenPayload = jwt.JwtPayload & {
@@ -23,7 +26,17 @@ type AccessTokenPayload = jwt.JwtPayload & {
   email?: string;
   role?: string;
 };
-type RefreshTokenPayload = jwt.JwtPayload & { userId: string };
+export type RefreshTokenPayload = jwt.JwtPayload & {
+  userId: string;
+  sid: string;
+  jti: string;
+  tokenType: "refresh";
+};
+
+export interface RefreshTokenIdentity {
+  readonly familyId: string;
+  readonly tokenId: string;
+}
 
 // Extend Express Request interface to include user
 declare global {
@@ -107,6 +120,7 @@ export class TokenService {
     userId: string;
     email: string;
     role: string;
+    iat?: number;
   }): string {
     return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: this.ACCESS_TOKEN_EXPIRE,
@@ -116,12 +130,47 @@ export class TokenService {
   }
 
   // Generate refresh token
-  static generateRefreshToken(payload: { userId: string }): string {
-    return jwt.sign(payload, this.REFRESH_TOKEN_SECRET, {
-      expiresIn: this.REFRESH_TOKEN_EXPIRE,
-      issuer: "atcloud-system",
-      audience: "atcloud-users",
-    } as jwt.SignOptions);
+  static generateRefreshToken(payload: {
+    userId: string;
+    identity?: RefreshTokenIdentity;
+    expiresInMs?: number;
+    expiresAt?: Date;
+    issuedAtSeconds?: number;
+  }): string {
+    const identity = payload.identity ?? {
+      familyId: crypto.randomUUID(),
+      tokenId: crypto.randomUUID(),
+    };
+    const explicitExpirySeconds =
+      payload.expiresAt == null
+        ? undefined
+        : Math.floor(payload.expiresAt.getTime() / 1_000);
+    return jwt.sign(
+      {
+        userId: payload.userId,
+        sid: identity.familyId,
+        tokenType: "refresh",
+        ...(payload.issuedAtSeconds == null
+          ? {}
+          : { iat: payload.issuedAtSeconds }),
+        ...(explicitExpirySeconds == null ? {} : { exp: explicitExpirySeconds }),
+      },
+      this.REFRESH_TOKEN_SECRET,
+      {
+        ...(explicitExpirySeconds == null
+          ? {
+              expiresIn:
+                payload.expiresInMs == null
+                  ? this.REFRESH_TOKEN_EXPIRE
+                  : Math.ceil(payload.expiresInMs / 1_000),
+            }
+          : {}),
+        issuer: "atcloud-system",
+        audience: "atcloud-users",
+        algorithm: "HS256",
+        jwtid: identity.tokenId,
+      } as jwt.SignOptions,
+    );
   }
 
   // Verify access token
@@ -130,6 +179,7 @@ export class TokenService {
       return jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
         issuer: "atcloud-system",
         audience: "atcloud-users",
+        algorithms: ["HS256"],
       }) as AccessTokenPayload;
     } catch {
       throw new Error("Invalid access token");
@@ -139,10 +189,21 @@ export class TokenService {
   // Verify refresh token
   static verifyRefreshToken(token: string): RefreshTokenPayload {
     try {
-      return jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
+      const payload = jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
         issuer: "atcloud-system",
         audience: "atcloud-users",
+        algorithms: ["HS256"],
       }) as RefreshTokenPayload;
+      if (
+        payload.tokenType !== "refresh" ||
+        typeof payload.userId !== "string" ||
+        !mongoose.Types.ObjectId.isValid(payload.userId) ||
+        typeof payload.sid !== "string" ||
+        typeof payload.jti !== "string"
+      ) {
+        throw new Error("Invalid refresh token claims");
+      }
+      return payload;
     } catch {
       throw new Error("Invalid refresh token");
     }
@@ -183,31 +244,91 @@ export class TokenService {
   }
 
   // Generate token pair
-  static generateTokenPair(user: IUser) {
+  static generateTokenPair(
+    user: IUser,
+    options: {
+      readonly refreshIdentity?: RefreshTokenIdentity;
+      readonly refreshLifetimeMs?: number;
+      readonly refreshExpiresAt?: Date;
+    } = {},
+  ) {
+    const passwordChangedAt = user.passwordChangedAt;
+    const issuedAtSeconds =
+      passwordChangedAt instanceof Date &&
+      Number.isFinite(passwordChangedAt.getTime())
+        ? Math.max(
+            Math.floor(Date.now() / 1_000),
+            Math.floor(passwordChangedAt.getTime() / 1_000) + 1,
+          )
+        : undefined;
     const payload = {
       userId: String(user._id),
       email: user.email,
       role: user.role,
+      ...(issuedAtSeconds == null ? {} : { iat: issuedAtSeconds }),
     };
 
     const accessToken = this.generateAccessToken(payload);
-    const refreshToken = this.generateRefreshToken({
-      userId: String(user._id),
-    });
-
+    const refreshIdentity = options.refreshIdentity ?? {
+      familyId: crypto.randomUUID(),
+      tokenId: crypto.randomUUID(),
+    };
     // Clock skew buffer: subtract 30s so frontend treats token as expired slightly earlier
     const CLOCK_SKEW_MS = 30 * 1000;
 
     // Parse expiration times from environment variables to get actual milliseconds
     const accessMs = this.parseTimeToMs(this.ACCESS_TOKEN_EXPIRE);
-    const refreshMs = this.parseTimeToMs(this.REFRESH_TOKEN_EXPIRE);
+    const refreshMs =
+      options.refreshLifetimeMs ?? this.parseTimeToMs(this.REFRESH_TOKEN_EXPIRE);
+    if (!Number.isSafeInteger(refreshMs) || refreshMs < 1_000) {
+      throw new Error("Refresh token lifetime is invalid.");
+    }
+    const refreshTokenExpires =
+      options.refreshExpiresAt ??
+      new Date(
+        ((issuedAtSeconds ?? Math.floor(Date.now() / 1_000)) +
+          Math.ceil(refreshMs / 1_000)) *
+          1_000,
+      );
+    if (refreshTokenExpires.getTime() <= Date.now()) {
+      throw new Error("Refresh token expiry is invalid.");
+    }
+    const refreshToken = this.generateRefreshToken({
+      userId: String(user._id),
+      identity: refreshIdentity,
+      expiresAt: refreshTokenExpires,
+      issuedAtSeconds,
+    });
 
-    return {
+    const pair = {
       accessToken,
       refreshToken,
       accessTokenExpires: new Date(Date.now() + accessMs - CLOCK_SKEW_MS),
-      refreshTokenExpires: new Date(Date.now() + refreshMs), // No clock skew for refresh token
+      refreshTokenExpires,
     };
+    Object.defineProperty(pair, "refreshIdentity", {
+      value: Object.freeze({ ...refreshIdentity }),
+      enumerable: false,
+      writable: false,
+    });
+    return pair as typeof pair & { readonly refreshIdentity: RefreshTokenIdentity };
+  }
+
+  static refreshTokenExpiresAt(payload: jwt.JwtPayload): Date {
+    if (
+      typeof payload.iat !== "number" ||
+      !Number.isSafeInteger(payload.iat) ||
+      typeof payload.exp !== "number" ||
+      !Number.isSafeInteger(payload.exp) ||
+      payload.exp <= payload.iat
+    ) {
+      throw new Error("Invalid refresh token lifetime");
+    }
+    const expiresAt = new Date(payload.exp * 1_000);
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new Error("Invalid refresh token lifetime");
+    }
+    return expiresAt;
   }
 
   // Decode token without verification (for getting expired token data)
@@ -310,7 +431,9 @@ export const authenticate = async (
     const decoded = TokenService.verifyAccessToken(token);
 
     // Get user from database
-    const user = await User.findById(decoded.userId).select("-password");
+    const user = await User.findById(decoded.userId).select(
+      "-password +passwordChangedAt",
+    );
 
     if (!user || !user.isActive) {
       res.status(401).json({
@@ -325,6 +448,13 @@ export const authenticate = async (
       res.status(403).json({
         success: false,
         message: "Account not verified. Please verify your email address.",
+      });
+      return;
+    }
+    if (!isTokenCurrentForPasswordChange(decoded, user)) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication failed.",
       });
       return;
     }
@@ -346,7 +476,7 @@ export const authenticate = async (
     next();
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error("Auth error");
-    console.error("Authentication error:", err.message);
+    logSafeErrorEvent("AUTH_ACCESS_TOKEN_FAILED", err, req.userId);
 
     if (err.name === "JsonWebTokenError") {
       res.status(401).json({
@@ -389,10 +519,13 @@ export const authenticateOptional = async (
 
     // Verify token; if invalid, fall through and continue unauthenticated
     const decoded = TokenService.verifyAccessToken(token);
-    const user = await User.findById(decoded.userId).select("-password");
+    const user = await User.findById(decoded.userId).select(
+      "-password +passwordChangedAt",
+    );
     if (!user || !user.isActive || !user.isVerified) {
       return next();
     }
+    if (!isTokenCurrentForPasswordChange(decoded, user)) return next();
 
     const principal = createUserAuthorizationPrincipal(user);
     if (!principal) return next();
@@ -586,7 +719,7 @@ export const verifyEmailToken = async (
     req.user = user;
     next();
   } catch (error) {
-    console.error("Email verification error:", error);
+    logSafeErrorEvent("AUTH_EMAIL_TOKEN_VERIFICATION_FAILED", error);
     res.status(500).json({
       success: false,
       message: "Email verification failed.",
@@ -630,7 +763,7 @@ export const verifyPasswordResetToken = async (
     req.user = user;
     next();
   } catch (error) {
-    console.error("Password reset verification error:", error);
+    logSafeErrorEvent("AUTH_PASSWORD_RESET_TOKEN_FAILED", error);
     res.status(500).json({
       success: false,
       message: "Password reset verification failed.",
@@ -709,9 +842,10 @@ export const authorizeEventManagement = async (
     }
 
     if (decision.reasonCode === "authorization_error") {
-      console.error(
-        "Event management authorization error:",
-        new Error("Shared authorization policy failed."),
+      logSafeErrorEvent(
+        "AUTH_EVENT_MANAGEMENT_POLICY_FAILED",
+        { name: "AuthorizationPolicyError" },
+        req.userId,
       );
       res.status(500).json({
         success: false,
@@ -726,7 +860,7 @@ export const authorizeEventManagement = async (
         "Access denied. You must be an Administrator, Super Admin, event creator, listed organizer, or a mentor/class rep of an affiliated program to manage this event.",
     });
   } catch (error) {
-    console.error("Event management authorization error:", error);
+    logSafeErrorEvent("AUTH_EVENT_MANAGEMENT_FAILED", error, req.userId);
     res.status(500).json({
       success: false,
       message: "Authorization check failed.",

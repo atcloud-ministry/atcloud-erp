@@ -12,6 +12,7 @@ import { AutoEmailNotificationService } from "../../services/infrastructure/auto
 import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
 import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 /**
  * UserDeactivationController
@@ -42,7 +43,7 @@ export default class UserDeactivationController {
         return;
       }
 
-      const targetUser = await User.findById(id);
+      const targetUser = await User.findById(id, "+passwordChangedAt");
 
       if (!targetUser) {
         res.status(404).json({
@@ -100,7 +101,15 @@ export default class UserDeactivationController {
 
       // Deactivate user
       targetUser.isActive = false;
+      const priorSecurityStamp = targetUser.passwordChangedAt?.getTime() ?? 0;
+      targetUser.passwordChangedAt = new Date(
+        Math.max(Date.now(), priorSecurityStamp + 1_000),
+      );
       await targetUser.save();
+      await RefreshSessionService.revokeAllForUser(
+        String(targetUser._id),
+        "account_deactivated",
+      );
       programMembershipMutationSyncTrigger.userEligibilityChanged(
         String(targetUser._id),
         {

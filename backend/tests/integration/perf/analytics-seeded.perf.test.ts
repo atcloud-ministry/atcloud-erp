@@ -29,6 +29,7 @@ describe("Seeded perf: analytics query timings", () => {
       weeklyChurch: i % 3 === 0 ? "Church A" : i % 3 === 1 ? "Church B" : "",
       lastLogin: new Date(Date.now() - (i % 15) * 24 * 60 * 60 * 1000),
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
       gender: "male",
     }));
     const userDocs = await User.insertMany(users);

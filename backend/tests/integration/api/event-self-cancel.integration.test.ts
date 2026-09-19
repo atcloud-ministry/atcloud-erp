@@ -41,6 +41,7 @@ describe("Event self-cancellation vs admin removal", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findByIdAndUpdate(userId, { isVerified: true });
@@ -64,6 +65,7 @@ describe("Event self-cancellation vs admin removal", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

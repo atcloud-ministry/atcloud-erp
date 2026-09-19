@@ -19,6 +19,7 @@ async function createAdminAndLogin() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   } as const;
   const registerRes = await request(app).post("/api/auth/register").send(admin);
   if (registerRes.status !== 201) {

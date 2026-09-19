@@ -23,6 +23,7 @@ describe("Analytics export CSV rows mode", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(a).expect(201);
     await User.findOneAndUpdate(

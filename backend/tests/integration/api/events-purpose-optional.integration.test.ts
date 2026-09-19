@@ -27,6 +27,7 @@ describe("Events API - Purpose optional", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     const adminResponse = await request(app)

@@ -28,6 +28,7 @@ describe("Events API - YouTube URL for Completed Events", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(adminData);
@@ -55,6 +56,7 @@ describe("Events API - YouTube URL for Completed Events", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(participantData);

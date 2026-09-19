@@ -37,6 +37,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findOneAndUpdate(
@@ -62,6 +63,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findOneAndUpdate(
@@ -87,6 +89,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     leaderId = leaderRes.body.data.user.id;
     await User.findOneAndUpdate(

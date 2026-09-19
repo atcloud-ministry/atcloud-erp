@@ -5,8 +5,8 @@ import AdminProfileEditController from "../../../../src/controllers/user-admin/A
 vi.mock("../../../../src/models", () => ({
   User: { findById: vi.fn() },
 }));
-vi.mock("../../../../src/models/AuditLog", () => ({
-  default: { create: vi.fn() },
+vi.mock("../../../../src/services/AuditLogService", () => ({
+  AuditLogService: { recordRequiredInTransaction: vi.fn() },
 }));
 vi.mock("../../../../src/utils/avatarCleanup", () => ({
   cleanupOldAvatar: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock(
 );
 
 import { User } from "../../../../src/models";
-import AuditLog from "../../../../src/models/AuditLog";
+import { AuditLogService } from "../../../../src/services/AuditLogService";
 import { cleanupOldAvatar } from "../../../../src/utils/avatarCleanup";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
@@ -108,7 +108,9 @@ describe("AdminProfileEditController", () => {
       get: vi.fn().mockReturnValue("unit-test"),
     };
     vi.mocked(CachePatterns.invalidateUserCache).mockResolvedValue(undefined);
-    vi.mocked(AuditLog.create).mockResolvedValue({} as never);
+    vi.mocked(AuditLogService.recordRequiredInTransaction).mockResolvedValue(
+      undefined,
+    );
     vi.mocked(cleanupOldAvatar).mockResolvedValue(true);
     vi.mocked(mongoTransactionService.run).mockImplementation(
       async (operation) =>
@@ -310,19 +312,28 @@ describe("AdminProfileEditController", () => {
         "/old-avatar.jpg",
       ),
     );
-    expect(AuditLog.create).toHaveBeenCalledWith(
+    expect(AuditLogService.recordRequiredInTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "admin_profile_edit",
-        targetId: "targetUser123",
-        details: expect.objectContaining({
-          changes: expect.objectContaining({
-            phone: { old: "+12065550123", new: "+14155552671" },
-            avatar: { old: "/old-avatar.jpg", new: "/new-avatar.jpg" },
-            homeAddress: { old: "Legacy address", new: undefined },
-          }),
-        }),
+        target: { model: "User", id: "targetUser123" },
+        details: {
+          changedFields: expect.arrayContaining(["phone", "avatar", "homeAddress"]),
+        },
       }),
+      TRANSACTION_SESSION,
     );
+    expect(
+      JSON.stringify(
+        vi.mocked(AuditLogService.recordRequiredInTransaction).mock.calls[0][0],
+      ),
+    )
+      .not.toContain("target@test.com");
+    expect(
+      JSON.stringify(
+        vi.mocked(AuditLogService.recordRequiredInTransaction).mock.calls[0][0],
+      ),
+    )
+      .not.toContain("+14155552671");
   });
 
   it("keeps new raw structured private values off sockets", async () => {
@@ -366,16 +377,19 @@ describe("AdminProfileEditController", () => {
     });
   });
 
-  it("does not fail a successful update when audit creation fails", async () => {
+  it("fails the transaction when the required audit write fails", async () => {
     mockFindById(hydratedUser());
-    vi.mocked(AuditLog.create).mockRejectedValue(new Error("audit failed"));
+    vi.mocked(
+      AuditLogService.recordRequiredInTransaction,
+    ).mockRejectedValue(new Error("audit unavailable"));
     req.body = { avatar: "/new-avatar.jpg" };
     await invoke();
-    expect(status).toHaveBeenCalledWith(200);
-    expect(consoleError).toHaveBeenCalledWith(
-      "Failed to create audit log for admin profile edit:",
-      expect.any(Error),
-    );
+    expect(status).toHaveBeenCalledWith(500);
+    expect(
+      AuditLogService.recordRequiredInTransaction,
+    ).toHaveBeenCalledOnce();
+    expect(CachePatterns.invalidateUserCache).not.toHaveBeenCalled();
+    expect(socketService.emitUserUpdate).not.toHaveBeenCalled();
   });
 
   it("returns 500 for an unexpected database failure", async () => {

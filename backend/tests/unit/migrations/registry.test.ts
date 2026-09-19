@@ -60,7 +60,7 @@ function sourceMigration(
 describe("migration registry", () => {
   it("exports the immutable checksum-backed production registry", () => {
     expect(Object.isFrozen(MIGRATION_REGISTRY)).toBe(true);
-    expect(MIGRATION_REGISTRY).toHaveLength(2);
+    expect(MIGRATION_REGISTRY).toHaveLength(7);
     expect(MIGRATION_REGISTRY[0]).toMatchObject({
       id: "20260911_001_inventory-registration-profile",
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -69,8 +69,37 @@ describe("migration registry", () => {
       id: "20260912_001_backfill-program-purchase-student-roles",
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
+    expect(MIGRATION_REGISTRY[2]).toMatchObject({
+      id: "20260918_001_enforce-audit-log-ttl",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+      prepare: expect.any(Function),
+    });
+    expect(MIGRATION_REGISTRY[3]).toMatchObject({
+      id: "20260918_002_create-refresh-session-indexes",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+      prepare: expect.any(Function),
+    });
+    expect(MIGRATION_REGISTRY[4]).toMatchObject({
+      id: "20260918_003_create-file-cleanup-job-index",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+      prepare: expect.any(Function),
+    });
+    expect(MIGRATION_REGISTRY[5]).toMatchObject({
+      id: "20260918_004_enforce-notification-outbox-retention",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+      prepare: expect.any(Function),
+    });
+    expect(MIGRATION_REGISTRY[6]).toMatchObject({
+      id: "20260918_005_reconcile-user-deletion-notices",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
     expect(Object.isFrozen(MIGRATION_REGISTRY[0])).toBe(true);
     expect(Object.isFrozen(MIGRATION_REGISTRY[1])).toBe(true);
+    expect(Object.isFrozen(MIGRATION_REGISTRY[2])).toBe(true);
+    expect(Object.isFrozen(MIGRATION_REGISTRY[3])).toBe(true);
+    expect(Object.isFrozen(MIGRATION_REGISTRY[4])).toBe(true);
+    expect(Object.isFrozen(MIGRATION_REGISTRY[5])).toBe(true);
+    expect(Object.isFrozen(MIGRATION_REGISTRY[6])).toBe(true);
     expect(() => validateMigrationRegistry(MIGRATION_REGISTRY)).not.toThrow();
   });
 

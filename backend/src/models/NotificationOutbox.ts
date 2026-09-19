@@ -11,6 +11,21 @@ export const NOTIFICATION_OUTBOX_STATUSES = [
 export type NotificationOutboxStatus =
   (typeof NOTIFICATION_OUTBOX_STATUSES)[number];
 
+export const NOTIFICATION_OUTBOX_DELIVERED_RETENTION_DAYS = 30;
+export const NOTIFICATION_OUTBOX_DEAD_RETENTION_DAYS = 90;
+const FIXED_DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
+
+export function notificationOutboxTerminalPurgeAt(
+  status: "delivered" | "dead",
+  terminalAt: Date,
+): Date {
+  const retentionDays =
+    status === "delivered"
+      ? NOTIFICATION_OUTBOX_DELIVERED_RETENTION_DAYS
+      : NOTIFICATION_OUTBOX_DEAD_RETENTION_DAYS;
+  return new Date(terminalAt.getTime() + retentionDays * FIXED_DAY_MILLISECONDS);
+}
+
 export interface INotificationOutbox extends Document {
   eventId: string;
   topic: string;
@@ -30,6 +45,7 @@ export interface INotificationOutbox extends Document {
   lastAttemptAt?: Date | null;
   deliveredAt?: Date | null;
   deadAt?: Date | null;
+  purgeAt?: Date | null;
   lastErrorCode?: string | null;
   lastErrorDigest?: string | null;
   lastErrorAt?: Date | null;
@@ -129,6 +145,7 @@ const notificationOutboxSchema = new Schema<INotificationOutbox>(
     lastAttemptAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
     deadAt: { type: Date, default: null },
+    purgeAt: { type: Date, default: null },
     lastErrorCode: { type: String, default: null, maxlength: 80 },
     lastErrorDigest: {
       type: String,
@@ -166,6 +183,13 @@ notificationOutboxSchema.index({
 notificationOutboxSchema.index({ status: 1, leaseExpiresAt: 1, _id: 1 });
 notificationOutboxSchema.index({ status: 1, attemptCount: 1, _id: 1 });
 notificationOutboxSchema.index({ status: 1, unsupportedSince: 1, _id: 1 });
+notificationOutboxSchema.index(
+  { purgeAt: 1 },
+  {
+    name: "purgeAt_1",
+    expireAfterSeconds: 0,
+  },
+);
 
 notificationOutboxSchema.pre("validate", function enforceStateInvariants(next) {
   const hasAnyLeaseField = Boolean(
@@ -188,6 +212,36 @@ notificationOutboxSchema.pre("validate", function enforceStateInvariants(next) {
   }
   if (this.status === "dead" && !this.deadAt) {
     this.invalidate("deadAt", "Dead outbox events require deadAt");
+  }
+  if (this.status === "delivered" && this.deliveredAt) {
+    const expected = notificationOutboxTerminalPurgeAt(
+      "delivered",
+      this.deliveredAt,
+    );
+    if (!this.purgeAt || this.purgeAt.getTime() !== expected.getTime()) {
+      this.invalidate(
+        "purgeAt",
+        "Delivered outbox events require purgeAt exactly 30 fixed days after deliveredAt",
+      );
+    }
+  }
+  if (this.status === "dead" && this.deadAt) {
+    const expected = notificationOutboxTerminalPurgeAt("dead", this.deadAt);
+    if (!this.purgeAt || this.purgeAt.getTime() !== expected.getTime()) {
+      this.invalidate(
+        "purgeAt",
+        "Dead outbox events require purgeAt exactly 90 fixed days after deadAt",
+      );
+    }
+  }
+  if (
+    (this.status === "pending" || this.status === "processing") &&
+    this.purgeAt != null
+  ) {
+    this.invalidate(
+      "purgeAt",
+      "Non-terminal outbox events cannot have purgeAt",
+    );
   }
   next();
 });

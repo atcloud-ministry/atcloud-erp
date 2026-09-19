@@ -44,6 +44,7 @@ describe("Auto-unpublish when all roles become non-public", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

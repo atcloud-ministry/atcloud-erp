@@ -62,6 +62,19 @@ const detail: AlumniHelpRequestDetailDTO = {
   withdrawnAt: null,
   startedAt: null,
   completedAt: null,
+  termsAcceptedAt: "2026-09-12T12:00:00.000Z",
+  acceptedTerms: {
+    consent: {
+      version: "alumni-help-consent-v1",
+      text: "Consent text",
+      effectiveAt: "2026-09-12T00:00:00.000Z",
+    },
+    disclaimer: {
+      version: "alumni-help-disclaimer-v1",
+      text: "Disclaimer text",
+      effectiveAt: "2026-09-12T00:00:00.000Z",
+    },
+  },
 };
 
 const mutationData = { request: detail, helpActionRequiredCount: 1 };
@@ -178,10 +191,15 @@ describe("Alumni Help API client", () => {
       if (pathname.endsWith("/terms")) {
         return response({
           terms: {
-            consent: { version: "help-consent-v1", text: "Consent text" },
+            consent: {
+              version: "help-consent-v1",
+              text: "Consent text",
+              effectiveAt: "2026-09-12T00:00:00.000Z",
+            },
             disclaimer: {
               version: "help-disclaimer-v1",
               text: "Disclaimer text",
+              effectiveAt: "2026-09-12T00:00:00.000Z",
             },
           },
         });

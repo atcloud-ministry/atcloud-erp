@@ -221,11 +221,21 @@ describe("Auth Middleware", () => {
 
         const result = TokenService.generateRefreshToken(payload);
 
-        expect(jwt.sign).toHaveBeenCalledWith(payload, "test-refresh-secret", {
-          expiresIn: "7d",
-          issuer: "atcloud-system",
-          audience: "atcloud-users",
-        });
+        expect(jwt.sign).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: "user123",
+            sid: expect.any(String),
+            tokenType: "refresh",
+          }),
+          "test-refresh-secret",
+          expect.objectContaining({
+            expiresIn: "7d",
+            issuer: "atcloud-system",
+            audience: "atcloud-users",
+            algorithm: "HS256",
+            jwtid: expect.any(String),
+          }),
+        );
         expect(result).toBe(mockToken);
       });
     });
@@ -241,6 +251,7 @@ describe("Auth Middleware", () => {
         expect(jwt.verify).toHaveBeenCalledWith(token, "test-access-secret", {
           issuer: "atcloud-system",
           audience: "atcloud-users",
+          algorithms: ["HS256"],
         });
         expect(result).toEqual(mockPayload);
       });
@@ -260,7 +271,12 @@ describe("Auth Middleware", () => {
     describe("verifyRefreshToken", () => {
       it("should verify valid refresh token", () => {
         const token = "valid-refresh-token";
-        const mockPayload = { userId: "user123" };
+        const mockPayload = {
+          userId: "507f1f77bcf86cd799439011",
+          sid: "11111111-1111-4111-8111-111111111111",
+          jti: "22222222-2222-4222-8222-222222222222",
+          tokenType: "refresh" as const,
+        };
         (jwt.verify as any).mockReturnValue(mockPayload);
 
         const result = TokenService.verifyRefreshToken(token);
@@ -268,6 +284,7 @@ describe("Auth Middleware", () => {
         expect(jwt.verify).toHaveBeenCalledWith(token, "test-refresh-secret", {
           issuer: "atcloud-system",
           audience: "atcloud-users",
+          algorithms: ["HS256"],
         });
         expect(result).toEqual(mockPayload);
       });
@@ -315,9 +332,17 @@ describe("Auth Middleware", () => {
 
         // Verify refresh token generation
         expect(jwt.sign).toHaveBeenCalledWith(
-          { userId: "user123" },
+          expect.objectContaining({
+            userId: "user123",
+            sid: expect.any(String),
+            tokenType: "refresh",
+            exp: expect.any(Number),
+          }),
           "test-refresh-secret",
-          expect.any(Object),
+          expect.objectContaining({
+            algorithm: "HS256",
+            jwtid: expect.any(String),
+          }),
         );
       });
     });
@@ -353,7 +378,9 @@ describe("Auth Middleware", () => {
       await authenticate(req, res, next);
 
       expect(User.findById).toHaveBeenCalledWith("user123");
-      expect(mockUserQuery.select).toHaveBeenCalledWith("-password");
+      expect(mockUserQuery.select).toHaveBeenCalledWith(
+        "-password +passwordChangedAt",
+      );
       expect(req.user).toEqual(mockUser);
       expect(req.userId).toBe("user123");
       expect(req.userRole).toBe("Participant");
@@ -484,6 +511,69 @@ describe("Auth Middleware", () => {
         message: "Account not verified. Please verify your email address.",
       });
       expect(next).not.toHaveBeenCalled();
+    });
+
+    it("rejects an access token issued before the password changed", async () => {
+      const req = createMockRequest("Bearer old-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_000,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_000),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("rejects an access token from the ambiguous password-change second", async () => {
+      const req = createMockRequest("Bearer new-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_001,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("accepts a new access token issued in a later second", async () => {
+      const req = createMockRequest("Bearer new-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_002,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(res.status).not.toHaveBeenCalled();
     });
 
     it("should return 401 for JsonWebTokenError", async () => {
@@ -1283,6 +1373,68 @@ describe("Auth Middleware", () => {
 
       expect(next).toHaveBeenCalled();
       expect(req.user).toBeUndefined();
+    });
+
+    it("proceeds anonymously for an access token revoked by a password change", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_000,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_000),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer old-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.user).toBeUndefined();
+      expect(req.authPrincipal).toBeUndefined();
+    });
+
+    it("proceeds anonymously at the ambiguous password-change second", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_001,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer new-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.user).toBeUndefined();
+      expect(req.authPrincipal).toBeUndefined();
+    });
+
+    it("attaches the user for a token issued in a later second", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_002,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer new-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(req.user).toBeDefined();
+      expect(req.userId).toBe("user123");
     });
 
     it("should proceed without user when token verification fails", async () => {

@@ -361,7 +361,6 @@ class PurchaseRetryController {
       res.status(500).json({
         success: false,
         message: "Failed to retry purchase.",
-        error: (error as Error).message,
       });
     }
   }

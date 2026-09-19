@@ -8,7 +8,11 @@ import {
   expect,
   it,
 } from "vitest";
-import { ALUMNI_HELP_TERMS } from "../../../src/config/alumniHelpTerms";
+import {
+  ALUMNI_HELP_CONSENT_REGISTRY,
+  ALUMNI_HELP_DISCLAIMER_REGISTRY,
+  ALUMNI_HELP_TERMS,
+} from "../../../src/config/alumniHelpTerms";
 import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../../src/config/alumniProfilePublicationConsent";
 import {
   ALUMNI_HELP_OUTCOMES_BY_TYPE,
@@ -188,7 +192,9 @@ async function createRequest(
     requestedHelpType: helpType,
     openingNote,
     consentVersion: ALUMNI_HELP_TERMS.consent.version,
+    consentAccepted: true,
     disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+    disclaimerAccepted: true,
     actor: actor(requesterId),
     idempotencyKey: randomUUID(),
   });
@@ -351,6 +357,62 @@ describe("M3 Alumni Help service integration", () => {
     expect(persistedSideEffects).not.toContain(privateNote);
     expect(persistedSideEffects).not.toContain(PRIVATE_PHONE);
     expect(persistedSideEffects).not.toContain("@private.example.org");
+  });
+
+  it("accepts a known untampered archived terms version and exposes its exact text", async () => {
+    const requesterId = await insertUser("ArchivedTerms");
+    const created = await createRequest(requesterId, "career_advice");
+    const consent = ALUMNI_HELP_CONSENT_REGISTRY[0]!;
+    const disclaimer = ALUMNI_HELP_DISCLAIMER_REGISTRY[0]!;
+    await AlumniHelpRequest.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(created.request.id) },
+      {
+        $set: {
+          consentVersion: consent.version,
+          consentDocumentHash: consent.documentHash,
+          disclaimerVersion: disclaimer.version,
+          disclaimerDocumentHash: disclaimer.documentHash,
+        },
+      },
+    );
+
+    const archived = await service.get(
+      requesterId.toString(),
+      created.request.id,
+    );
+    expect(archived.request).toMatchObject({
+      termsAcceptedAt: created.request.termsAcceptedAt,
+      acceptedTerms: {
+        consent: {
+          version: consent.version,
+          text: consent.text,
+          effectiveAt: consent.effectiveAt,
+        },
+        disclaimer: {
+          version: disclaimer.version,
+          text: disclaimer.text,
+          effectiveAt: disclaimer.effectiveAt,
+        },
+      },
+    });
+
+    await expect(acceptRequest(created.request.id)).resolves.toMatchObject({
+      request: { status: "accepted" },
+    });
+
+    const tamperedRequesterId = await insertUser("TamperedTerms");
+    const tampered = await createRequest(
+      tamperedRequesterId,
+      "warm_introduction",
+    );
+    await AlumniHelpRequest.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(tampered.request.id) },
+      { $set: { consentDocumentHash: "0".repeat(64) } },
+    );
+    await expect(acceptRequest(tampered.request.id)).rejects.toMatchObject({
+      code: "ALUMNI_HELP_TERMS_VERSION_INVALID",
+      httpStatus: 409,
+    });
   });
 
   it("enforces the actor transition matrix and permits only one concurrent CAS transition", async () => {

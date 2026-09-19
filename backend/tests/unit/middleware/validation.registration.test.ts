@@ -52,6 +52,8 @@ describe("User Registration Validation Rules", () => {
     lastName: "Doe",
     gender: "male",
     isAtCloudLeader: false,
+    acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   };
 
   describe("email validation", () => {
@@ -629,6 +631,8 @@ describe("User Registration Validation Rules", () => {
         gender: "male",
         isAtCloudLeader: true,
         roleInAtCloud: "Team Lead",
+        acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
       expect(result.errors).toHaveLength(0);
@@ -643,6 +647,8 @@ describe("User Registration Validation Rules", () => {
         lastName: "Y",
         gender: "female",
         isAtCloudLeader: false,
+        acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
       expect(result.errors).toHaveLength(0);

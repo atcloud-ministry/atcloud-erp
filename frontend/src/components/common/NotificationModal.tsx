@@ -1,4 +1,6 @@
+import { useId } from "react";
 import { createPortal } from "react-dom";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 import Icon from "./Icon";
 
 interface NotificationModalProps {
@@ -34,6 +36,10 @@ export default function NotificationModal({
   showCloseButton = true,
   closeButtonText,
 }: NotificationModalProps) {
+  const titleId = useId();
+  const messageId = useId();
+  const dialogRef = useAccessibleDialog(isOpen, onClose);
+
   if (!isOpen) return null;
 
   const getTypeStyles = () => {
@@ -46,7 +52,7 @@ export default function NotificationModal({
           bgColor: "bg-green-50",
           titleColor: "text-green-900",
           textColor: "text-green-700",
-          buttonColor: "bg-green-600 hover:bg-green-700",
+          buttonColor: "bg-green-700 hover:bg-green-800",
         };
       case "error":
         return {
@@ -61,12 +67,12 @@ export default function NotificationModal({
       case "warning":
         return {
           icon: "x-circle" as const, // Using x-circle since exclamation-triangle is not available
-          iconColor: "text-yellow-600",
+          iconColor: "text-yellow-700",
           borderColor: "border-yellow-200",
           bgColor: "bg-yellow-50",
           titleColor: "text-yellow-900",
-          textColor: "text-yellow-700",
-          buttonColor: "bg-yellow-600 hover:bg-yellow-700",
+          textColor: "text-yellow-800",
+          buttonColor: "bg-yellow-700 hover:bg-yellow-800",
         };
       case "info":
       default:
@@ -85,29 +91,41 @@ export default function NotificationModal({
   const styles = getTypeStyles();
 
   return createPortal(
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black bg-opacity-50 p-4">
       <div
-        className={`bg-white rounded-lg shadow-xl max-w-md w-full border-2 ${styles.borderColor} ${styles.bgColor} animate-slide-in`}
+        aria-describedby={messageId}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className={`max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border-2 bg-white shadow-xl ${styles.borderColor} ${styles.bgColor} animate-slide-in`}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
       >
         <div className="p-6">
           <div className="flex items-start">
-            <div className={`flex-shrink-0 ${styles.iconColor}`}>
+            <div aria-hidden="true" className={`flex-shrink-0 ${styles.iconColor}`}>
               <Icon name={styles.icon} className="w-6 h-6" />
             </div>
             <div className="ml-3 flex-1">
-              <h3 className={`text-lg font-semibold ${styles.titleColor} mb-2`}>
+              <h2
+                className={`text-lg font-semibold ${styles.titleColor} mb-2`}
+                id={titleId}
+              >
                 {title}
-              </h3>
+              </h2>
               <p
                 className={`text-sm ${styles.textColor} leading-relaxed whitespace-pre-wrap`}
+                id={messageId}
               >
                 {message}
               </p>
             </div>
             {showCloseButton && (
               <button
+                aria-label="Close notification"
                 onClick={onClose}
-                className="flex-shrink-0 ml-4 text-gray-400 hover:text-gray-600 transition-colors"
+                className="flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center ml-4 text-gray-600 hover:text-gray-900 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                type="button"
               >
                 <Icon name="x-mark" className="w-5 h-5" />
               </button>
@@ -115,7 +133,7 @@ export default function NotificationModal({
           </div>
 
           {/* Action Buttons */}
-          <div className="mt-4 flex justify-end space-x-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
             {/* Multiple action buttons (new feature) */}
             {actionButtons &&
               actionButtons.map((button, index) => (
@@ -125,11 +143,12 @@ export default function NotificationModal({
                     button.onClick();
                     onClose();
                   }}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`min-h-11 w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
                     button.variant === "secondary"
                       ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       : `text-white ${styles.buttonColor}`
                   }`}
+                  type="button"
                 >
                   {button.text}
                 </button>
@@ -141,18 +160,21 @@ export default function NotificationModal({
                   actionButton.onClick();
                   onClose();
                 }}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                className={`min-h-11 w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
                   actionButton.variant === "secondary"
                     ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     : `text-white ${styles.buttonColor}`
                 }`}
+                type="button"
               >
                 {actionButton.text}
               </button>
             )}
             <button
+              data-dialog-initial-focus
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              className="min-h-11 w-full px-4 py-2 text-sm font-medium text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto"
+              type="button"
             >
               {closeButtonText ??
                 (actionButton || actionButtons ? "Cancel" : "OK")}

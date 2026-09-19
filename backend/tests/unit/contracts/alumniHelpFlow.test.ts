@@ -1,6 +1,12 @@
 import { createHash } from "crypto";
 import { describe, expect, it } from "vitest";
-import { ALUMNI_HELP_TERMS } from "../../../src/config/alumniHelpTerms";
+import {
+  ALUMNI_HELP_CONSENT_REGISTRY,
+  ALUMNI_HELP_DISCLAIMER_REGISTRY,
+  ALUMNI_HELP_TERMS,
+  findAlumniHelpConsent,
+  findAlumniHelpDisclaimer,
+} from "../../../src/config/alumniHelpTerms";
 import {
   ALUMNI_HELP_TRANSITIONS,
   AlumniHelpFlowValidationError,
@@ -24,6 +30,22 @@ function expectValidationError(operation: () => unknown): void {
 
 describe("alumni help legal terms", () => {
   it("owns versioned document evidence on the server", () => {
+    expect(ALUMNI_HELP_CONSENT_REGISTRY.map((entry) => entry.version)).toEqual([
+      "alumni-help-consent-v1",
+      "alumni-help-consent-v2",
+    ]);
+    expect(
+      ALUMNI_HELP_DISCLAIMER_REGISTRY.map((entry) => entry.version),
+    ).toEqual([
+      "alumni-help-disclaimer-v1",
+      "alumni-help-disclaimer-v2",
+    ]);
+    expect(findAlumniHelpConsent("alumni-help-consent-v1")).toBe(
+      ALUMNI_HELP_CONSENT_REGISTRY[0],
+    );
+    expect(findAlumniHelpDisclaimer("alumni-help-disclaimer-v1")).toBe(
+      ALUMNI_HELP_DISCLAIMER_REGISTRY[0],
+    );
     expect(ALUMNI_HELP_TERMS.consent.documentHash).toBe(
       createHash("sha256")
         .update(ALUMNI_HELP_TERMS.consent.text.normalize("NFC"), "utf8")
@@ -38,10 +60,12 @@ describe("alumni help legal terms", () => {
       consent: {
         version: ALUMNI_HELP_TERMS.consent.version,
         text: ALUMNI_HELP_TERMS.consent.text,
+        effectiveAt: ALUMNI_HELP_TERMS.consent.effectiveAt,
       },
       disclaimer: {
         version: ALUMNI_HELP_TERMS.disclaimer.version,
         text: ALUMNI_HELP_TERMS.disclaimer.text,
+        effectiveAt: ALUMNI_HELP_TERMS.disclaimer.effectiveAt,
       },
     });
     expect(JSON.stringify(buildAlumniHelpTermsDTO())).not.toContain(
@@ -58,14 +82,18 @@ describe("alumni help request input contracts", () => {
         requestedHelpType: "warm_introduction",
         openingNote: "  Could   we connect?  ",
         consentVersion: ALUMNI_HELP_TERMS.consent.version,
+        consentAccepted: true,
         disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+        disclaimerAccepted: true,
       }),
     ).toEqual({
       alumniProfileId: PROFILE_ID,
       requestedHelpType: "warm_introduction",
       openingNote: "Could we connect?",
       consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
       disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
     });
   });
 
@@ -108,6 +136,28 @@ describe("alumni help request input contracts", () => {
         openingNote: "🙂".repeat(4_001),
         consentVersion: "v1",
         disclaimerVersion: "v1",
+      }),
+    );
+  });
+
+  it("requires literal consent and disclaimer acknowledgements", () => {
+    expectValidationError(() =>
+      parseCreateHelpRequestBody({
+        alumniProfileId: PROFILE_ID,
+        requestedHelpType: "career_advice",
+        consentVersion: ALUMNI_HELP_TERMS.consent.version,
+        consentAccepted: false,
+        disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+        disclaimerAccepted: true,
+      }),
+    );
+    expectValidationError(() =>
+      parseCreateHelpRequestBody({
+        alumniProfileId: PROFILE_ID,
+        requestedHelpType: "career_advice",
+        consentVersion: ALUMNI_HELP_TERMS.consent.version,
+        consentAccepted: true,
+        disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
       }),
     );
   });

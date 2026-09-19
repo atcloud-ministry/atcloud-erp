@@ -35,6 +35,7 @@ describe("Participant three-role cap (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 
@@ -70,6 +71,7 @@ describe("Participant three-role cap (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 

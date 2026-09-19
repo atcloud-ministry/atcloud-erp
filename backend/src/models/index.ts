@@ -156,6 +156,20 @@ export {
   INotificationPreference,
   NOTIFICATION_PREFERENCE_COLLECTION,
 } from "./NotificationPreference";
+export {
+  default as RefreshSession,
+  IRefreshSession,
+  REFRESH_SESSION_COLLECTION,
+  REFRESH_SESSION_REVOCATION_REASONS,
+  RefreshSessionRevocationReason,
+} from "./RefreshSession";
+export {
+  default as FileCleanupJob,
+  FILE_CLEANUP_JOB_COLLECTION,
+  FILE_CLEANUP_STORAGE_AREAS,
+  FileCleanupStorageArea,
+  IFileCleanupJob,
+} from "./FileCleanupJob";
 export { initializeAlumniDataModels } from "./initializeAlumniDataModels";
 export {
   ACCOUNT_DELETION_RETENTION_DAYS,

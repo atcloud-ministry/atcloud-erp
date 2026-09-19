@@ -11,6 +11,7 @@ import { MigrationUsageError } from "./MigrationErrors";
 import {
   cloneMigrationAggregateReadOptions,
   cloneMigrationCountDocumentsOptions,
+  cloneMigrationListIndexesOptions,
   cloneMigrationReadOnlyPipeline,
   createMigrationSafeAggregationCursor,
   createMigrationSafeFindCursor,
@@ -110,20 +111,20 @@ function createSessionBoundReadMethods<TSchema extends Document>(
         WithId<TSchema>
       >,
     )) as MigrationReadCollection<TSchema>["find"];
-  const nativeListIndexes = bindWithFrameworkSession(
-    collection.listIndexes,
-    collection,
-    session,
-    0,
-  );
-  const listIndexes = ((...args: unknown[]) =>
-    createMigrationSafeIndexCursor(
-      Reflect.apply(
-        nativeListIndexes,
-        undefined,
-        args,
-      ) as ListIndexesCursor,
-    )) as MigrationReadCollection<TSchema>["listIndexes"];
+  const listIndexes = ((...args: unknown[]) => {
+    if (args.length > 1) {
+      throw new MigrationUsageError(
+        "Migration listIndexes options are invalid.",
+      );
+    }
+    const options = cloneMigrationListIndexesOptions(args[0]);
+    const cursor = Reflect.apply(
+      collection.listIndexes,
+      collection,
+      options === undefined ? [] : [options],
+    ) as ListIndexesCursor;
+    return createMigrationSafeIndexCursor(cursor);
+  }) as MigrationReadCollection<TSchema>["listIndexes"];
   const nativeAggregate = bindWithFrameworkSession(
     collection.aggregate,
     collection,

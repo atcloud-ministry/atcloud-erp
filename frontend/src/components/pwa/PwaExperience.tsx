@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   activateServiceWorker,
   registerServiceWorker,
@@ -65,11 +72,72 @@ function PwaCard({
   title: string;
   children: React.ReactNode;
 }) {
+  const headingId = useId();
+  const cardRef = useRef<HTMLElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    const previouslyFocused = previouslyFocusedRef.current;
+    if (!card) return;
+
+    const keepFocusedControlVisible = (target: HTMLElement | null) => {
+      if (!target || target === document.body || card.contains(target)) return;
+      const targetRect = target.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const overlaps =
+        targetRect.right > cardRect.left &&
+        targetRect.left < cardRect.right &&
+        targetRect.bottom > cardRect.top &&
+        targetRect.top < cardRect.bottom;
+      if (overlaps && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+      }
+    };
+    const handleFocus = (event: FocusEvent) => {
+      keepFocusedControlVisible(
+        event.target instanceof HTMLElement ? event.target : null,
+      );
+    };
+
+    keepFocusedControlVisible(
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null,
+    );
+    document.addEventListener("focusin", handleFocus);
+    return () => {
+      document.removeEventListener("focusin", handleFocus);
+      if (!card.contains(document.activeElement)) return;
+      const fallback = document.querySelector<HTMLElement>(
+        "#dashboard-main-content, main, [role='main']",
+      );
+      const returnTarget =
+        previouslyFocused?.isConnected && previouslyFocused !== document.body
+          ? previouslyFocused
+          : fallback;
+      window.requestAnimationFrame(() => {
+        if (!returnTarget?.isConnected) return;
+        if (!returnTarget.hasAttribute("tabindex")) {
+          returnTarget.setAttribute("tabindex", "-1");
+        }
+        returnTarget.focus();
+      });
+    };
+  }, []);
+
   return (
     <section
-      aria-label={title}
+      aria-atomic="true"
+      aria-labelledby={headingId}
       aria-live="polite"
-      className="fixed bottom-4 left-4 right-4 z-[10000] rounded-xl border border-gray-200 bg-white p-4 shadow-2xl sm:left-auto sm:w-[24rem]"
+      className="fixed bottom-4 left-4 right-4 z-[10000] max-h-[35dvh] overflow-y-auto rounded-xl border border-gray-500 bg-white p-4 shadow-2xl sm:left-auto sm:w-[24rem]"
+      data-pwa-card
+      ref={cardRef}
     >
       <div className="flex items-start gap-3">
         <img
@@ -79,7 +147,7 @@ function PwaCard({
           className="h-10 w-10 flex-none rounded-lg"
         />
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          <h2 className="text-base font-semibold text-gray-900" id={headingId}>{title}</h2>
           {children}
         </div>
       </div>
@@ -105,6 +173,7 @@ export default function PwaExperience({
   const [activatingUpdate, setActivatingUpdate] = useState(false);
   const registrationRef = useRef<ServiceWorkerRegistrationHandle | null>(null);
   const reloadOnControllerChangeRef = useRef(false);
+  const appleStepsRef = useRef<HTMLOListElement>(null);
 
   const offerAppleInstall = useMemo(
     () =>
@@ -188,7 +257,12 @@ export default function PwaExperience({
   }, [registrationEnabled]);
 
   useEffect(() => {
+    if (showAppleSteps) appleStepsRef.current?.focus();
+  }, [showAppleSteps]);
+
+  useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
+    const serviceWorker = navigator.serviceWorker;
 
     const handleControllerChange = () => {
       if (!reloadOnControllerChangeRef.current) return;
@@ -196,12 +270,12 @@ export default function PwaExperience({
       window.location.reload();
     };
 
-    navigator.serviceWorker.addEventListener(
+    serviceWorker.addEventListener(
       "controllerchange",
       handleControllerChange,
     );
     return () =>
-      navigator.serviceWorker.removeEventListener(
+      serviceWorker.removeEventListener(
         "controllerchange",
         handleControllerChange,
       );
@@ -267,14 +341,14 @@ export default function PwaExperience({
             type="button"
             onClick={applyUpdate}
             disabled={activatingUpdate}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+            className="min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
           >
             {activatingUpdate ? "Updating…" : "Update now"}
           </button>
           <button
             type="button"
             onClick={() => setWaitingWorker(null)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="min-h-11 rounded-lg border border-gray-500 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
             Later
           </button>
@@ -294,14 +368,14 @@ export default function PwaExperience({
             type="button"
             onClick={() => void requestBrowserInstall()}
             disabled={installing}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+            className="min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
           >
             {installing ? "Opening…" : "Install app"}
           </button>
           <button
             type="button"
             onClick={dismissInstall}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="min-h-11 rounded-lg border border-gray-500 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
             Not now
           </button>
@@ -315,7 +389,12 @@ export default function PwaExperience({
       <PwaCard title="Install @Cloud on this device">
         {showAppleSteps ? (
           <>
-            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700">
+            <ol
+              className="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700 focus:outline-none"
+              id="apple-install-steps"
+              ref={appleStepsRef}
+              tabIndex={-1}
+            >
               <li>Open the browser Share menu.</li>
               <li>Select “Add to Home Screen”.</li>
               <li>Confirm by tapping “Add”.</li>
@@ -323,7 +402,7 @@ export default function PwaExperience({
             <button
               type="button"
               onClick={dismissInstall}
-              className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              className="mt-3 min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
             >
               Done
             </button>
@@ -335,16 +414,18 @@ export default function PwaExperience({
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
+                aria-controls="apple-install-steps"
+                aria-expanded="false"
                 type="button"
                 onClick={() => setShowAppleSteps(true)}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                className="min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
               >
                 Show steps
               </button>
               <button
                 type="button"
                 onClick={dismissInstall}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="min-h-11 rounded-lg border border-gray-500 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
               >
                 Not now
               </button>

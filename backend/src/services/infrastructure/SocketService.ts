@@ -35,6 +35,8 @@ import {
   isValidChatSafeLinkUrl,
   isValidSafeLinkLabel,
 } from "../../contracts/chatRooms";
+import { isTokenCurrentForPasswordChange } from "../../utils/tokenRevocation";
+import { safeErrorName } from "../../utils/safeEventLogger";
 
 export type SocketResourceType = "event" | "program" | "conversation";
 
@@ -57,7 +59,6 @@ export const MAX_SOCKET_CONNECTIONS_PER_ACCOUNT = 5;
 const CONVERSATION_JOIN_WINDOW_MS = 60_000;
 const MAX_CONVERSATION_JOINS_PER_WINDOW = 60;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
-const VALID_PRESENCE_STATUSES = new Set(["online", "away", "busy"]);
 const VALID_RESOURCE_TYPES = new Set<SocketResourceType>([
   "event",
   "program",
@@ -211,19 +212,12 @@ class SocketService {
 
     // Handle authentication errors at the namespace level
     this.io.engine.on("connection_error", (err) => {
-      console.error(
-        "Socket.IO engine connection error:",
-        err.req,
-        err.code,
-        err.message,
-      );
       this.log.error(
         "Socket.IO engine connection error",
         undefined,
         undefined,
         {
           code: err.code,
-          message: err.message,
         },
       );
     });
@@ -259,9 +253,11 @@ class SocketService {
       tokenExpiryTimer.unref?.();
 
       // Handle any connection errors
-      authSocket.on("error", (error) => {
-        console.error("Socket error:", error);
-        this.log.error("Socket error", error as Error);
+      authSocket.on("error", () => {
+        this.log.error("Socket error", undefined, undefined, {
+          socketId: authSocket.id,
+          userId: authSocket.userId,
+        });
       }); // Track authenticated socket
       this.authenticatedSockets.set(authSocket.id, authSocket);
 
@@ -306,25 +302,6 @@ class SocketService {
       });
 
       this.enforceAccountConnectionLimit(authSocket);
-
-      // Handle status updates
-      authSocket.on("update_status", (status: unknown) => {
-        if (
-          typeof status !== "string" ||
-          !VALID_PRESENCE_STATUSES.has(status)
-        ) {
-          return;
-        }
-        authSocket.broadcast.emit("user_status_update", {
-          userId: authSocket.userId,
-          status,
-          user: {
-            id: authSocket.user.id,
-            firstName: authSocket.user.firstName,
-            lastName: authSocket.user.lastName,
-          },
-        });
-      });
 
       // Handle event room management
       authSocket.on("join_event_room", (eventId: unknown, ack?: SocketRoomAck) => {
@@ -442,11 +419,14 @@ class SocketService {
 
       const user = await User.findById(
         decodedUserId,
-        "_id firstName lastName role isActive isVerified",
+        "_id firstName lastName role isActive isVerified +passwordChangedAt",
       );
 
       if (!user || !user.isActive || !user.isVerified) {
         return next(new Error("Invalid, inactive, or unverified user"));
+      }
+      if (!isTokenCurrentForPasswordChange(decoded, user)) {
+        return next(new Error("Authentication failed"));
       }
 
       const principal = createUserAuthorizationPrincipal(user);
@@ -476,8 +456,10 @@ class SocketService {
 
       next();
     } catch (error: unknown) {
-      const err = error as Error;
-      this.log.error("Socket authentication error", err);
+      this.log.error("Socket authentication error", undefined, undefined, {
+        eventCode: "SOCKET_AUTHENTICATION_FAILED",
+        errorName: safeErrorName(error),
+      });
       return next(new Error("Authentication failed"));
     }
   }

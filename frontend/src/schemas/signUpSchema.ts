@@ -56,6 +56,13 @@ export const signUpSchema = yup.object({
 
   weeklyChurch: yup.string().optional(),
   churchAddress: yup.string().optional(),
+  acceptTerms: yup
+    .boolean()
+    .oneOf([true], "You must accept the registration privacy notice")
+    .required("You must accept the registration privacy notice"),
+  registrationNoticeVersion: yup
+    .string()
+    .required("The registration privacy notice must be loaded"),
 });
 
 export type SignUpFormData = yup.InferType<typeof signUpSchema>;

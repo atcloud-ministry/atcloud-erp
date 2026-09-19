@@ -47,6 +47,7 @@ describe("GuestMigrationService.performGuestToUserMigration", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any);
 
     const guest = await GuestRegistration.create({

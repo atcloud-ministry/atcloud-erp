@@ -51,6 +51,10 @@ import {
   createMigrationTransactionDatabase,
   createMigrationTransactionReadDatabase,
 } from "./MigrationTransactionDatabase";
+import {
+  createMigrationAdministrativeDatabase,
+  type MigrationAdministrativeDatabase,
+} from "./MigrationAdministrativeDatabase";
 
 export const SCHEMA_MIGRATION_COLLECTION = MIGRATION_LEDGER_COLLECTION_NAME;
 
@@ -379,6 +383,7 @@ export class MigrationRunner {
   private readonly leaseService: MigrationLeasePort;
   private readonly ledger: Collection<StoredSchemaMigration>;
   private readonly readDatabase: MigrationReadDatabase;
+  private readonly administrativeDatabase: MigrationAdministrativeDatabase;
 
   constructor(options: MigrationRunnerOptions) {
     if (!options?.connection?.db) {
@@ -427,6 +432,8 @@ export class MigrationRunner {
       SCHEMA_MIGRATION_COLLECTION,
     );
     this.readDatabase = createMigrationReadDatabase(options.connection);
+    this.administrativeDatabase =
+      createMigrationAdministrativeDatabase(options.connection);
   }
 
   async status(): Promise<MigrationStatusResult> {
@@ -1102,6 +1109,14 @@ export class MigrationRunner {
       const revisionBefore = record.revision;
 
       try {
+        if (run.definition.prepare) {
+          await run.definition.prepare({
+            database: this.administrativeDatabase,
+            direction: run.direction,
+            ...(this.signal ? { signal: this.signal } : {}),
+          });
+          this.assertNotAborted();
+        }
         const commit = await this.commitBatch(run, record, lease);
         record = commit.record;
         lease = commit.lease;

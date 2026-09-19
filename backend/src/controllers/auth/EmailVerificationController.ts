@@ -9,12 +9,13 @@ import { User } from "../../models";
 import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
 import GuestMigrationService from "../../services/GuestMigrationService";
-import { createLogger } from "../../services/LoggerService";
-import { UserDocLike, LoggerLike, toIdString } from "./types";
+import { UserDocLike, toIdString } from "./types";
 import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
 
 export default class EmailVerificationController {
   static async verifyEmail(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       if (!req.user) {
         res.status(400).json({
@@ -26,6 +27,7 @@ export default class EmailVerificationController {
       }
 
       const user = req.user as unknown as UserDocLike;
+      userId = toIdString(user._id);
 
       // Check if already verified
       if (user.isVerified) {
@@ -76,13 +78,9 @@ export default class EmailVerificationController {
           process.env.VITEST_SCOPE === "integration");
       if (autoMigrateEnabled) {
         try {
-          const log: LoggerLike =
-            createLogger && typeof createLogger === "function"
-              ? (createLogger("AuthController") as unknown as LoggerLike)
-              : (console as LoggerLike);
           const performResult =
             await GuestMigrationService.performGuestToUserMigration(
-              toIdString(user._id),
+              userId,
               user.email
             );
           if (performResult.ok) {
@@ -94,31 +92,13 @@ export default class EmailVerificationController {
               modified: performResult.modified,
               remainingPending: remainingEligible.length,
             };
-            log.info?.(
-              "Guest auto-migration completed after verifyEmail",
-              "GuestMigration",
-              {
-                userId: toIdString(user._id),
-                email: user.email.toLowerCase(),
-                modified: performResult.modified,
-                remainingPending: remainingEligible.length,
-              }
-            );
           }
         } catch (migrationError: unknown) {
           // Log and continue; do not fail verification
-          const log: LoggerLike =
-            createLogger && typeof createLogger === "function"
-              ? (createLogger("AuthController") as unknown as LoggerLike)
-              : (console as LoggerLike);
-          log.error(
-            "Guest auto-migration failed after verifyEmail",
+          logSafeErrorEvent(
+            "AUTH_VERIFY_GUEST_MIGRATION_FAILED",
             migrationError,
-            "GuestMigration",
-            {
-              userId: toIdString(user._id),
-              email: user.email.toLowerCase(),
-            }
+            userId,
           );
         }
       }
@@ -130,7 +110,7 @@ export default class EmailVerificationController {
         migration: migrationSummary,
       });
     } catch (error: unknown) {
-      console.error("Email verification error:", error);
+      logSafeErrorEvent("AUTH_EMAIL_VERIFICATION_FAILED", error, userId);
       res.status(500).json({
         success: false,
         message: "Email verification failed.",
@@ -140,6 +120,7 @@ export default class EmailVerificationController {
   }
 
   static async resendVerification(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       const { email } = req.body;
 
@@ -164,6 +145,7 @@ export default class EmailVerificationController {
         });
         return;
       }
+      userId = String(user._id);
 
       // Generate new verification token
       const verificationToken = (
@@ -191,7 +173,7 @@ export default class EmailVerificationController {
         message: "Verification email sent successfully.",
       });
     } catch (error: unknown) {
-      console.error("Resend verification error:", error);
+      logSafeErrorEvent("AUTH_VERIFICATION_RESEND_FAILED", error, userId);
       res.status(500).json({
         success: false,
         message: "Failed to resend verification email.",

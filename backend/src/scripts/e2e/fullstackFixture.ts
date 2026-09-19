@@ -103,7 +103,8 @@ async function dropGuardedDatabase(databaseName: string): Promise<void> {
 
 async function seed(configuration: FixtureConfiguration): Promise<void> {
   await dropGuardedDatabase(configuration.databaseName);
-  await User.init();
+  await User.createCollection();
+  await User.createIndexes();
 
   const user = await User.create({
     username: configuration.username,
@@ -145,7 +146,8 @@ async function cleanup(configuration: FixtureConfiguration): Promise<void> {
 async function main(): Promise<void> {
   const configuration = loadConfiguration(process.argv.slice(2));
   await mongoose.connect(configuration.uri, {
-    autoIndex: true,
+    autoCreate: false,
+    autoIndex: false,
     maxPoolSize: 2,
     serverSelectionTimeoutMS: 10_000,
   });

@@ -227,6 +227,13 @@ if grep -R -F -- "${REPOSITORY_ROOT}" "${REPOSITORY_ROOT}/frontend/dist/assets" 
   exit 1
 fi
 npm run -s e2e:fixture --workspace=atcloud-signup-system-backend -- seed
+npm run -s migration --workspace=atcloud-signup-system-backend -- \
+  apply \
+  --execute \
+  --yes \
+  --confirm-db "${database_name}" \
+  --operator fullstack-e2e \
+  --json
 
 (
   cd "${REPOSITORY_ROOT}/backend"
@@ -236,7 +243,7 @@ backend_pid="$!"
 
 (
   cd "${REPOSITORY_ROOT}/frontend"
-  exec "${REPOSITORY_ROOT}/node_modules/.bin/vite" preview \
+  exec "${REPOSITORY_ROOT}/frontend/node_modules/.bin/vite" preview \
     --host 127.0.0.1 \
     --port "${FRONTEND_PORT}" \
     --strictPort

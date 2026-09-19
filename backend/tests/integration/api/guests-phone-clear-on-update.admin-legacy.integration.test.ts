@@ -34,6 +34,7 @@ describe("Guests API - admin legacy update clears phone", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(adminData);

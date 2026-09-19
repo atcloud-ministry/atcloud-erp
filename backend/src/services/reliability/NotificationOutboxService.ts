@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { ClientSession } from "mongoose";
 import NotificationOutbox, {
+  notificationOutboxTerminalPurgeAt,
   type INotificationOutbox,
   type NotificationOutboxStatus,
 } from "../../models/NotificationOutbox";
@@ -68,6 +69,7 @@ export interface NotificationOutboxRecord {
   readonly lastAttemptAt?: Date | null;
   readonly deliveredAt?: Date | null;
   readonly deadAt?: Date | null;
+  readonly purgeAt?: Date | null;
   readonly lastErrorCode?: string | null;
   readonly lastErrorDigest?: string | null;
   readonly lastErrorAt?: Date | null;
@@ -369,6 +371,7 @@ function toRecord(document: INotificationOutbox): NotificationOutboxRecord {
     lastAttemptAt: asDate(document.lastAttemptAt),
     deliveredAt: asDate(document.deliveredAt),
     deadAt: asDate(document.deadAt),
+    purgeAt: asDate(document.purgeAt),
     lastErrorCode: document.lastErrorCode ?? null,
     lastErrorDigest: document.lastErrorDigest ?? null,
     lastErrorAt: asDate(document.lastErrorAt),
@@ -549,6 +552,7 @@ export class NotificationOutboxService {
           attemptCount: 0,
           maxAttempts: item.maxAttempts,
           nextAttemptAt: item.nextAttemptAt,
+          purgeAt: null,
           correlationId: item.correlationId,
           revision: 0,
           createdAt,
@@ -649,6 +653,7 @@ export class NotificationOutboxService {
             attemptCount: 0,
             maxAttempts,
             nextAttemptAt,
+            purgeAt: null,
             correlationId,
             revision: 0,
           },
@@ -705,6 +710,7 @@ export class NotificationOutboxService {
           leaseExpiresAt,
           lastHeartbeatAt: now,
           lastAttemptAt: now,
+          purgeAt: null,
           updatedAt: now,
         },
         $unset: { unsupportedSince: "" },
@@ -779,6 +785,7 @@ export class NotificationOutboxService {
         $set: {
           status: "pending",
           nextAttemptAt: new Date(now.getTime() + this.config.baseBackoffMs),
+          purgeAt: null,
           updatedAt: now,
         },
         $unset: {
@@ -802,6 +809,7 @@ export class NotificationOutboxService {
     claim: ClaimedNotificationOutbox,
   ): Promise<NotificationOutboxRecord> {
     const now = requireDate(this.now(), "clock");
+    const purgeAt = notificationOutboxTerminalPurgeAt("delivered", now);
     const document = await this.model.findOneAndUpdate(
       {
         eventId: claim.eventId,
@@ -814,6 +822,7 @@ export class NotificationOutboxService {
         $set: {
           status: "delivered",
           deliveredAt: now,
+          purgeAt,
           updatedAt: now,
         },
         $unset: {
@@ -856,10 +865,12 @@ export class NotificationOutboxService {
     };
     if (shouldDeadLetter) {
       setFields.deadAt = now;
+      setFields.purgeAt = notificationOutboxTerminalPurgeAt("dead", now);
     } else {
       setFields.nextAttemptAt = new Date(
         now.getTime() + this.calculateBackoffMs(claim.attemptCount),
       );
+      setFields.purgeAt = null;
     }
 
     const unsetFields: Record<string, ""> = {
@@ -945,6 +956,7 @@ export class NotificationOutboxService {
           $set: {
             status: "dead",
             deadAt: now,
+            purgeAt: notificationOutboxTerminalPurgeAt("dead", now),
             lastErrorCode: "MAX_ATTEMPTS_EXHAUSTED",
             lastErrorDigest: hashOutboxError("MAX_ATTEMPTS_EXHAUSTED"),
             lastErrorAt: now,
@@ -982,6 +994,7 @@ export class NotificationOutboxService {
           $set: {
             status: "pending",
             nextAttemptAt: now,
+            purgeAt: null,
             lastErrorCode: "LEASE_EXPIRED",
             lastErrorDigest: hashOutboxError("LEASE_EXPIRED"),
             lastErrorAt: now,
@@ -1044,7 +1057,7 @@ export class NotificationOutboxService {
       },
       {
         $unset: { unsupportedSince: "" },
-        $set: { updatedAt: now },
+        $set: { purgeAt: null, updatedAt: now },
       },
       { runValidators: true },
     );
@@ -1063,7 +1076,7 @@ export class NotificationOutboxService {
         ],
       },
       {
-        $set: { unsupportedSince: now, updatedAt: now },
+        $set: { unsupportedSince: now, purgeAt: null, updatedAt: now },
       },
       { runValidators: true },
     );
@@ -1081,6 +1094,7 @@ export class NotificationOutboxService {
           $set: {
             status: "dead",
             deadAt: now,
+            purgeAt: notificationOutboxTerminalPurgeAt("dead", now),
             lastErrorCode: "HANDLER_NOT_REGISTERED",
             lastErrorDigest: hashOutboxError("HANDLER_NOT_REGISTERED"),
             lastErrorAt: now,

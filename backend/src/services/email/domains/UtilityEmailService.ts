@@ -9,7 +9,7 @@
  * - Generic notification wrapper for controllers
  */
 
-import nodemailer from "nodemailer";
+import type { SendMailOptions } from "nodemailer";
 import { EmailService } from "../../infrastructure/EmailServiceFacade";
 import { EmailOptions } from "../../email";
 import { createLogger } from "../../LoggerService";
@@ -33,7 +33,7 @@ export class UtilityEmailService {
       subject: string;
       contentHtml: string;
       contentText?: string;
-      attachments?: nodemailer.SendMailOptions["attachments"];
+      attachments?: SendMailOptions["attachments"];
     }
   ): Promise<boolean> {
     const html = `

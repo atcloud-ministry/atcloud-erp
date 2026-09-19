@@ -14,6 +14,7 @@ import mongoose from "mongoose";
 import app from "../../../src/app";
 import User from "../../../src/models/User";
 import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
+import { REGISTRATION_PRIVACY_NOTICE } from "../../../src/config/registrationPrivacyNotice";
 
 describe("Authentication API Integration Tests", () => {
   beforeEach(async () => {
@@ -27,6 +28,19 @@ describe("Authentication API Integration Tests", () => {
   });
 
   describe("POST /api/auth/register", () => {
+    it("returns the current server-owned registration notice", async () => {
+      const response = await request(app)
+        .get("/api/auth/registration-notice")
+        .expect(200);
+
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.body.data.notice).toEqual({
+        version: REGISTRATION_PRIVACY_NOTICE.version,
+        text: REGISTRATION_PRIVACY_NOTICE.text,
+        effectiveAt: REGISTRATION_PRIVACY_NOTICE.effectiveAt,
+      });
+    });
+
     it("should register a new user successfully", async () => {
       const userData = {
         ...TEST_REGISTRATION_PROFILE,
@@ -40,6 +54,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
       };
 
       const response = await request(app)
@@ -62,9 +77,18 @@ describe("Authentication API Integration Tests", () => {
         },
       });
       // Verify user was created in database
-      const createdUser = await User.findOne({ email: "test@example.com" });
+      const createdUser = await User.findOne({ email: "test@example.com" })
+        .select(
+          "+registrationPrivacyNoticeVersion +registrationPrivacyNoticeDocumentHash +registrationPrivacyNoticeAcceptedAt",
+        );
       expect(createdUser).toBeTruthy();
       expect(createdUser?.username).toBe("testuser");
+      expect(createdUser).toMatchObject({
+        registrationPrivacyNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        registrationPrivacyNoticeDocumentHash:
+          REGISTRATION_PRIVACY_NOTICE.documentHash,
+        registrationPrivacyNoticeAcceptedAt: expect.any(Date),
+      });
     });
 
     it("should persist a canonical structured registration profile", async () => {
@@ -89,6 +113,7 @@ describe("Authentication API Integration Tests", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -129,6 +154,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       const response = await request(app)
@@ -160,6 +186,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       const response = await request(app)
@@ -190,6 +217,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       // Register first user
@@ -224,6 +252,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       // Register first user
@@ -261,6 +290,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(userData);
@@ -406,6 +436,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(userData);
@@ -505,6 +536,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(userData).expect(201);
@@ -568,6 +600,7 @@ describe("Authentication API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(userData);
@@ -672,6 +705,7 @@ describe("Authentication API Integration Tests", () => {
             gender: "male",
             isAtCloudLeader: false,
             acceptTerms: true,
+            registrationNoticeVersion: "registration-privacy-v1",
           })
       );
 

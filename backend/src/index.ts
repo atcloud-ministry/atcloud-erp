@@ -23,6 +23,7 @@ import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature
 import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
 import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
 import { assertWebPushConfiguration } from "./config/webPush";
+import { assertRateLimitProductionConfiguration } from "./middleware/rateLimiting";
 
 const log = createLogger("App");
 
@@ -289,6 +290,7 @@ const startServer = async () => {
   try {
     // Never start production HTTP/Socket authentication with fallback secrets.
     TokenService.assertProductionConfiguration();
+    assertRateLimitProductionConfiguration();
     if (readAlumniNetworkReleaseAvailable()) {
       assertAlumniInvitationReleaseConfiguration();
     }

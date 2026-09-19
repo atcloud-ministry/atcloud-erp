@@ -46,6 +46,12 @@ const MIGRATION_COUNT_OPTION_KEYS = new Set([
   "limit",
   "skip",
 ]);
+const MIGRATION_LIST_INDEX_OPTION_KEYS = new Set([
+  "batchSize",
+  "comment",
+  "maxTimeMS",
+  "timeoutMS",
+]);
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
 export { MIGRATION_LEASE_COLLECTION_NAME, MIGRATION_LEDGER_COLLECTION_NAME };
 export const RESERVED_MIGRATION_COLLECTION_NAMES: readonly string[] =
@@ -838,6 +844,15 @@ export function cloneMigrationCountDocumentsOptions(
     options,
     MIGRATION_COUNT_OPTION_KEYS,
   ) as MigrationCountDocumentsOptions | undefined;
+}
+
+export function cloneMigrationListIndexesOptions(
+  options: unknown,
+): ListIndexesOptions | undefined {
+  return cloneMigrationReadOperationOptions(
+    options,
+    MIGRATION_LIST_INDEX_OPTION_KEYS,
+  ) as ListIndexesOptions | undefined;
 }
 
 function cursorTerminals<TSchema>(cursor: AbstractCursor<TSchema>) {

@@ -27,6 +27,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const regRes = await request(app)
       .post("/api/auth/register")
@@ -55,6 +56,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(adminData).expect(201);
     await User.findOneAndUpdate(
@@ -79,6 +81,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(saData).expect(201);
     await User.findOneAndUpdate(

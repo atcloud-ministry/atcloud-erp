@@ -47,6 +47,7 @@ export default function RequestHelpDialog({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const availableTypes = useMemo(() => enabledHelpTypes(profile), [profile]);
   const noteLength = Array.from(openingNote).length;
+  const noteTooLong = noteLength > NOTE_MAX_CODE_POINTS;
 
   useEffect(() => {
     if (!open) return;
@@ -143,7 +144,9 @@ export default function RequestHelpDialog({
       requestedHelpType: helpType,
       ...(openingNote.trim() ? { openingNote } : {}),
       consentVersion: terms.consent.version,
+      consentAccepted: true as const,
       disclaimerVersion: terms.disclaimer.version,
+      disclaimerAccepted: true as const,
     };
     const fingerprint = JSON.stringify(input);
     if (retryRef.current?.fingerprint !== fingerprint) {
@@ -253,15 +256,33 @@ export default function RequestHelpDialog({
                 Opening note <span className="font-normal text-gray-500">(optional)</span>
               </label>
               <textarea
+                aria-describedby={
+                  noteTooLong
+                    ? "help-opening-note-count help-opening-note-error"
+                    : "help-opening-note-count"
+                }
+                aria-invalid={noteTooLong}
                 className="mt-2 min-h-28 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 id="help-opening-note"
                 onChange={(event) => setOpeningNote(event.target.value)}
                 placeholder="Briefly describe what you would like help with."
                 value={openingNote}
               />
-              <p className="mt-1 text-right text-xs text-gray-500">
+              <p
+                className="mt-1 text-right text-xs text-gray-500"
+                id="help-opening-note-count"
+              >
                 {noteLength}/{NOTE_MAX_CODE_POINTS}
               </p>
+              {noteTooLong && (
+                <p
+                  className="mt-1 text-sm text-red-700"
+                  id="help-opening-note-error"
+                  role="alert"
+                >
+                  Opening note must be 4,000 characters or fewer.
+                </p>
+              )}
             </div>
 
             <section aria-labelledby="help-consent-heading" className="rounded-lg bg-gray-50 p-4">
@@ -282,6 +303,17 @@ export default function RequestHelpDialog({
                 <span>I agree to the Alumni Help consent above.</span>
               </label>
             </section>
+
+            <p className="text-sm text-gray-600">
+              Learn how these records are used and retained in{" "}
+              <a
+                className="font-medium text-blue-700 underline hover:text-blue-900"
+                href="/#/privacy"
+              >
+                Privacy &amp; Data Use
+              </a>
+              .
+            </p>
 
             <section aria-labelledby="help-disclaimer-heading" className="rounded-lg bg-gray-50 p-4">
               <h3 className="font-medium text-gray-900" id="help-disclaimer-heading">
@@ -322,7 +354,7 @@ export default function RequestHelpDialog({
                   !helpType ||
                   !consentAccepted ||
                   !disclaimerAccepted ||
-                  noteLength > NOTE_MAX_CODE_POINTS
+                  noteTooLong
                 }
                 loading={submitting}
                 type="submit"

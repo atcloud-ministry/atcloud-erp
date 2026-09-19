@@ -228,6 +228,10 @@ export default function MyAlumniProfile() {
   const [view, setView] = useState<"edit" | "preview">("preview");
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const previewModeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const withdrawButtonRef = useRef<HTMLButtonElement | null>(null);
+  const keepPublishedButtonRef = useRef<HTMLButtonElement | null>(null);
+  const publicationHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const mutationKeys = useRef(new Map<string, MutationKey>());
   const pendingClaim = useRef<PendingClaim | null>(null);
   const activeLoadController = useRef<AbortController | null>(null);
@@ -426,6 +430,7 @@ export default function MyAlumniProfile() {
       mutationKeys.current.delete("update");
       acceptProfile(next);
       setView("preview");
+      window.setTimeout(() => previewModeButtonRef.current?.focus(), 0);
       notification.success("Your alumni profile has been saved.");
     } catch (saveError) {
       notification.error(
@@ -504,6 +509,7 @@ export default function MyAlumniProfile() {
       mutationKeys.current.delete("withdraw");
       acceptProfile(next);
       setConfirmWithdraw(false);
+      window.setTimeout(() => publicationHeadingRef.current?.focus(), 0);
       notification.success("Your alumni profile has been withdrawn.");
     } catch (withdrawError) {
       notification.error(
@@ -577,16 +583,23 @@ export default function MyAlumniProfile() {
             </p>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div
+          aria-label="Alumni profile view"
+          className="grid grid-cols-2 gap-2"
+          role="group"
+        >
           <Button
+            aria-pressed={view === "preview"}
             leftIcon={<EyeIcon className="h-4 w-4" />}
             onClick={() => void showPreview()}
+            ref={previewModeButtonRef}
             type="button"
             variant={view === "preview" ? "primary" : "outline"}
           >
             Preview
           </Button>
           <Button
+            aria-pressed={view === "edit"}
             leftIcon={<PencilSquareIcon className="h-4 w-4" />}
             onClick={() => setView("edit")}
             type="button"
@@ -623,7 +636,7 @@ export default function MyAlumniProfile() {
                     Professional headline
                   </span>
                   <input
-                    className="mt-1 min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 py-2 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"
                     disabled={!writable || saving}
                     maxLength={160}
                     onChange={(event) =>
@@ -640,7 +653,7 @@ export default function MyAlumniProfile() {
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700">Industry</span>
                   <input
-                    className="mt-1 min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 py-2 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"
                     disabled={!writable || saving}
                     maxLength={100}
                     onChange={(event) =>
@@ -657,7 +670,7 @@ export default function MyAlumniProfile() {
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Skills</span>
                 <input
-                  className="mt-1 min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 py-2 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"
                   disabled={!writable || saving}
                   maxLength={1_600}
                   onChange={(event) =>
@@ -676,7 +689,7 @@ export default function MyAlumniProfile() {
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">About</span>
                 <textarea
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 w-full rounded-md border border-gray-500 px-3 py-2 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600"
                   disabled={!writable || saving}
                   maxLength={2_000}
                   onChange={(event) =>
@@ -709,7 +722,7 @@ export default function MyAlumniProfile() {
                     >
                       <input
                         checked={form.helpOfferings[key]}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        className="h-4 w-4 rounded border-gray-500 text-blue-600 focus:ring-blue-600"
                         disabled={!writable || saving}
                         onChange={(event) =>
                           setForm((current) =>
@@ -738,6 +751,10 @@ export default function MyAlumniProfile() {
                   onClick={() => {
                     setForm(formFrom(profile));
                     setView("preview");
+                    window.setTimeout(
+                      () => previewModeButtonRef.current?.focus(),
+                      0,
+                    );
                   }}
                   type="button"
                   variant="secondary"
@@ -761,14 +778,62 @@ export default function MyAlumniProfile() {
         <CardContent>
           <section aria-labelledby="publication-heading" className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900" id="publication-heading">
+              <h2
+                className="text-lg font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                id="publication-heading"
+                ref={publicationHeadingRef}
+                tabIndex={-1}
+              >
                 Directory publication
               </h2>
               <p className="mt-1 text-sm text-gray-600">
                 Your exact phone number, email address, and birth year are never included
-                in the Alumni Directory.
+                in the Alumni Directory. Review{" "}
+                <Link className="font-medium text-blue-700 underline" to="/privacy">
+                  Privacy &amp; Data Use
+                </Link>
+                .
               </p>
             </div>
+
+            {profile.acceptedPublicationConsent && (
+              <details className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                <summary className="cursor-pointer font-medium text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                  View accepted publication consent record
+                </summary>
+                <p className="mt-3 leading-6">
+                  {profile.acceptedPublicationConsent.text}
+                </p>
+                <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                  <div>
+                    <dt className="font-medium text-gray-700">Version</dt>
+                    <dd>{profile.acceptedPublicationConsent.version}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-700">Accepted</dt>
+                    <dd>
+                      {new Date(
+                        profile.acceptedPublicationConsent.acceptedAt,
+                      ).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-700">Effective</dt>
+                    <dd>
+                      {new Date(
+                        profile.acceptedPublicationConsent.effectiveAt,
+                      ).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="font-medium text-gray-700">Document hash</dt>
+                    <dd className="break-all font-mono">
+                      {profile.acceptedPublicationConsent.documentHash}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+            )}
 
             {!profile.publishReadiness.ready && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
@@ -805,7 +870,7 @@ export default function MyAlumniProfile() {
                 <label className="flex items-start gap-3 rounded-md border border-gray-200 p-4">
                   <input
                     checked={consentAccepted}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="mt-1 h-4 w-4 rounded border-gray-500 text-blue-600 focus:ring-blue-600"
                     disabled={!writable || saving}
                     onChange={(event) => setConsentAccepted(event.target.checked)}
                     type="checkbox"
@@ -845,7 +910,14 @@ export default function MyAlumniProfile() {
                 <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row">
                   <Button
                     disabled={saving}
-                    onClick={() => setConfirmWithdraw(false)}
+                    onClick={() => {
+                      setConfirmWithdraw(false);
+                      window.setTimeout(
+                        () => withdrawButtonRef.current?.focus(),
+                        0,
+                      );
+                    }}
+                    ref={keepPublishedButtonRef}
                     type="button"
                     variant="secondary"
                   >
@@ -864,7 +936,14 @@ export default function MyAlumniProfile() {
             ) : (
               <Button
                 disabled={!writable || saving}
-                onClick={() => setConfirmWithdraw(true)}
+                onClick={() => {
+                  setConfirmWithdraw(true);
+                  window.setTimeout(
+                    () => keepPublishedButtonRef.current?.focus(),
+                    0,
+                  );
+                }}
+                ref={withdrawButtonRef}
                 type="button"
                 variant="danger"
               >

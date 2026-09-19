@@ -22,6 +22,9 @@ const chatUnreadMocks = vi.hoisted(() => ({
 const programMembershipMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
+const fileCleanupMocks = vi.hoisted(() => ({
+  processPending: vi.fn(),
+}));
 const loggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
@@ -42,6 +45,9 @@ vi.mock("../../../src/services/alumni/AlumniOutcomeDeadlineService", () => ({
 }));
 vi.mock("../../../src/services/chat/ChatUnreadReconciliationService", () => ({
   chatUnreadReconciliationService: chatUnreadMocks,
+}));
+vi.mock("../../../src/services/privacy/FileCleanupService", () => ({
+  fileCleanupService: fileCleanupMocks,
 }));
 vi.mock(
   "../../../src/services/programs/ProgramMembershipReconciliationService",
@@ -93,6 +99,7 @@ describe("MaintenanceScheduler", () => {
       hasMore: false,
       capacityPerRun: 500,
     });
+    fileCleanupMocks.processPending.mockResolvedValue([]);
     programMembershipMocks.runBounded.mockResolvedValue({
       paused: false,
       candidatesScanned: 0,
@@ -138,6 +145,7 @@ describe("MaintenanceScheduler", () => {
       expect(purgeExpiredTokensMock).toHaveBeenCalledTimes(1);
       expect(purgeOldAuditLogsMock).toHaveBeenCalledTimes(1);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(fileCleanupMocks.processPending).toHaveBeenCalledTimes(1);
       expect(alumniRetentionMocks.runBounded).toHaveBeenCalledWith(
         expect.objectContaining({
           trigger: "startup",

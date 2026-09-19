@@ -94,6 +94,7 @@ describe("Uploads API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!adminRegister.body.success) {
@@ -140,6 +141,7 @@ describe("Uploads API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!leaderRegister.body.success) {
@@ -186,6 +188,7 @@ describe("Uploads API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!memberRegister.body.success) {

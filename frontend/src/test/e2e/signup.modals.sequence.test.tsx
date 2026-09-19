@@ -10,6 +10,11 @@ vi.mock("../../services/api", async (orig) => {
     authService: {
       ...actual.authService,
       register: vi.fn().mockResolvedValue({ success: true }),
+      getRegistrationNotice: vi.fn().mockResolvedValue({
+        version: "registration-privacy-v1",
+        text: "Registration privacy notice for testing.",
+        effectiveAt: "2026-09-18T00:00:00.000Z",
+      }),
     },
   };
 });
@@ -22,6 +27,12 @@ import { authService } from "../../services/api";
 describe("SignUp modal sequence", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(authService.getRegistrationNotice).mockResolvedValue({
+      version: "registration-privacy-v1",
+      text: "Registration privacy notice for testing.",
+      effectiveAt: "2026-09-18T00:00:00.000Z",
+    });
+    vi.mocked(authService.register).mockResolvedValue({ success: true } as never);
   });
 
   it("shows 'We’ll keep your history' until OK, then 'Welcome to @Cloud!' until OK, then navigates", async () => {
@@ -89,6 +100,9 @@ describe("SignUp modal sequence", () => {
     );
 
     // isAtCloudLeader defaults to "false"; no change needed.
+    fireEvent.click(
+      await screen.findByLabelText(/I have read and accept this notice/i),
+    );
 
     // Submit the form
     fireEvent.click(screen.getByRole("button", { name: /sign up/i }));
@@ -106,6 +120,8 @@ describe("SignUp modal sequence", () => {
         employmentStatus: "employed",
         company: "Example Co",
         occupation: null,
+        acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       }),
     );
     const submittedPayload = vi.mocked(authService.register).mock.calls[0]?.[0];

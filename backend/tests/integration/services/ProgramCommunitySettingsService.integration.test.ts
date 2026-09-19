@@ -8,6 +8,7 @@ import IdempotencyRecord from "../../../src/models/IdempotencyRecord";
 import Program from "../../../src/models/Program";
 import ProgramCommunitySettings from "../../../src/models/ProgramCommunitySettings";
 import Purchase from "../../../src/models/Purchase";
+import User from "../../../src/models/User";
 import { initializeAlumniDataModels } from "../../../src/models/initializeAlumniDataModels";
 import { ProgramCommunitySettingsService } from "../../../src/services/programs/ProgramCommunitySettingsService";
 import { ProgramPurchaseRolePreflightError } from "../../../src/services/programs/ProgramPurchaseRolePreflightService";
@@ -23,6 +24,7 @@ const models = [
   Conversation,
   Purchase,
   Program,
+  User,
 ] as const;
 
 async function createProgram() {
@@ -94,6 +96,17 @@ describe("ProgramCommunitySettings transaction integration", () => {
 
   beforeEach(async () => {
     await Promise.all(models.map((model) => model.deleteMany({})));
+    await User.collection.insertOne({
+      _id: ACTOR_ID,
+      username: "m6-settings-admin",
+      email: "m6-settings-admin@example.test",
+      password: "not-used-by-this-test",
+      role: "Administrator",
+      isActive: true,
+      isVerified: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
   });
 
   afterAll(async () => {
@@ -212,6 +225,19 @@ describe("ProgramCommunitySettings transaction integration", () => {
       .lean()
       .orFail();
     expect(receipt.response).toEqual(first.settings);
+  });
+
+  it("denies a write when the actor is deactivated before the transaction", async () => {
+    const program = await createProgram();
+    await User.updateOne({ _id: ACTOR_ID }, { $set: { isActive: false } });
+
+    await expect(
+      new ProgramCommunitySettingsService({ now: () => NOW }).update(
+        updateInput(program._id),
+      ),
+    ).rejects.toMatchObject({ code: "PROGRAM_NOT_FOUND", httpStatus: 404 });
+    expect(await ProgramCommunitySettings.countDocuments({})).toBe(0);
+    expect(await Conversation.countDocuments({})).toBe(0);
   });
 
   it("rolls settings, Room, audit, and idempotency receipt back together", async () => {

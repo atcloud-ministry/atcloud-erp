@@ -47,6 +47,7 @@ describe("Event Access - OR Logic (Purchase ANY associated program)", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     userId = userResponse.body.data.user.id;

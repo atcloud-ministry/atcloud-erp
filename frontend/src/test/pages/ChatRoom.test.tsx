@@ -266,6 +266,9 @@ describe("ChatRoom page", () => {
   it("renders authorized history and advances the read cursor", async () => {
     renderPage();
     expect(await screen.findByRole("heading", { name: "Amy Chen" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Privacy & Data Use" }),
+    ).toHaveAttribute("href", "/privacy");
     expect(screen.getByText("Happy to help")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Resource/ })).toHaveAttribute(
       "rel",

@@ -37,6 +37,7 @@ describe("Webinar participant assignment (regression)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -63,6 +64,7 @@ describe("Webinar participant assignment (regression)", () => {
         gender: "female",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     participantId = regPart.body.data.user.id;

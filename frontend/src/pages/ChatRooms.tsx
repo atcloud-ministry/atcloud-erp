@@ -170,7 +170,8 @@ export default function ChatRooms() {
   const result =
     loaded?.view === view && loaded.page === page ? loaded.result : null;
   const rooms = result?.conversations ?? [];
-  const pagination = result?.pagination ?? EMPTY_PAGINATION;
+  const pagination = result?.pagination ?? loaded?.result.pagination ?? EMPTY_PAGINATION;
+  const resultsBusy = loading || !result;
   const heading = useMemo(
     () => TABS.find((tab) => tab.id === view)?.label ?? "Current",
     [view],
@@ -223,19 +224,19 @@ export default function ChatRooms() {
         </div>
       </nav>
 
-      <section aria-busy={loading} aria-labelledby="chat-room-results-heading">
+      <section aria-busy={resultsBusy} aria-labelledby="chat-room-results-heading">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold text-gray-900" id="chat-room-results-heading">
             {heading}
           </h2>
-          {!loading && !error && (
+          {!resultsBusy && !error && (
             <p aria-live="polite" className="text-sm text-gray-600">
               {pagination.totalCount} {pagination.totalCount === 1 ? "Room" : "Rooms"}
             </p>
           )}
         </div>
 
-        {loading && !result ? (
+        {!result && !error ? (
           <div className="rounded-lg border border-gray-200 bg-white">
             <LoadingState message="Loading Chat Rooms..." />
           </div>
@@ -294,9 +295,12 @@ export default function ChatRooms() {
           </ul>
         )}
 
-        {!loading && !error && rooms.length > 0 && (
+        {!error &&
+          (rooms.length > 0 ||
+            (!result && Boolean(loaded?.result.conversations.length))) && (
           <div className="mt-6">
             <Pagination
+              busy={resultsBusy}
               currentPage={pagination.currentPage}
               hasNext={pagination.hasNext}
               hasPrev={pagination.hasPrev}

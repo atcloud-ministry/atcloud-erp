@@ -842,6 +842,10 @@ describe("User Model", () => {
         ...userData,
         emailVerificationToken: "secret",
         passwordResetToken: "secret",
+        passwordChangeToken: "secret",
+        passwordChangeExpires: new Date(),
+        pendingPassword: "hashed-secret",
+        passwordChangedAt: new Date(),
       });
 
       const json = user.toJSON();
@@ -849,6 +853,10 @@ describe("User Model", () => {
       expect(json.password).toBeUndefined();
       expect(json.emailVerificationToken).toBeUndefined();
       expect(json.passwordResetToken).toBeUndefined();
+      expect(json.passwordChangeToken).toBeUndefined();
+      expect(json.passwordChangeExpires).toBeUndefined();
+      expect(json.pendingPassword).toBeUndefined();
+      expect(json.passwordChangedAt).toBeUndefined();
       expect(json._id).toBeUndefined();
       expect(json.__v).toBeUndefined();
       expect(json.id).toBeDefined();

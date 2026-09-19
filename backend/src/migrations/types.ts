@@ -3,6 +3,7 @@ import type {
   MigrationTransactionDatabase,
   MigrationTransactionReadDatabase,
 } from "../services/migrations/MigrationTransactionDatabase";
+import type { MigrationAdministrativeDatabase } from "../services/migrations/MigrationAdministrativeDatabase";
 
 export const MIGRATION_ID_PATTERN =
   /^(\d{4})(\d{2})(\d{2})_\d{3}_[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -312,6 +313,12 @@ export interface MigrationPlanContext {
   readonly signal?: AbortSignal;
 }
 
+export interface MigrationPreparationContext {
+  readonly database: MigrationAdministrativeDatabase;
+  readonly direction: MigrationDirection;
+  readonly signal?: AbortSignal;
+}
+
 export interface MigrationBatchContext<
   TCheckpoint extends MigrationCheckpoint = MigrationCheckpoint,
   TAppliedCheckpoint extends MigrationCheckpoint = TCheckpoint,
@@ -354,6 +361,13 @@ export interface MigrationDefinition<
   readonly id: string;
   readonly description: string;
   readonly checksum: string;
+  /**
+   * Optional idempotent DDL preparation performed outside the batch
+   * transaction. The terminal verify handler must still prove the result.
+   */
+  readonly prepare?: (
+    context: MigrationPreparationContext,
+  ) => Promise<void>;
   readonly plan: (
     context: MigrationPlanContext,
   ) => Promise<MigrationPlan>;

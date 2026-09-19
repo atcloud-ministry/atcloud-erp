@@ -125,6 +125,7 @@ function ownProfile(
     withdrawnAt: null,
     updatedAt: "2026-09-12T12:00:00.000Z",
     ...overrides,
+    acceptedPublicationConsent: overrides.acceptedPublicationConsent ?? null,
   };
 }
 
@@ -219,6 +220,24 @@ describe("MyAlumniProfile", () => {
       "grid",
       "grid-cols-2",
     );
+  });
+
+  it("announces the selected mode and restores focus after canceling edits", async () => {
+    const user = userEvent.setup();
+    renderProfile();
+
+    const previewButton = await screen.findByRole("button", { name: "Preview" });
+    const editButton = screen.getByRole("button", { name: "Edit" });
+    expect(previewButton).toHaveAttribute("aria-pressed", "true");
+    expect(editButton).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(editButton);
+    expect(previewButton).toHaveAttribute("aria-pressed", "false");
+    expect(editButton).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(previewButton).toHaveFocus());
+    expect(previewButton).toHaveAttribute("aria-pressed", "true");
   });
 
   it("replaces an aborted initial load under React StrictMode", async () => {
@@ -392,8 +411,15 @@ describe("MyAlumniProfile", () => {
     mocks.getOwn.mockResolvedValue(
       ownProfile({
         publishStatus: "published",
-        consentVersion: "directory-v0",
+        consentVersion: "directory-v1",
         hasCurrentPublicationConsent: false,
+        acceptedPublicationConsent: {
+          version: "directory-v1",
+          text: "Earlier accepted publication consent.",
+          documentHash: "a".repeat(64),
+          effectiveAt: "2026-09-01T00:00:00.000Z",
+          acceptedAt: "2026-09-12T12:30:00.000Z",
+        },
         publishedAt: "2026-09-12T12:30:00.000Z",
       }),
     );
@@ -410,6 +436,10 @@ describe("MyAlumniProfile", () => {
 
     expect(await screen.findByText("Consent update required")).toBeInTheDocument();
     expect(screen.getByText(/profile is hidden from the Directory/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("Earlier accepted publication consent."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
     await user.click(
       screen.getByRole("checkbox", {
         name: /I consent to publish this profile/i,
@@ -481,6 +511,9 @@ describe("MyAlumniProfile", () => {
       await screen.findByRole("button", { name: "Withdraw Profile" }),
     );
     expect(screen.getByText(/Withdraw this profile from the Directory now/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Keep Published" })).toHaveFocus(),
+    );
     await user.click(screen.getByRole("button", { name: "Confirm Withdrawal" }));
 
     await waitFor(() =>
@@ -489,6 +522,11 @@ describe("MyAlumniProfile", () => {
     expect(await screen.findByText("Withdrawn")).toBeInTheDocument();
     expect(mocks.success).toHaveBeenCalledWith(
       "Your alumni profile has been withdrawn.",
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Directory publication" }),
+      ).toHaveFocus(),
     );
   });
 

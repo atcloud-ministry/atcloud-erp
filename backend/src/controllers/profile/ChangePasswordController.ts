@@ -1,5 +1,10 @@
 import { Request, Response } from "express";
 import { User } from "../../models";
+import {
+  logSafeErrorEvent,
+  logSafeWarningEvent,
+} from "../../utils/safeEventLogger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 export default class ChangePasswordController {
   /**
@@ -63,7 +68,7 @@ export default class ChangePasswordController {
       try {
         isCurrentPasswordValid = await user.comparePassword(currentPassword);
       } catch (error) {
-        console.error("Password comparison error:", error);
+        logSafeErrorEvent("AUTH_PASSWORD_COMPARISON_FAILED", error, id);
         res.status(500).json({
           success: false,
           error: "Password verification failed",
@@ -83,13 +88,24 @@ export default class ChangePasswordController {
       user.password = newPassword;
       user.passwordChangedAt = new Date();
       await user.save();
+      try {
+        await RefreshSessionService.revokeAllForUser(id, "password_changed");
+      } catch (error: unknown) {
+        // passwordChangedAt is the authoritative fail-closed revocation marker;
+        // persisted session revocation is defense-in-depth and TTL cleanup.
+        logSafeWarningEvent("AUTH_REFRESH_SESSION_REVOKE_FAILED", error, id);
+      }
 
       res.status(200).json({
         success: true,
         message: "Password changed successfully",
       });
     } catch (error: unknown) {
-      console.error("Change password error:", error);
+      logSafeErrorEvent(
+        "AUTH_PASSWORD_CHANGE_FAILED",
+        error,
+        req.user?._id != null ? String(req.user._id) : undefined,
+      );
       res.status(500).json({
         success: false,
         error: "Failed to change password",

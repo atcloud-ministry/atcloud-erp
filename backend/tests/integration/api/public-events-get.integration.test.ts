@@ -33,6 +33,7 @@ describe("Public Events API - GET /api/public/events/:slug", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await request(app).post("/api/auth/register").send(adminData);
     await User.findOneAndUpdate(

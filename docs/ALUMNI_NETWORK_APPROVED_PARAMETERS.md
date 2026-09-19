@@ -47,7 +47,7 @@ Profile publish 前满足 required fields。
 | Conversation、ConversationMember、access windows | `purgeAt = max(archivedAt + 24个月, latestChatMessage.purgeAt + 30天)` |
 | PushSubscription | Unsubscribe 或 endpoint permanent failure 后立即删除；连续 90 天未成功使用时删除 |
 | NotificationOutbox | Delivered 后 30 天；dead 后 90 天；pending / processing 保留至 terminal |
-| AuditLog | 12 个 UTC calendar months；fallback TTL 为 367 天 |
+| AuditLog | 12 个 UTC calendar months；fallback TTL 为 365 天 |
 | De-identified KPI aggregates | 无自动到期；任何可筛选结果少于 5 人时不返回 |
 
 Flex 保留最近 8 个 daily snapshots。Primary database 已删除的数据随对应 snapshots 到期，恢复流程在

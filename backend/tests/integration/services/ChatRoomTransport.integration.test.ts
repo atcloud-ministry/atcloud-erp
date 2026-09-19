@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { io as createSocketClient, type Socket as ClientSocket } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import app from "../../../src/app";
+import { MIGRATION_REGISTRY } from "../../../src/migrations/registry";
 import { TokenService } from "../../../src/middleware/auth";
 import ChatMessage from "../../../src/models/ChatMessage";
 import Conversation from "../../../src/models/Conversation";
@@ -12,6 +13,7 @@ import FeatureControl, {
   FEATURE_CONTROL_SINGLETON_ID,
 } from "../../../src/models/FeatureControl";
 import NotificationOutbox from "../../../src/models/NotificationOutbox";
+import SchemaMigration from "../../../src/models/SchemaMigration";
 import User from "../../../src/models/User";
 import { chatMessageDeliveryHandler } from "../../../src/services/chat/ChatMessageDeliveryHandler";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
@@ -30,6 +32,43 @@ import {
 } from "../setup/connect";
 
 const EVENT_TIMEOUT_MS = 8_000;
+
+async function seedAppliedMigrationLedger(): Promise<void> {
+  const appliedAt = new Date("2032-09-12T11:00:00.000Z");
+  await SchemaMigration.insertMany(
+    MIGRATION_REGISTRY.map((definition) => ({
+      _id: definition.id,
+      migrationId: definition.id,
+      description: definition.description,
+      checksum: definition.checksum,
+      status: "applied",
+      direction: "up",
+      applyCheckpoint: null,
+      rollbackCheckpoint: null,
+      counts: {
+        examined: 0,
+        matched: 0,
+        modified: 0,
+        skipped: 0,
+        errors: 0,
+      },
+      attempt: 1,
+      runId: "22222222-2222-4222-8222-222222222222",
+      operator: "chat-room-transport-integration-test",
+      appVersion: "g1-integration",
+      runStartedAt: appliedAt,
+      runFinishedAt: appliedAt,
+      lastHeartbeatAt: appliedAt,
+      appliedAt,
+      rolledBackAt: null,
+      rollbackReasonCode: null,
+      lastError: null,
+      revision: 1,
+      createdAt: appliedAt,
+      updatedAt: appliedAt,
+    })),
+  );
+}
 
 interface TestMember {
   readonly id: mongoose.Types.ObjectId;
@@ -191,6 +230,7 @@ describe("M4 Chat Room real two-client transport", () => {
   beforeAll(async () => {
     await ensureIntegrationDB();
     await clearIntegrationDB();
+    await seedAppliedMigrationLedger();
     const capability = await mongoose.connection.db?.admin().command({
       hello: 1,
     });

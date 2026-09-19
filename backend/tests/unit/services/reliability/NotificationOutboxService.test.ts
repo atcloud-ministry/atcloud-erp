@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientSession } from "mongoose";
-import type { INotificationOutbox } from "../../../../src/models/NotificationOutbox";
+import {
+  notificationOutboxTerminalPurgeAt,
+  type INotificationOutbox,
+} from "../../../../src/models/NotificationOutbox";
 import {
   NotificationOutboxIdempotencyConflictError,
   NotificationOutboxLeaseLostError,
@@ -42,6 +45,7 @@ function document(
     lastAttemptAt: null,
     deliveredAt: null,
     deadAt: null,
+    purgeAt: null,
     lastErrorCode: null,
     lastErrorDigest: null,
     lastErrorAt: null,
@@ -131,6 +135,7 @@ describe("NotificationOutboxService", () => {
     expect(JSON.stringify(update)).not.toContain("message-1:user-1");
     expect(update.$setOnInsert).not.toHaveProperty("createdAt");
     expect(update.$setOnInsert).not.toHaveProperty("updatedAt");
+    expect(update.$setOnInsert.purgeAt).toBeNull();
     expect(metrics.snapshot()).toMatchObject({ enqueued: 1, deduplicated: 0 });
   });
 
@@ -264,6 +269,12 @@ describe("NotificationOutboxService", () => {
     expect(model.find).toHaveBeenCalledOnce();
     expect(model.insertMany).toHaveBeenCalledOnce();
     expect(model.insertMany.mock.calls[0][0]).toHaveLength(2);
+    expect(model.insertMany.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ purgeAt: null }),
+        expect.objectContaining({ purgeAt: null }),
+      ]),
+    );
     expect(model.insertMany.mock.calls[0][1]).toEqual({
       session: activeSession,
       ordered: true,
@@ -384,6 +395,7 @@ describe("NotificationOutboxService", () => {
         status: "processing",
         leaseToken: LEASE_TOKEN,
         leaseOwner: "worker-1",
+        purgeAt: null,
       },
       $inc: { attemptCount: 1, revision: 1 },
     });
@@ -474,6 +486,7 @@ describe("NotificationOutboxService", () => {
       $set: {
         status: "pending",
         nextAttemptAt: deferredAt,
+        purgeAt: null,
         updatedAt: NOW,
       },
       $unset: {
@@ -541,14 +554,23 @@ describe("NotificationOutboxService", () => {
 
   it("finalizes successful delivery and clears its lease", async () => {
     model.findOneAndUpdate.mockResolvedValue(
-      document({ status: "delivered", deliveredAt: NOW, nextAttemptAt: null }),
+      document({
+        status: "delivered",
+        deliveredAt: NOW,
+        purgeAt: notificationOutboxTerminalPurgeAt("delivered", NOW),
+        nextAttemptAt: null,
+      }),
     );
 
     const result = await service.finalizeDelivered(claim());
 
     expect(result.status).toBe("delivered");
     expect(model.findOneAndUpdate.mock.calls[0][1]).toMatchObject({
-      $set: { status: "delivered", deliveredAt: NOW },
+      $set: {
+        status: "delivered",
+        deliveredAt: NOW,
+        purgeAt: notificationOutboxTerminalPurgeAt("delivered", NOW),
+      },
       $unset: { leaseToken: "", leaseOwner: "", leaseExpiresAt: "" },
     });
     expect(metrics.snapshot().delivered).toBe(1);
@@ -577,6 +599,7 @@ describe("NotificationOutboxService", () => {
       status: "pending",
       nextAttemptAt: retryAt,
       lastErrorCode: "SMTP_TIMEOUT",
+      purgeAt: null,
     });
     expect(JSON.stringify(update)).not.toContain("private recipient details");
     expect(metrics.snapshot().retryScheduled).toBe(1);
@@ -592,6 +615,7 @@ describe("NotificationOutboxService", () => {
         attemptCount: attempts,
         nextAttemptAt: null,
         deadAt: NOW,
+        purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
       }),
     );
 
@@ -604,13 +628,20 @@ describe("NotificationOutboxService", () => {
     expect(model.findOneAndUpdate.mock.calls[0][1].$set).toMatchObject({
       status: "dead",
       deadAt: NOW,
+      purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
     });
     expect(metrics.snapshot().deadLettered).toBe(1);
   });
 
   it("reconciles exhausted pending events and expired processing leases", async () => {
     model.findOneAndUpdate
-      .mockResolvedValueOnce(document({ status: "dead", deadAt: NOW }))
+      .mockResolvedValueOnce(
+        document({
+          status: "dead",
+          deadAt: NOW,
+          purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
+        }),
+      )
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(
         document({
@@ -633,6 +664,14 @@ describe("NotificationOutboxService", () => {
       expiredLeasesRecovered: 1,
       deadLettered: 1,
     });
+    expect(model.findOneAndUpdate.mock.calls[0][1].$set).toMatchObject({
+      status: "dead",
+      purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
+    });
+    expect(model.findOneAndUpdate.mock.calls[2][1].$set).toMatchObject({
+      status: "pending",
+      purgeAt: null,
+    });
   });
 
   it("joins a caller-owned recovery transaction without publishing metrics before commit", async () => {
@@ -641,7 +680,11 @@ describe("NotificationOutboxService", () => {
     } as unknown as ClientSession;
     const abortController = new AbortController();
     model.findOneAndUpdate.mockResolvedValueOnce(
-      document({ status: "dead", deadAt: NOW }),
+      document({
+        status: "dead",
+        deadAt: NOW,
+        purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
+      }),
     );
 
     const result = await service.reconcile(1, {
@@ -704,6 +747,7 @@ describe("NotificationOutboxService", () => {
           unsupportedSince: new Date(NOW.getTime() - 60_001),
           nextAttemptAt: null,
           deadAt: NOW,
+          purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
           lastErrorCode: "HANDLER_NOT_REGISTERED",
         }),
       )
@@ -742,6 +786,7 @@ describe("NotificationOutboxService", () => {
       $set: {
         status: "dead",
         lastErrorCode: "HANDLER_NOT_REGISTERED",
+        purgeAt: notificationOutboxTerminalPurgeAt("dead", NOW),
       },
     });
     expect(result).toEqual({

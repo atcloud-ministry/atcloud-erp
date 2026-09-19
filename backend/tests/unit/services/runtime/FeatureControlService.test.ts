@@ -37,12 +37,16 @@ function buildHarness(options: {
     revision: 1,
     changedBy: actorId,
   });
+  const migrationReadiness = {
+    assertReady: vi.fn().mockResolvedValue(undefined),
+  };
   const service = new FeatureControlService({
     model,
     transactions,
     writeRequiredAudit,
     casUpdate,
     releaseAvailable: options.releaseAvailable ?? (() => true),
+    migrationReadiness,
     readTimeoutMs: options.readTimeoutMs,
   });
   return {
@@ -51,6 +55,7 @@ function buildHarness(options: {
     transactions,
     writeRequiredAudit,
     casUpdate,
+    migrationReadiness,
   };
 }
 
@@ -89,6 +94,26 @@ describe("FeatureControlService", () => {
         alumniNetwork: { mode: "off", readable: false, writable: false },
       },
     });
+  });
+
+  it("fails Alumni reads and writes closed when migrations are not ready", async () => {
+    const harness = buildHarness({ current: { mode: "on", revision: 4 } });
+    harness.migrationReadiness.assertReady.mockRejectedValue(
+      new Error("private migration state"),
+    );
+
+    await expect(harness.service.getRuntimeConfig()).resolves.toMatchObject({
+      data: { alumniNetwork: { mode: "off" }, revision: 0 },
+    });
+    await expect(
+      harness.service.updateAlumniNetworkMode({
+        mode: "on",
+        expectedRevision: 4,
+        actorId,
+        actorRole: "Super Admin",
+      }),
+    ).rejects.toThrow("private migration state");
+    expect(harness.transactions.run).not.toHaveBeenCalled();
   });
 
   it.each([

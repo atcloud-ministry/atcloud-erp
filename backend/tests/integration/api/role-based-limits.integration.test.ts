@@ -38,6 +38,7 @@ describe("Role-based registration limits per event", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 
@@ -108,6 +109,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -172,6 +174,7 @@ describe("Role-based registration limits per event", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -236,6 +239,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -300,6 +304,7 @@ describe("Role-based registration limits per event", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -353,6 +358,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 

@@ -17,7 +17,18 @@ const REQUIRED_MIGRATION_FIELDS = new Set([
   "down",
   "verify",
 ]);
-const MIGRATION_HANDLER_FIELDS = new Set(["plan", "up", "down", "verify"]);
+const OPTIONAL_MIGRATION_FIELDS = new Set(["prepare"]);
+const ALLOWED_MIGRATION_FIELDS = new Set([
+  ...REQUIRED_MIGRATION_FIELDS,
+  ...OPTIONAL_MIGRATION_FIELDS,
+]);
+const MIGRATION_HANDLER_FIELDS = new Set([
+  "prepare",
+  "plan",
+  "up",
+  "down",
+  "verify",
+]);
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIRECTORY = path.resolve(SCRIPT_DIRECTORY, "..");
 
@@ -195,7 +206,7 @@ function validateSourceDefinition(sourceFile, expectedId) {
     if (
       ts.isSpreadAssignment(property) ||
       !propertyName ||
-      !REQUIRED_MIGRATION_FIELDS.has(propertyName) ||
+      !ALLOWED_MIGRATION_FIELDS.has(propertyName) ||
       seenFields.has(propertyName) ||
       ts.isGetAccessorDeclaration(property) ||
       ts.isSetAccessorDeclaration(property)
@@ -246,10 +257,13 @@ function validateSourceDefinition(sourceFile, expectedId) {
     }
   }
 
-  if (seenFields.size !== REQUIRED_MIGRATION_FIELDS.size) {
+  if (
+    [...REQUIRED_MIGRATION_FIELDS].some((field) => !seenFields.has(field)) ||
+    seenFields.size > ALLOWED_MIGRATION_FIELDS.size
+  ) {
     throw new MigrationChecksumScriptError(
       "MIGRATION_SOURCE_DEFINITION_INVALID",
-      "Migration source definitions must contain exactly id, description, plan, up, down, and verify.",
+      "Migration source definitions must contain id, description, plan, up, down, and verify, with only the optional prepare handler allowed.",
     );
   }
 }

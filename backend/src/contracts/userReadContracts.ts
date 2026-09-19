@@ -138,11 +138,19 @@ export interface AlumniProfilePublicationConsentDTO {
   text: string;
 }
 
+export interface AlumniProfileAcceptedPublicationConsentDTO
+  extends AlumniProfilePublicationConsentDTO {
+  documentHash: string;
+  effectiveAt: string;
+  acceptedAt: string;
+}
+
 export interface OwnAlumniProfileDTO extends DirectoryDetailDTO {
   publishStatus: "draft" | "published" | "withdrawn";
   consentVersion: string | null;
   hasCurrentPublicationConsent: boolean;
   publicationConsent: AlumniProfilePublicationConsentDTO;
+  acceptedPublicationConsent: AlumniProfileAcceptedPublicationConsentDTO | null;
   publishReadiness: AlumniProfilePublishReadinessDTO;
   revision: number;
   publishedAt: string | null;

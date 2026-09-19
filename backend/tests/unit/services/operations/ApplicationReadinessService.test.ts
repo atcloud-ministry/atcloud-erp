@@ -57,6 +57,17 @@ function runtimeConfig(
   };
 }
 
+function readyMigrations() {
+  return {
+    getSnapshot: vi.fn().mockResolvedValue({
+      ready: true,
+      appliedCount: 3,
+      requiredCount: 3,
+      issues: [],
+    }),
+  };
+}
+
 describe("ApplicationReadinessService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,6 +81,7 @@ describe("ApplicationReadinessService", () => {
       databaseProbe: async () => true,
       featureControl: { getOperationalRuntimeConfig },
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
     });
 
     const snapshot = await service.getSnapshot();
@@ -80,6 +92,7 @@ describe("ApplicationReadinessService", () => {
         database: true,
         reliability: true,
         feature_control: true,
+        migrations: true,
       },
       alumniNetworkMode: "read_only",
     });
@@ -99,6 +112,7 @@ describe("ApplicationReadinessService", () => {
       databaseProbe: async () => false,
       featureControl: { getOperationalRuntimeConfig },
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
     });
 
     await expect(service.getSnapshot()).resolves.toEqual({
@@ -107,6 +121,7 @@ describe("ApplicationReadinessService", () => {
         database: false,
         reliability: true,
         feature_control: false,
+        migrations: false,
       },
       alumniNetworkMode: "off",
     });
@@ -130,6 +145,7 @@ describe("ApplicationReadinessService", () => {
           .mockResolvedValue(runtimeConfig("on")),
       },
       reliability: { getStatusSnapshot: () => reliability },
+      migrations: readyMigrations(),
     });
 
     await expect(service.getSnapshot()).resolves.toEqual({
@@ -138,6 +154,7 @@ describe("ApplicationReadinessService", () => {
         database: true,
         reliability: false,
         feature_control: true,
+        migrations: true,
       },
       alumniNetworkMode: "on",
     });
@@ -152,6 +169,7 @@ describe("ApplicationReadinessService", () => {
           .mockRejectedValue(new Error("private feature-control failure")),
       },
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
     });
 
     await expect(service.getSnapshot()).resolves.toEqual({
@@ -160,6 +178,7 @@ describe("ApplicationReadinessService", () => {
         database: true,
         reliability: true,
         feature_control: false,
+        migrations: true,
       },
       alumniNetworkMode: "off",
     });
@@ -178,6 +197,7 @@ describe("ApplicationReadinessService", () => {
           throw new Error("private reliability failure");
         },
       },
+      migrations: readyMigrations(),
     });
 
     await expect(service.getSnapshot()).resolves.toEqual({
@@ -186,6 +206,7 @@ describe("ApplicationReadinessService", () => {
         database: false,
         reliability: false,
         feature_control: false,
+        migrations: false,
       },
       alumniNetworkMode: "off",
     });
@@ -199,6 +220,7 @@ describe("ApplicationReadinessService", () => {
       databaseProbe,
       featureControl: { getOperationalRuntimeConfig },
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
       probeTimeoutMs: 5,
     });
 
@@ -218,6 +240,7 @@ describe("ApplicationReadinessService", () => {
       databaseProbe: async () => true,
       featureControl: { getOperationalRuntimeConfig },
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
       probeTimeoutMs: 5,
     });
 
@@ -227,6 +250,7 @@ describe("ApplicationReadinessService", () => {
         database: true,
         reliability: true,
         feature_control: false,
+        migrations: true,
       },
       alumniNetworkMode: "off",
     });
@@ -253,6 +277,7 @@ describe("ApplicationReadinessService", () => {
       databaseProbe,
       featureControl,
       reliability: { getStatusSnapshot: () => readyReliability() },
+      migrations: readyMigrations(),
       now: () => now,
       cacheTtlMs: 2_000,
     });

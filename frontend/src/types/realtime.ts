@@ -160,5 +160,4 @@ export type ClientToServerEvents = {
     conversationId: string,
     ack?: (result: ConversationRoomAck) => void,
   ) => void;
-  update_status: (status: "online" | "away" | "busy") => void;
 };

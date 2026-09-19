@@ -40,7 +40,7 @@ function installBrowserMocks(options: {
   existingSubscription?: PushSubscription | null;
 } = {}) {
   const requestPermission = vi
-    .fn<[], Promise<NotificationPermission>>()
+    .fn<() => Promise<NotificationPermission>>()
     .mockResolvedValue(options.permission ?? "granted");
   vi.stubGlobal("Notification", {
     permission: options.permission === "denied" ? "denied" : "default",

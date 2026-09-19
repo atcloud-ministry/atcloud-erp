@@ -58,6 +58,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     leaderUserId = leaderResponse.body.data.user.id;
@@ -90,6 +91,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     adminUserId = adminResponse.body.data.user.id;

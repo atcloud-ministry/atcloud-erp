@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import ConfirmLogoutModal from "../../components/common/ConfirmLogoutModal";
 import {
   CalendarDaysIcon,
@@ -22,6 +22,7 @@ import {
   TicketIcon,
   CreditCardIcon,
   HeartIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../../hooks/useAuth";
 import { useRuntimeConfig } from "../../contexts/RuntimeConfigContext";
@@ -49,6 +50,27 @@ interface SidebarProps {
   systemMessageUnreadCount?: number;
 }
 
+const MOBILE_NAVIGATION_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function mobileNavigationControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      MOBILE_NAVIGATION_FOCUSABLE_SELECTOR,
+    ),
+  ).filter(
+    (element) =>
+      element.getAttribute("aria-hidden") !== "true" &&
+      !element.hasAttribute("hidden"),
+  );
+}
+
 export default function Sidebar({
   userRole,
   sidebarOpen,
@@ -63,10 +85,105 @@ export default function Sidebar({
     useRuntimeConfig();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const navigationRef = useRef<HTMLElement>(null);
+  const [isDesktopNavigation, setIsDesktopNavigation] = useState(() =>
+    typeof window === "undefined" || typeof window.matchMedia !== "function"
+      ? true
+      : window.matchMedia("(min-width: 1024px)").matches,
+  );
   const guestLoginHref = buildLoginRedirectUrl(getPathWithSearch(location));
   const communityNavigationEnabled =
     runtimeConfigStatus === "ready" &&
     runtimeConfig.alumniNetwork.readable;
+  const navigationVisible = isDesktopNavigation || sidebarOpen;
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktopNavigation(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen || isDesktopNavigation) return;
+    const menuButton = document.getElementById(
+      "dashboard-mobile-menu-button",
+    );
+    const backgroundElements = [
+      menuButton?.closest<HTMLElement>("header") ?? null,
+      document.getElementById("dashboard-main-content"),
+    ].filter((element): element is HTMLElement => element !== null);
+    const previousInertValues = backgroundElements.map((element) => ({
+      attribute: element.hasAttribute("inert"),
+      property: element.inert,
+    }));
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    backgroundElements.forEach((element) => {
+      element.inert = true;
+      element.setAttribute("inert", "");
+    });
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const navigation = navigationRef.current;
+      if (!navigation) return;
+      (mobileNavigationControls(navigation)[0] ?? navigation).focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const navigation = navigationRef.current;
+      if (!navigation) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSidebarOpen(false);
+        window.requestAnimationFrame(() => menuButton?.focus());
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const controls = mobileNavigationControls(navigation);
+      if (controls.length === 0) {
+        event.preventDefault();
+        navigation.focus();
+        return;
+      }
+
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !navigation.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (active === last || !navigation.contains(active))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      backgroundElements.forEach((element, index) => {
+        const previous = previousInertValues[index];
+        element.inert = previous?.property ?? false;
+        if (previous?.attribute) {
+          element.setAttribute("inert", "");
+        } else {
+          element.removeAttribute("inert");
+        }
+      });
+      if (menuButton?.isConnected) menuButton.focus();
+    };
+  }, [isDesktopNavigation, setSidebarOpen, sidebarOpen]);
 
   const handleLogout = async () => {
     try {
@@ -331,6 +448,7 @@ export default function Sidebar({
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
+          aria-hidden="true"
           className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -338,11 +456,17 @@ export default function Sidebar({
 
       {/* Sidebar */}
       <nav
+        aria-hidden={!navigationVisible}
+        aria-label="Primary navigation"
         className={`
-          fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-sm border-r 
+          fixed inset-y-0 left-0 z-[60] w-64 bg-white shadow-sm border-r lg:z-40
           transform transition-transform duration-300 ease-in-out lg:translate-x-0
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         `}
+        id="dashboard-primary-navigation"
+        inert={!navigationVisible ? true : undefined}
+        ref={navigationRef}
+        tabIndex={-1}
       >
         <div className="p-4 pt-20 h-full overflow-y-auto">
           <ul className="space-y-2">
@@ -370,6 +494,7 @@ export default function Sidebar({
                   <li className={item.sectionEnd ? "mb-4" : undefined}>
                     {item.href ? (
                       <Link
+                        aria-current={isActive ? "page" : undefined}
                         to={item.href}
                         aria-label={
                           item.badgeCount && item.badgeCount > 0
@@ -404,6 +529,7 @@ export default function Sidebar({
                           item.onClick?.();
                         }}
                         className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+                        type="button"
                       >
                         <Icon className="w-5 h-5 flex-shrink-0" />
                         <span className="font-medium">{item.name}</span>
@@ -414,7 +540,15 @@ export default function Sidebar({
               );
             })}
           </ul>
-          <span aria-live="polite" className="sr-only">
+          <button
+            aria-label="Close navigation menu"
+            className="absolute right-4 top-4 rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            type="button"
+          >
+            <XMarkIcon aria-hidden="true" className="h-6 w-6" />
+          </button>
+          <span aria-atomic="true" aria-live="polite" className="sr-only">
             {chatUnreadTotal > 0
               ? `${chatUnreadTotal} unread Chat Room ${
                   chatUnreadTotal === 1 ? "message" : "messages"

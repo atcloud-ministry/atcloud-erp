@@ -30,6 +30,7 @@ function createService(
     model: FeatureControl,
     transactions: new MongoTransactionService(mongoose.connection),
     releaseAvailable: options.releaseAvailable ?? (() => true),
+    migrationReadiness: { assertReady: async () => undefined },
   });
 }
 
@@ -164,6 +165,7 @@ describe("alumni network feature control persistence", () => {
       model: FeatureControl,
       transactions: new MongoTransactionService(mongoose.connection),
       releaseAvailable: () => true,
+      migrationReadiness: { assertReady: async () => undefined },
       writeRequiredAudit: async () => {
         throw new Error("forced audit failure");
       },

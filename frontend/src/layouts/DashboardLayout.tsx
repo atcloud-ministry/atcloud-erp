@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, Outlet, Navigate } from "react-router-dom";
 import { Header, Sidebar } from "./dashboard";
 import { Footer } from "../components/common";
@@ -30,6 +30,8 @@ function isGuestAllowedRoute(pathname: string): boolean {
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const previousPathRef = useRef<string | null>(null);
   const {
     currentUser,
     isLoading,
@@ -40,6 +42,16 @@ export default function DashboardLayout() {
   const systemMessageUnreadCount =
     useOptionalNotifications()?.systemMessageUnreadCount ?? 0;
   const location = useLocation();
+
+  useEffect(() => {
+    if (
+      previousPathRef.current !== null &&
+      previousPathRef.current !== location.pathname
+    ) {
+      mainRef.current?.focus();
+    }
+    previousPathRef.current = location.pathname;
+  }, [location.pathname]);
 
   // Show loading spinner while checking authentication
   if (isLoading) {
@@ -67,6 +79,12 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      <a
+        className="sr-only fixed left-4 top-2 z-[100] rounded-md bg-white px-4 py-2 font-semibold text-blue-800 shadow focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-blue-600"
+        href="#dashboard-main-content"
+      >
+        Skip to main content
+      </a>
       {/* Fixed Header */}
       <Header
         user={
@@ -99,7 +117,10 @@ export default function DashboardLayout() {
         {/* Scrollable Main Content */}
         <main
           className="flex-1 overflow-y-auto lg:ml-64 flex flex-col pt-16"
+          id="dashboard-main-content"
           key={`main-${location.pathname}`}
+          ref={mainRef}
+          tabIndex={-1}
         >
           {/** Allow wider content specifically on Management page to fit all table columns */}
           <div

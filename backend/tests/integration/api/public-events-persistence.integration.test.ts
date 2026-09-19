@@ -50,6 +50,7 @@ describe("Public Events API - openToPublic persistence", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     const regRes = await request(app)

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { addUtcCalendarMonths } from "../contracts/alumniDirectoryData";
 import {
   AUDIT_ACTOR_TYPES,
   AUDIT_OUTCOMES,
@@ -104,15 +105,38 @@ auditLogSchema.index({ action: 1, createdAt: -1 });
 auditLogSchema.index({ actorType: 1, actorKey: 1, createdAt: -1 });
 auditLogSchema.index({ targetModel: 1, targetId: 1, createdAt: -1 });
 
-// Optional TTL index as fallback safety mechanism (24 months = 730 days)
-// This acts as a hard limit to prevent indefinite accumulation
-const TTL_FALLBACK_DAYS = parseInt(
-  process.env.AUDIT_LOG_TTL_FALLBACK_DAYS || "730",
-  10
+export const AUDIT_LOG_RETENTION_MONTHS = 12;
+export const AUDIT_LOG_TTL_FALLBACK_DAYS = 365;
+
+function retentionInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  const candidate = value ?? String(fallback);
+  if (!/^[1-9]\d*$/u.test(candidate)) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+  const parsed = Number(candidate);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a positive safe integer.`);
+  }
+  return parsed;
+}
+
+// A 365-day TTL is a hard fallback. Hourly application cleanup enforces the
+// authoritative 12 UTC-calendar-month contract first.
+const TTL_FALLBACK_DAYS = retentionInteger(
+  process.env.AUDIT_LOG_TTL_FALLBACK_DAYS,
+  AUDIT_LOG_TTL_FALLBACK_DAYS,
+  "AUDIT_LOG_TTL_FALLBACK_DAYS",
 );
 auditLogSchema.index(
   { createdAt: 1 },
-  { expireAfterSeconds: TTL_FALLBACK_DAYS * 24 * 60 * 60 }
+  {
+    name: "createdAt_1",
+    expireAfterSeconds: TTL_FALLBACK_DAYS * 24 * 60 * 60,
+  },
 );
 
 // Static method for bulk deletion of old audit logs
@@ -121,9 +145,15 @@ auditLogSchema.statics.purgeOldAuditLogs = async function (
 ): Promise<{ deletedCount: number }> {
   const months =
     retentionMonths ??
-    parseInt(process.env.AUDIT_LOG_RETENTION_MONTHS || "12", 10);
-  const cutoffDate = new Date();
-  cutoffDate.setMonth(cutoffDate.getMonth() - months);
+    retentionInteger(
+      process.env.AUDIT_LOG_RETENTION_MONTHS,
+      AUDIT_LOG_RETENTION_MONTHS,
+      "AUDIT_LOG_RETENTION_MONTHS",
+    );
+  if (!Number.isSafeInteger(months) || months < 1) {
+    throw new Error("Audit log retention months must be a positive safe integer.");
+  }
+  const cutoffDate = addUtcCalendarMonths(new Date(), -months);
 
   const result = await this.deleteMany({
     createdAt: { $lt: cutoffDate },

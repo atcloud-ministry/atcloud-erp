@@ -950,7 +950,6 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Database connection failed",
       });
     });
 
@@ -1004,7 +1003,6 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Stripe API error",
       });
     });
 
@@ -1075,7 +1073,6 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Save failed",
       });
       expect(expire).toHaveBeenCalledWith("cs_session");
     });

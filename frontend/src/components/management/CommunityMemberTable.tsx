@@ -34,17 +34,17 @@ export default function CommunityMemberTable({
             Boolean(member.avatar),
           )}
         />
-        <div className="ml-4">
-          <div className="text-sm font-medium text-gray-900">
+        <div className="ml-4 min-w-0">
+          <div className="break-words text-sm font-medium text-gray-900">
             {member.firstName} {member.lastName}
           </div>
-          <div className="text-sm text-gray-500">@{member.username}</div>
+          <div className="break-all text-sm text-gray-500">@{member.username}</div>
         </div>
       </>
     );
 
     if (!canOpenMemberProfile && currentUser?.id !== member.id) {
-      return <div className="flex items-center">{content}</div>;
+      return <div className="flex min-w-0 items-center">{content}</div>;
     }
 
     const href =
@@ -54,7 +54,7 @@ export default function CommunityMemberTable({
     return (
       <Link
         to={href}
-        className="flex items-center hover:bg-gray-100 -m-2 p-2 rounded-lg transition-colors"
+        className="-m-2 flex min-w-0 items-center rounded-lg p-2 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
       >
         {content}
       </Link>
@@ -64,7 +64,7 @@ export default function CommunityMemberTable({
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold text-gray-900">
             Community Members
           </h2>
@@ -103,7 +103,7 @@ export default function CommunityMemberTable({
 
       <div className="lg:hidden divide-y divide-gray-200">
         {members.map((member) => (
-          <div key={member.id} className="p-6">
+          <div key={member.id} className="p-4 sm:p-6">
             {identity(member, "lg")}
             <div className="mt-3 text-sm text-gray-600">
               Role in @Cloud: {member.roleInAtCloud || "—"}

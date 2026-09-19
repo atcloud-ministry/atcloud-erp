@@ -88,6 +88,7 @@ describe("GET /api/events/check-conflict (time zones + DST)", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as any;
 
     await request(app).post("/api/auth/register").send(adminData);

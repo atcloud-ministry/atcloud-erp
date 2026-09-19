@@ -3,6 +3,7 @@ import app from "../../src/app";
 import User from "../../src/models/User";
 import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
 import { TEST_REGISTRATION_PROFILE } from "./registrationProfileFixture";
+import { REGISTRATION_PRIVACY_NOTICE } from "../../src/config/registrationPrivacyNotice";
 
 type TestGender = "male" | "female";
 
@@ -32,6 +33,7 @@ export interface TestRegistrationPayload extends RegistrationProfileFields {
   isAtCloudLeader: boolean;
   roleInAtCloud?: string;
   acceptTerms: boolean;
+  registrationNoticeVersion: string;
 }
 
 const uniqueId = () => Math.random().toString(36).slice(2, 8);
@@ -61,6 +63,7 @@ export function buildTestRegistrationPayload(
     gender: opts.gender ?? "male",
     isAtCloudLeader,
     acceptTerms: opts.acceptTerms ?? true,
+    registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
     phone: opts.phone ?? TEST_REGISTRATION_PROFILE.phone,
     birthYear: opts.birthYear ?? TEST_REGISTRATION_PROFILE.birthYear,
     residenceCity:
@@ -110,11 +113,20 @@ export async function createAndLoginTestUser(opts: CreateTestUserOptions = {}) {
     .send({ emailOrUsername: base.email, password: base.password })
     .expect(200);
 
+  const setCookie = loginRes.headers["set-cookie"];
+  const refreshCookie = Array.isArray(setCookie)
+    ? setCookie.find((value) => value.startsWith("refreshToken="))?.split(";")[0]
+    : typeof setCookie === "string"
+      ? setCookie.split(";")[0]
+      : undefined;
+
   // Get user ID from database
   const user = await User.findOne({ email: base.email });
 
   return {
     token: loginRes.body.data.accessToken as string,
+    refreshCookie,
+    refreshToken: refreshCookie?.slice("refreshToken=".length),
     email: base.email,
     username: base.username,
     password: base.password,

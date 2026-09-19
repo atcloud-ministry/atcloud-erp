@@ -19,6 +19,20 @@ services:
         value: 900000
       - key: RATE_LIMIT_MAX_REQUESTS
         value: 100
+      - key: AUTH_RATE_LIMIT_WINDOW_MS
+        value: 900000
+      - key: AUTH_RATE_LIMIT_MAX_REQUESTS
+        value: 20
+      - key: DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS
+        value: 60
+      - key: ENABLE_RATE_LIMITING
+        value: true
+      - key: AUDIT_LOG_RETENTION_MONTHS
+        value: 12
+      - key: AUDIT_LOG_TTL_FALLBACK_DAYS
+        value: 365
       - key: WEB_CONCURRENCY
         value: 1
       - key: SINGLE_INSTANCE_ENFORCE

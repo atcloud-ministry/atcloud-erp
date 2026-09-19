@@ -22,6 +22,7 @@ async function createAdminAndLogin() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   });
   await User.findOneAndUpdate(
     { email: "smokeadmin@example.com" },

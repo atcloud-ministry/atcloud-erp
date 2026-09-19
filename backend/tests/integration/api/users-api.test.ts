@@ -38,6 +38,7 @@ describe("Users API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const userResponse = await request(app)
@@ -71,6 +72,7 @@ describe("Users API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const adminResponse = await request(app)
@@ -111,6 +113,7 @@ describe("Users API Integration Tests", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
         {
           ...TEST_REGISTRATION_PROFILE,
@@ -123,6 +126,7 @@ describe("Users API Integration Tests", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
       ];
 
@@ -309,6 +313,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
       // Verify and promote to Super Admin
@@ -379,6 +384,7 @@ describe("Users API Integration Tests", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
         {
           ...TEST_REGISTRATION_PROFILE,
@@ -391,6 +397,7 @@ describe("Users API Integration Tests", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
       ];
 
@@ -692,6 +699,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(superAdminData);
@@ -765,6 +773,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(superAdminData);
@@ -946,6 +955,7 @@ describe("Users API Integration Tests", () => {
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
       targetUserId = targetUser._id.toString();
 
@@ -963,6 +973,7 @@ describe("Users API Integration Tests", () => {
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
 
       const leaderLogin = await request(app).post("/api/auth/login").send({
@@ -986,6 +997,7 @@ describe("Users API Integration Tests", () => {
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
 
       const superAdminLogin = await request(app).post("/api/auth/login").send({

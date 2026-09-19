@@ -37,6 +37,7 @@ async function registerAndLogin(opts: {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   });
   if (regRes.status !== 201) {
     throw new Error(`Registration failed for ${opts.email}: ${regRes.status}`);

@@ -19,6 +19,7 @@ async function createAdmin() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   } as const;
   await request(app).post("/api/auth/register").send(admin);
   // Force elevate to Administrator + verified; registration path may not honor provided role field

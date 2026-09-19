@@ -7,6 +7,7 @@ import { CachePatterns } from "../../../../src/services/infrastructure/CacheServ
 import { UnifiedMessageController } from "../../../../src/controllers/unifiedMessageController";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/services/infrastructure/EmailServiceFacade");
@@ -20,8 +21,23 @@ vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
   };
 });
 vi.mock("../../../../src/controllers/unifiedMessageController");
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    revokeAllForUser: vi.fn().mockResolvedValue(1),
+  },
+}));
 vi.mock("bcryptjs");
-vi.mock("crypto");
+vi.mock("crypto", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("crypto")>();
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      randomBytes: vi.fn(),
+      createHash: vi.fn(),
+    },
+  };
+});
 
 describe("PasswordChangeController", () => {
   let mockReq: any;
@@ -510,7 +526,11 @@ describe("PasswordChangeController", () => {
         );
 
         expect(User.updateOne).toHaveBeenCalledWith(
-          { _id: "user-id" },
+          {
+            _id: "user-id",
+            passwordChangeToken: "hashedvalidtoken",
+            passwordChangeExpires: { $gt: expect.any(Date) },
+          },
           expect.objectContaining({
             $set: expect.objectContaining({
               password: "newhashedpassword",
@@ -525,6 +545,10 @@ describe("PasswordChangeController", () => {
         );
         expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
           "user-id"
+        );
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          "user-id",
+          "password_changed",
         );
         expect(EmailService.sendPasswordResetSuccessEmail).toHaveBeenCalledWith(
           "test@example.com",
@@ -654,6 +678,55 @@ describe("PasswordChangeController", () => {
             success: true,
           })
         );
+      });
+
+      it("does not write tokens, email addresses, or password hashes to logs", async () => {
+        const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        mockReq.params = { token: "private-valid-token" };
+        vi.mocked(crypto.createHash).mockReturnValue({
+          update: vi.fn().mockReturnValue({
+            digest: vi.fn().mockReturnValue("private-token-hash"),
+          }),
+        } as any);
+        const mockUser: any = {
+          _id: "user-id",
+          email: "private@example.com",
+          firstName: "Private",
+          username: "private-user",
+          password: "private-old-password-hash",
+          pendingPassword: "private-new-password-hash",
+          passwordChangeExpires: new Date(Date.now() + 60_000),
+        };
+        vi.mocked(User.findOne).mockReturnValue({
+          select: vi.fn().mockResolvedValue(mockUser),
+        } as any);
+        vi.mocked(User.updateOne).mockResolvedValue({ modifiedCount: 1 } as any);
+        vi.mocked(EmailService.sendPasswordResetSuccessEmail).mockResolvedValue(
+          true,
+        );
+        vi.mocked(
+          UnifiedMessageController.createTargetedSystemMessage,
+        ).mockResolvedValue({ _id: "message-id" } as any);
+
+        await PasswordChangeController.completePasswordChange(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        const output = JSON.stringify([
+          ...consoleLog.mock.calls,
+          ...consoleError.mock.calls,
+        ]);
+        expect(output).not.toContain("private-valid-token");
+        expect(output).not.toContain("private-token-hash");
+        expect(output).not.toContain("private@example.com");
+        expect(output).not.toContain("private-old-password-hash");
+        expect(output).not.toContain("private-new-password-hash");
+        consoleLog.mockRestore();
+        consoleError.mockRestore();
       });
     });
 

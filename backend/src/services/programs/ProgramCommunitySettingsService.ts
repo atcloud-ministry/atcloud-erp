@@ -16,7 +16,10 @@ import ProgramCommunitySettings, {
   type IProgramCommunitySettings,
 } from "../../models/ProgramCommunitySettings";
 import Conversation, { type IConversation } from "../../models/Conversation";
+import User from "../../models/User";
+import Purchase from "../../models/Purchase";
 import { normalizeProgramRoles } from "../../utils/programRoles";
+import { RoleUtils } from "../../utils/roleUtils";
 import { AuditLogService } from "../AuditLogService";
 import {
   IdempotencyService,
@@ -82,6 +85,12 @@ type SettingsCasUpdate = (
   input: CasUpdateInput<IProgramCommunitySettings>,
 ) => Promise<HydratedDocument<IProgramCommunitySettings>>;
 
+type FreshProgramManagerAuthorizer = (input: {
+  readonly actorId: mongoose.Types.ObjectId;
+  readonly program: IProgram;
+  readonly session: ClientSession;
+}) => Promise<{ readonly allowed: boolean; readonly role: string | null }>;
+
 export interface ProgramCommunitySettingsServiceDependencies {
   readonly now?: () => Date;
   readonly programModel?: Model<IProgram>;
@@ -94,6 +103,7 @@ export interface ProgramCommunitySettingsServiceDependencies {
   >;
   readonly writeRequiredAudit?: RequiredAuditWriter;
   readonly casUpdate?: SettingsCasUpdate;
+  readonly authorizeFreshManager?: FreshProgramManagerAuthorizer;
 }
 
 export type ProgramCommunitySettingsErrorCode =
@@ -252,6 +262,45 @@ function revisionConflict(): ProgramCommunitySettingsError {
   );
 }
 
+async function authorizeFreshProgramManager(input: {
+  readonly actorId: mongoose.Types.ObjectId;
+  readonly program: IProgram;
+  readonly session: ClientSession;
+}): Promise<{ readonly allowed: boolean; readonly role: string | null }> {
+  const actor = await User.findOne({ _id: input.actorId })
+    .select("role isActive isVerified")
+    .session(input.session)
+    .lean<{ role: string; isActive: boolean; isVerified: boolean }>()
+    .exec();
+  if (!actor || actor.isActive === false || actor.isVerified !== true) {
+    return { allowed: false, role: null };
+  }
+
+  const actorId = input.actorId.toString();
+  const program = input.program;
+  const directlyAuthorized =
+    RoleUtils.isAdmin(actor.role) ||
+    String(program.createdBy) === actorId ||
+    program.mentors?.some((mentor) => String(mentor.userId) === actorId) ||
+    program.adminEnrollments?.classReps?.some(
+      (candidate) => String(candidate) === actorId,
+    );
+  if (directlyAuthorized) return { allowed: true, role: actor.role };
+
+  const classRepPurchase = await Purchase.findOne({
+    userId: input.actorId,
+    purchaseType: "program",
+    programId: program._id,
+    status: "completed",
+    isClassRep: true,
+    unenrolledAt: { $exists: false },
+  })
+    .select("_id")
+    .session(input.session)
+    .lean();
+  return { allowed: Boolean(classRepPurchase), role: actor.role };
+}
+
 function validateMappingsForProgram(
   program: IProgram,
   submitted: readonly ProgramStudentRoleMappingDTO[],
@@ -356,6 +405,7 @@ export class ProgramCommunitySettingsService {
   >;
   private readonly writeRequiredAudit: RequiredAuditWriter;
   private readonly casUpdate: SettingsCasUpdate;
+  private readonly authorizeFreshManager: FreshProgramManagerAuthorizer;
 
   constructor(dependencies: ProgramCommunitySettingsServiceDependencies = {}) {
     this.now = dependencies.now ?? (() => new Date());
@@ -371,6 +421,8 @@ export class ProgramCommunitySettingsService {
     this.casUpdate =
       dependencies.casUpdate ??
       ((input) => CasService.update<IProgramCommunitySettings>(input));
+    this.authorizeFreshManager =
+      dependencies.authorizeFreshManager ?? authorizeFreshProgramManager;
   }
 
   async get(programId: string): Promise<ProgramCommunitySettingsDTO> {
@@ -427,6 +479,14 @@ export class ProgramCommunitySettingsService {
             execute: async (session) => {
               const program = await this.programs.findById(programId).session(session);
               if (!program) {
+                throw new ProgramCommunitySettingsError("PROGRAM_NOT_FOUND", 404);
+              }
+              const freshAuthorization = await this.authorizeFreshManager({
+                actorId,
+                program,
+                session,
+              });
+              if (!freshAuthorization.allowed || !freshAuthorization.role) {
                 throw new ProgramCommunitySettingsError("PROGRAM_NOT_FOUND", 404);
               }
               const current = await this.settings
@@ -568,7 +628,7 @@ export class ProgramCommunitySettingsService {
                   actor: {
                     type: "user",
                     id: input.actor.id,
-                    role: input.actor.role,
+                    role: freshAuthorization.role,
                   },
                   source: "http",
                   outcome: unchanged ? "noop" : "success",

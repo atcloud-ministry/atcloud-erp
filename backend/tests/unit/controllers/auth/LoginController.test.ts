@@ -4,6 +4,7 @@ import LoginController from "../../../../src/controllers/auth/LoginController";
 import { User } from "../../../../src/models";
 import { TokenService } from "../../../../src/middleware/auth";
 import mongoose from "mongoose";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 // Mock dependencies
 vi.mock("../../../../src/models", () => ({
@@ -16,6 +17,12 @@ vi.mock("../../../../src/middleware/auth", () => ({
   TokenService: {
     generateTokenPair: vi.fn(),
     parseTimeToMs: vi.fn(),
+  },
+}));
+
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    register: vi.fn(),
   },
 }));
 
@@ -51,6 +58,7 @@ describe("LoginController", () => {
     // Default environment
     process.env.NODE_ENV = "test";
     process.env.JWT_REFRESH_EXPIRE = "7d";
+    vi.mocked(RefreshSessionService.register).mockResolvedValue(undefined);
   });
 
   describe("login", () => {
@@ -349,7 +357,9 @@ describe("LoginController", () => {
 
         expect(mockUser.resetLoginAttempts).toHaveBeenCalled();
         expect(mockUser.updateLastLogin).toHaveBeenCalled();
-        expect(TokenService.generateTokenPair).toHaveBeenCalledWith(mockUser);
+        expect(TokenService.generateTokenPair).toHaveBeenCalledWith(mockUser, {
+          refreshLifetimeMs: 86400000,
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
 
         const response = jsonMock.mock.calls[0][0];
