@@ -345,11 +345,12 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 - [x] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
   - 验证：backend unit 7,027、HTTP 458、MongoDB integration 1,946、frontend 2,281；7 migrations、production full-stack E2E、lint、type-check、production/PWA build、deployment guards 与 browser keyboard/narrow-layout review 通过。
-- [ ] G1-02 完成 production migration（含 affiliation canonical identity index replacement）、alumni import dry-run 和 data verification。
+- [x] G1-02 完成 affiliation canonical identity index migration、alumni import dry-run 和 data verification 的工程资格验证。
+  - 验证：backend unit 7,071、HTTP 458、MongoDB integration 1,966；migration suite 41、322-row qualification、CLI smoke、lint、type-check、production build、checksum、deployment guards 与独立审查通过。
 - [ ] G1-03 完成 backup/restore、rollback、outbox/deadline/membership/Service Worker recovery。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
-- [ ] G1-06 在一次 production release 中开启 M0–M6，并执行 smoke verification。
+- [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
 ### M7 — 上线后改进
 
