@@ -292,6 +292,126 @@ describe("AlumniImportService", () => {
     ).toHaveLength(2);
   });
 
+  it("allows only one active dry-run per checksum across actors and keys", async () => {
+    const { service } = createService();
+    const csv = Buffer.from(
+      "email,programName\nconcurrent@example.com,External Fellowship\n",
+      "utf8",
+    );
+    const secondActor = {
+      id: "507f1f77bcf86cd799439012",
+      role: "Administrator",
+    } as const;
+    const results = await Promise.allSettled([
+      service.dryRun({
+        csv,
+        actor: ACTOR,
+        idempotencyKey: "10101010-1010-4010-8010-101010101010",
+      }),
+      service.dryRun({
+        csv,
+        actor: secondActor,
+        idempotencyKey: "20202020-2020-4020-8020-202020202020",
+      }),
+    ]);
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof service.dryRun>>
+      > => result.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({
+      code: "ALUMNI_IMPORT_STATE_CONFLICT",
+      httpStatus: 409,
+    });
+    expect(
+      await AlumniImportBatch.countDocuments({ status: "review_ready" }),
+    ).toBe(1);
+
+    const parsed = parseAlumniRosterCsv(csv);
+    await service.cancel({
+      batchId: fulfilled[0]!.value.batchId,
+      expectedRevision: 0,
+      expectedChecksum: parsed.checksum,
+      expectedRowCount: 1,
+      expectedUniqueContactCount: 1,
+      reasonCode: "operator_request",
+      actor: ACTOR,
+      idempotencyKey: "30303030-3030-4030-8030-303030303030",
+    });
+    await expect(
+      service.dryRun({
+        csv,
+        actor: secondActor,
+        idempotencyKey: "40404040-4040-4040-8040-404040404040",
+      }),
+    ).resolves.toMatchObject({ status: "review_ready", replayed: false });
+  });
+
+  it("binds dry-run and cancellation idempotency to audit attribution", async () => {
+    const { service } = createService();
+    const csv = Buffer.from(
+      "email,programName\nattribution@example.com,External Fellowship\n",
+      "utf8",
+    );
+    const dryRunKey = "50505050-5050-4050-8050-505050505050";
+    const dryRun = await service.dryRun({
+      csv,
+      actor: ACTOR,
+      idempotencyKey: dryRunKey,
+      auditSource: "system",
+      operator: "release-a",
+    });
+    await expect(
+      service.dryRun({
+        csv,
+        actor: ACTOR,
+        idempotencyKey: dryRunKey,
+        auditSource: "system",
+        operator: "release-b",
+      }),
+    ).rejects.toMatchObject({
+      code: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+    });
+
+    const parsed = parseAlumniRosterCsv(csv);
+    const cancelKey = "60606060-6060-4060-8060-606060606060";
+    await service.cancel({
+      batchId: dryRun.batchId,
+      expectedRevision: 0,
+      expectedChecksum: parsed.checksum,
+      expectedRowCount: 1,
+      expectedUniqueContactCount: 1,
+      reasonCode: "operator_request",
+      actor: ACTOR,
+      idempotencyKey: cancelKey,
+      auditSource: "system",
+      operator: "release-a",
+    });
+    await expect(
+      service.cancel({
+        batchId: dryRun.batchId,
+        expectedRevision: 0,
+        expectedChecksum: parsed.checksum,
+        expectedRowCount: 1,
+        expectedUniqueContactCount: 1,
+        reasonCode: "operator_request",
+        actor: ACTOR,
+        idempotencyKey: cancelKey,
+        auditSource: "http",
+      }),
+    ).rejects.toMatchObject({
+      code: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+    });
+    expect(
+      await AuditLog.findOne({ action: "alumni_import.cancelled" }).lean(),
+    ).toMatchObject({ source: "system", details: { operator: "release-a" } });
+  });
+
   it("rejects a header-only roster without creating a batch or receipt", async () => {
     const { service } = createService();
     await expect(

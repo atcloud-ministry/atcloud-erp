@@ -310,6 +310,9 @@ describe("AlumniAffiliation model", () => {
           expect.objectContaining({
             name: "uniq_alumni_affiliation_profile_program_key",
             unique: true,
+            partialFilterExpression: {
+              programAffiliationKey: { $type: "string" },
+            },
           }),
         ],
         [
@@ -596,6 +599,88 @@ describe("AlumniImportBatch model", () => {
     );
   });
 
+  it("enforces review-ready row phases, manual provenance, and zero side effects", async () => {
+    const reviewedBy = new mongoose.Types.ObjectId();
+    const base = {
+      checksum: HASH_A,
+      createdBy: new mongoose.Types.ObjectId(),
+      status: "review_ready",
+      rawRows: [{ rowNumber: 2, values: ["amy@example.com"] }],
+      counts: { totalRows: 1, validRows: 1, unmatchedRows: 1 },
+    } as const;
+
+    const pending = new AlumniImportBatch({
+      ...base,
+      rowResults: [
+        {
+          rowNumber: 2,
+          rowKey: HASH_B,
+          matchStatus: "unmatched",
+          matchMethod: "none",
+          eligibilityStatus: "pending_review",
+          applicationStatus: "pending",
+        },
+      ],
+    });
+    await expect(pending.validate()).resolves.toBeUndefined();
+
+    const manualWithoutDecision = new AlumniImportBatch({
+      ...base,
+      rowResults: [
+        {
+          rowNumber: 2,
+          rowKey: HASH_B,
+          matchStatus: "unmatched",
+          matchMethod: "manual",
+          eligibilityStatus: "pending_review",
+          applicationStatus: "pending",
+        },
+      ],
+    });
+    await expect(manualWithoutDecision.validate()).rejects.toThrow(
+      "Manual match decisions require",
+    );
+
+    const approvedButSkipped = new AlumniImportBatch({
+      ...base,
+      counts: { ...base.counts, approvedRows: 1 },
+      rowResults: [
+        {
+          rowNumber: 2,
+          rowKey: HASH_B,
+          matchStatus: "unmatched",
+          matchMethod: "manual",
+          eligibilityStatus: "approved",
+          reviewedAt: new Date("2026-09-19T00:00:00.000Z"),
+          reviewedBy,
+          applicationStatus: "skipped",
+          applicationUpdatedAt: new Date("2026-09-19T00:00:00.000Z"),
+        },
+      ],
+    });
+    await expect(approvedButSkipped.validate()).rejects.toThrow(
+      "review and application phase",
+    );
+
+    const sideEffectCount = new AlumniImportBatch({
+      ...base,
+      counts: { ...base.counts, invitationsCreated: 1 },
+      rowResults: [
+        {
+          rowNumber: 2,
+          rowKey: HASH_B,
+          matchStatus: "unmatched",
+          matchMethod: "none",
+          eligibilityStatus: "pending_review",
+          applicationStatus: "pending",
+        },
+      ],
+    });
+    await expect(sideEffectCount.validate()).rejects.toThrow(
+      "cannot contain application side-effect counts",
+    );
+  });
+
   it("requires durable reviewer provenance before applying a row", async () => {
     const batch = new AlumniImportBatch({
       checksum: HASH_A,
@@ -790,6 +875,18 @@ describe("AlumniImportBatch model", () => {
           expect.objectContaining({
             name: "ttl_alumni_import_batch_purge_at",
             expireAfterSeconds: 0,
+          }),
+        ],
+        [
+          { checksum: 1 },
+          expect.objectContaining({
+            name: "uniq_alumni_import_batch_active_checksum",
+            unique: true,
+            partialFilterExpression: {
+              status: {
+                $in: ["pending", "dry_running", "review_ready", "applying"],
+              },
+            },
           }),
         ],
       ]),

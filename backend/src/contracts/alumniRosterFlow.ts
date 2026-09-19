@@ -201,6 +201,15 @@ export interface AlumniImportRerunBody {
   readonly expectedRevision: number;
 }
 
+export const ALUMNI_IMPORT_CANCEL_REASON_CODES = [
+  "data_validation_failed",
+  "source_replaced",
+  "operator_request",
+] as const;
+
+export type AlumniImportCancelReasonCode =
+  (typeof ALUMNI_IMPORT_CANCEL_REASON_CODES)[number];
+
 export interface AlumniInvitationReissueBody {
   readonly expectedRevision: number;
 }

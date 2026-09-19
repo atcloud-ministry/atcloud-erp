@@ -125,11 +125,16 @@ describe("M2 alumni data model indexes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "uniq_alumni_affiliation_profile_external_key",
+          key: { alumniProfileId: 1, programId: 1, affiliationKey: 1 },
           unique: true,
         }),
         expect.objectContaining({
           name: "uniq_alumni_affiliation_profile_program_key",
+          key: { alumniProfileId: 1, programAffiliationKey: 1 },
           unique: true,
+          partialFilterExpression: {
+            programAffiliationKey: { $type: "string" },
+          },
         }),
         expect.objectContaining({
           name: "ttl_alumni_affiliation_purge_at",
@@ -160,6 +165,16 @@ describe("M2 alumni data model indexes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "idx_alumni_import_batch_checksum",
+        }),
+        expect.objectContaining({
+          name: "uniq_alumni_import_batch_active_checksum",
+          key: { checksum: 1 },
+          unique: true,
+          partialFilterExpression: {
+            status: {
+              $in: ["pending", "dry_running", "review_ready", "applying"],
+            },
+          },
         }),
         expect.objectContaining({
           name: "idx_alumni_import_batch_raw_cleanup",
@@ -372,18 +387,36 @@ describe("M2 alumni data model indexes", () => {
     ).resolves.toHaveLength(2);
   });
 
-  it("allows import reruns with the same checksum", async () => {
+  it("rejects duplicate active checksums and allows reuse after termination", async () => {
     const createdBy = new mongoose.Types.ObjectId();
+    const outcomes = await Promise.allSettled([
+      AlumniImportBatch.create({ checksum: hash("a"), createdBy }),
+      AlumniImportBatch.create({
+        checksum: hash("a"),
+        createdBy,
+        rerunOfBatchId: new mongoose.Types.ObjectId(),
+      }),
+    ]);
+    expectSingleDuplicateResult(outcomes);
+
+    const active = await AlumniImportBatch.findOne({ checksum: hash("a") });
+    expect(active).not.toBeNull();
+    const terminalAt = new Date("2030-08-31T12:00:00.000Z");
+    active!.set({
+      status: "cancelled",
+      terminalAt,
+      rawDataPurgeAt: addFixedDays(terminalAt, 30),
+      purgeAt: addUtcCalendarMonths(terminalAt, 6),
+    });
+    await active!.save();
+
     await expect(
-      AlumniImportBatch.create([
-        { checksum: hash("a"), createdBy },
-        {
-          checksum: hash("a"),
-          createdBy,
-          rerunOfBatchId: new mongoose.Types.ObjectId(),
-        },
-      ]),
-    ).resolves.toHaveLength(2);
+      AlumniImportBatch.create({
+        checksum: hash("a"),
+        createdBy,
+        rerunOfBatchId: active!._id,
+      }),
+    ).resolves.toMatchObject({ status: "pending" });
   });
 
   it("excludes invitation contact, lookup, and token hashes by default", async () => {

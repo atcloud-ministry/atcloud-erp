@@ -8,6 +8,7 @@ import {
   IMPORT_SUMMARY_RETENTION_MONTHS,
   SAFE_CODE_PATTERN,
   SAFE_SINGLE_LINE_PATTERN,
+  SHA256_HEX_PATTERN,
   addFixedDays,
   addUtcCalendarMonths,
   deriveAlumniAffiliationKey,
@@ -15,13 +16,16 @@ import {
   type AlumniImportBatchStatus,
 } from "../../contracts/alumniDirectoryData";
 import {
+  ALUMNI_IMPORT_CANCEL_REASON_CODES,
   ALUMNI_IMPORT_LIST_MAX_LIMIT,
   buildAlumniImportAdminRowsPageDTO,
   buildAlumniImportBatchSummaryDTO,
+  type AlumniImportCancelReasonCode,
   type AlumniImportAdminRowsPageDTO,
   type AlumniImportBatchSummaryDTO,
   type AlumniImportReviewDecision,
 } from "../../contracts/alumniRosterFlow";
+import type { AuditSource } from "../../contracts/auditLog";
 import AlumniImportBatch, {
   type AlumniImportBatchCounts,
   type AlumniImportRowError,
@@ -62,6 +66,7 @@ const BATCH_PRIVATE_SELECTION =
 const APPLY_ROW_LIMIT = 100;
 const INVITATION_AFFILIATION_LIMIT = 50;
 const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+const SAFE_OPERATOR_PATTERN = /^[a-z][a-z0-9._-]{0,79}$/;
 
 export interface ListAlumniImportBatchesInput {
   readonly page: number;
@@ -91,6 +96,8 @@ export interface DryRunAlumniImportInput {
   readonly actor: AlumniFlowActor;
   readonly idempotencyKey: string;
   readonly correlationId?: string;
+  readonly auditSource?: AuditSource;
+  readonly operator?: string;
 }
 
 export interface ReviewAlumniImportInput {
@@ -118,6 +125,20 @@ export interface RerunAlumniImportInput {
   readonly correlationId?: string;
 }
 
+export interface CancelAlumniImportInput {
+  readonly batchId: string;
+  readonly expectedRevision: number;
+  readonly expectedChecksum: string;
+  readonly expectedRowCount: number;
+  readonly expectedUniqueContactCount: number;
+  readonly reasonCode: AlumniImportCancelReasonCode;
+  readonly actor: AlumniFlowActor;
+  readonly idempotencyKey: string;
+  readonly correlationId?: string;
+  readonly auditSource?: AuditSource;
+  readonly operator?: string;
+}
+
 interface DryRunResponse extends IdempotencyReplayResponseDto {
   readonly batchId: string;
   readonly status: "review_ready";
@@ -128,6 +149,15 @@ interface DryRunResponse extends IdempotencyReplayResponseDto {
   readonly matchedRows: number;
   readonly unmatchedRows: number;
   readonly ambiguousRows: number;
+}
+
+interface CancelResponse extends IdempotencyReplayResponseDto {
+  readonly batchId: string;
+  readonly status: "cancelled";
+  readonly revision: number;
+  readonly terminalAt: string;
+  readonly rawDataPurgeAt: string;
+  readonly purgeAt: string;
 }
 
 interface ReviewResponse extends IdempotencyReplayResponseDto {
@@ -231,6 +261,34 @@ function isMongoDuplicateKeyError(error: unknown): boolean {
   );
 }
 
+function isActiveImportChecksumDuplicate(error: unknown): boolean {
+  if (!isMongoDuplicateKeyError(error)) return false;
+  const candidate = error as {
+    readonly keyPattern?: unknown;
+    readonly message?: unknown;
+  };
+  if (
+    candidate.keyPattern &&
+    typeof candidate.keyPattern === "object" &&
+    !Array.isArray(candidate.keyPattern)
+  ) {
+    const entries = Object.entries(
+      candidate.keyPattern as Record<string, unknown>,
+    );
+    if (
+      entries.length === 1 &&
+      entries[0]?.[0] === "checksum" &&
+      entries[0]?.[1] === 1
+    ) {
+      return true;
+    }
+  }
+  return (
+    typeof candidate.message === "string" &&
+    candidate.message.includes("uniq_alumni_import_batch_active_checksum")
+  );
+}
+
 function reviewIncomplete(): AlumniFlowError {
   return new AlumniFlowError(
     "ALUMNI_IMPORT_REVIEW_INCOMPLETE",
@@ -249,6 +307,36 @@ function requireObjectId(value: string): mongoose.Types.ObjectId {
 function requireRevision(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0) throw alumniInputError();
   return value;
+}
+
+function requirePositiveCount(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) throw alumniInputError();
+  return value;
+}
+
+function requireChecksum(value: string): string {
+  if (typeof value !== "string" || !SHA256_HEX_PATTERN.test(value)) {
+    throw alumniInputError();
+  }
+  return value;
+}
+
+function optionalOperator(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!SAFE_OPERATOR_PATTERN.test(value)) throw alumniInputError();
+  return value;
+}
+
+function auditSource(input: { readonly auditSource?: AuditSource }): AuditSource {
+  return input.auditSource ?? "http";
+}
+
+function uniqueContactCount(parsed: ParsedAlumniRoster): number {
+  return new Set(
+    parsed.rows
+      .map((row) => row.value?.email)
+      .filter((value): value is string => Boolean(value)),
+  ).size;
 }
 
 function requirePage(value: number, field: "page" | "limit"): number {
@@ -676,6 +764,11 @@ async function saveNewBatch(
   try {
     await batch.save({ session });
   } catch (error) {
+    if (isActiveImportChecksumDuplicate(error)) {
+      throw stateConflict(
+        "An active import already exists for this roster checksum.",
+      );
+    }
     if (error instanceof mongoose.Error.ValidationError) {
       throw alumniInputError(
         "The roster data and review results cannot fit within one import batch.",
@@ -823,15 +916,22 @@ export class AlumniImportService {
 
   async dryRun(input: DryRunAlumniImportInput) {
     const actorId = requireActor(input.actor);
+    const operator = optionalOperator(input.operator);
+    const source = auditSource(input);
     const parsed = parseAlumniRosterCsv(input.csv);
     if (parsed.rows.length === 0) {
       throw alumniInputError("Roster CSV must contain at least one data row.");
     }
+    const contacts = uniqueContactCount(parsed);
     const execution = await this.idempotency.execute<DryRunResponse>({
       scope: "alumni.import.dry-run",
       actorKey: actorId.toString(),
       key: input.idempotencyKey,
-      requestPayload: { checksum: parsed.checksum },
+      requestPayload: {
+        checksum: parsed.checksum,
+        auditSource: source,
+        operator: operator ?? null,
+      },
       execute: async (session) => {
         const evaluated = await evaluateRoster(parsed, session, this.now());
         const batch = new AlumniImportBatch({
@@ -857,7 +957,7 @@ export class AlumniImportService {
               id: actorId.toString(),
               role: input.actor.role,
             },
-            source: "http",
+            source,
             outcome: "success",
             target: {
               model: "AlumniImportBatch",
@@ -866,11 +966,13 @@ export class AlumniImportService {
             correlationId: input.correlationId,
             details: {
               totalRows: evaluated.counts.totalRows,
+              uniqueContacts: contacts,
               validRows: evaluated.counts.validRows,
               invalidRows: evaluated.counts.invalidRows,
               matchedRows: evaluated.counts.matchedRows,
               unmatchedRows: evaluated.counts.unmatchedRows,
               ambiguousRows: evaluated.counts.ambiguousRows,
+              ...(operator ? { operator } : {}),
             },
           },
           session,
@@ -1353,6 +1455,150 @@ export class AlumniImportService {
       },
     });
     return Object.freeze({ replayed: execution.replayed, ...execution.response! });
+  }
+
+  async cancel(input: CancelAlumniImportInput) {
+    const actorId = requireActor(input.actor);
+    const batchId = requireObjectId(input.batchId);
+    const expectedRevision = requireRevision(input.expectedRevision);
+    const expectedChecksum = requireChecksum(input.expectedChecksum);
+    const expectedRowCount = requirePositiveCount(input.expectedRowCount);
+    const expectedUniqueContactCount = requireRevision(
+      input.expectedUniqueContactCount,
+    );
+    if (expectedUniqueContactCount > expectedRowCount) throw alumniInputError();
+    if (
+      !(ALUMNI_IMPORT_CANCEL_REASON_CODES as readonly string[]).includes(
+        input.reasonCode,
+      )
+    ) {
+      throw alumniInputError();
+    }
+    const operator = optionalOperator(input.operator);
+    const source = auditSource(input);
+
+    const execution = await this.idempotency.execute<CancelResponse>({
+      scope: "alumni.import.cancel",
+      actorKey: actorId.toString(),
+      key: input.idempotencyKey,
+      requestPayload: {
+        batchId: batchId.toString(),
+        expectedRevision,
+        expectedChecksum,
+        expectedRowCount,
+        expectedUniqueContactCount,
+        reasonCode: input.reasonCode,
+        auditSource: source,
+        operator: operator ?? null,
+      },
+      execute: async (session) => {
+        const batch = await AlumniImportBatch.findById(batchId)
+          .select(BATCH_PRIVATE_SELECTION)
+          .session(session);
+        if (!batch) throw importNotFound();
+        if (batch.revision !== expectedRevision) throw revisionConflict();
+        if (batch.status !== "review_ready") {
+          throw stateConflict("Only a review-ready import may be cancelled.");
+        }
+        const now = this.now();
+        const parsed = retainedRoster(batch, now);
+        if (
+          batch.checksum !== expectedChecksum ||
+          batch.counts.totalRows !== expectedRowCount ||
+          uniqueContactCount(parsed) !== expectedUniqueContactCount
+        ) {
+          throw new AlumniFlowError(
+            "ALUMNI_IMPORT_EXPECTATION_CONFLICT",
+            409,
+            "The import batch does not match the supplied cancellation expectations.",
+          );
+        }
+        const rawDataPurgeAt = addFixedDays(
+          now,
+          IMPORT_RAW_DATA_RETENTION_DAYS,
+        );
+        const purgeAt = addUtcCalendarMonths(
+          now,
+          IMPORT_SUMMARY_RETENTION_MONTHS,
+        );
+        batch.set({
+          status: "cancelled",
+          terminalAt: now,
+          rawDataPurgeAt,
+          purgeAt,
+          revision: expectedRevision + 1,
+        });
+        await batch.validate();
+        const updated = await AlumniImportBatch.findOneAndUpdate(
+          {
+            _id: batchId,
+            revision: expectedRevision,
+            status: "review_ready",
+            checksum: expectedChecksum,
+            "counts.totalRows": expectedRowCount,
+          },
+          {
+            $set: {
+              status: "cancelled",
+              terminalAt: now,
+              rawDataPurgeAt,
+              purgeAt,
+              revision: expectedRevision + 1,
+            },
+          },
+          { new: true, session, runValidators: false },
+        ).select(BATCH_PRIVATE_SELECTION);
+        if (!updated) throw revisionConflict();
+        await updated.validate();
+
+        await AuditLogService.recordRequiredInTransaction(
+          {
+            action: "alumni_import.cancelled",
+            actor: {
+              type: "user",
+              id: actorId.toString(),
+              role: input.actor.role,
+            },
+            source,
+            outcome: "success",
+            target: {
+              model: "AlumniImportBatch",
+              id: batchId.toString(),
+            },
+            correlationId: input.correlationId,
+            reasonCode: input.reasonCode,
+            details: {
+              totalRows: expectedRowCount,
+              uniqueContacts: expectedUniqueContactCount,
+              fromRevision: expectedRevision,
+              toRevision: expectedRevision + 1,
+              ...(operator ? { operator } : {}),
+            },
+          },
+          session,
+        );
+
+        return {
+          httpStatus: 200,
+          response: {
+            batchId: batchId.toString(),
+            status: "cancelled",
+            revision: expectedRevision + 1,
+            terminalAt: now.toISOString(),
+            rawDataPurgeAt: rawDataPurgeAt.toISOString(),
+            purgeAt: purgeAt.toISOString(),
+          },
+          resource: {
+            type: "AlumniImportBatch",
+            id: batchId.toString(),
+          },
+        };
+      },
+    });
+    return Object.freeze({
+      replayed: execution.replayed,
+      ...execution.response!,
+    });
   }
 
   async rerun(input: RerunAlumniImportInput) {

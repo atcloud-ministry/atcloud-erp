@@ -1,5 +1,6 @@
 import mongoose, { type Document, type Model, Schema } from "mongoose";
 import {
+  ALUMNI_IMPORT_BATCH_ACTIVE_STATUSES,
   ALUMNI_IMPORT_BATCH_STATUSES,
   ALUMNI_IMPORT_ROW_APPLICATION_STATUSES,
   ALUMNI_IMPORT_ROW_ELIGIBILITY_STATUSES,
@@ -524,6 +525,12 @@ alumniImportBatchSchema.pre(
       const reviewComplete = ["approved", "rejected"].includes(
         result.eligibilityStatus,
       );
+      if (result.matchMethod === "manual" && !reviewComplete) {
+        this.invalidate(
+          "rowResults",
+          "Manual match decisions require completed review provenance.",
+        );
+      }
       if (reviewComplete && (!result.reviewedAt || !result.reviewedBy)) {
         this.invalidate(
           "rowResults",
@@ -600,6 +607,27 @@ alumniImportBatchSchema.pre(
           "Ambiguous rows must be resolved before approval.",
         );
       }
+      if (this.status === "review_ready") {
+        const reviewReadyPhaseIsValid =
+          (result.matchStatus === "invalid" &&
+            result.eligibilityStatus === "not_applicable" &&
+            result.applicationStatus === "skipped") ||
+          (result.matchStatus !== "invalid" &&
+            result.eligibilityStatus === "pending_review" &&
+            result.applicationStatus === "pending") ||
+          (result.matchStatus !== "invalid" &&
+            result.eligibilityStatus === "approved" &&
+            result.applicationStatus === "pending") ||
+          (result.matchStatus !== "invalid" &&
+            result.eligibilityStatus === "rejected" &&
+            result.applicationStatus === "skipped");
+        if (!reviewReadyPhaseIsValid) {
+          this.invalidate(
+            "rowResults",
+            "Review-ready rows must match the review and application phase.",
+          );
+        }
+      }
     }
 
     if (this.rowResults) {
@@ -655,6 +683,18 @@ alumniImportBatchSchema.pre(
           "Every row result must reference a retained raw row.",
         );
       }
+    }
+
+    if (
+      this.status === "review_ready" &&
+      (this.counts.appliedRows !== 0 ||
+        this.counts.invitationsCreated !== 0 ||
+        this.counts.affiliationsCreated !== 0)
+    ) {
+      this.invalidate(
+        "counts",
+        "Review-ready batches cannot contain application side-effect counts.",
+      );
     }
 
     const rawDataBytes = Buffer.byteLength(
@@ -812,6 +852,16 @@ alumniImportBatchSchema.index(
 alumniImportBatchSchema.index(
   { checksum: 1, createdAt: -1 },
   { name: "idx_alumni_import_batch_checksum" },
+);
+alumniImportBatchSchema.index(
+  { checksum: 1 },
+  {
+    name: "uniq_alumni_import_batch_active_checksum",
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: [...ALUMNI_IMPORT_BATCH_ACTIVE_STATUSES] },
+    },
+  },
 );
 alumniImportBatchSchema.index(
   { rawDataPurgedAt: 1, rawDataPurgeAt: 1 },

@@ -48,6 +48,8 @@
     "premigration": "node scripts/migration-checksums.mjs --check --quiet",
     "migration:dev": "ts-node src/scripts/migrations/runMigrations.ts",
     "premigration:dev": "node scripts/migration-checksums.mjs --check --quiet",
+    "alumni-import": "node dist/scripts/alumniImport/runAlumniImport.js",
+    "alumni-import:dev": "ts-node src/scripts/alumniImport/runAlumniImport.ts",
     "migration:checksums:check": "node scripts/migration-checksums.mjs --check",
     "migration:checksums:update": "node scripts/migration-checksums.mjs --update",
     "check-db": "ts-node src/scripts/checkDatabases.ts",

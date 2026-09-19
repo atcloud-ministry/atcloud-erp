@@ -1112,6 +1112,7 @@ export class MigrationRunner {
         if (run.definition.prepare) {
           await run.definition.prepare({
             database: this.administrativeDatabase,
+            readDatabase: this.readDatabase,
             direction: run.direction,
             ...(this.signal ? { signal: this.signal } : {}),
           });

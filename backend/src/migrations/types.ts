@@ -315,6 +315,8 @@ export interface MigrationPlanContext {
 
 export interface MigrationPreparationContext {
   readonly database: MigrationAdministrativeDatabase;
+  /** Read-only data access for DDL preconditions checked immediately before prepare. */
+  readonly readDatabase: MigrationReadDatabase;
   readonly direction: MigrationDirection;
   readonly signal?: AbortSignal;
 }

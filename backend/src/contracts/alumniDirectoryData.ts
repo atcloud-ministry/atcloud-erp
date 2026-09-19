@@ -41,6 +41,13 @@ export const ALUMNI_IMPORT_BATCH_STATUSES = [
 export type AlumniImportBatchStatus =
   (typeof ALUMNI_IMPORT_BATCH_STATUSES)[number];
 
+export const ALUMNI_IMPORT_BATCH_ACTIVE_STATUSES = [
+  "pending",
+  "dry_running",
+  "review_ready",
+  "applying",
+] as const satisfies readonly AlumniImportBatchStatus[];
+
 export const ALUMNI_IMPORT_ROW_MATCH_STATUSES = [
   "matched",
   "unmatched",

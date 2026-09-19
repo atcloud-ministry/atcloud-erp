@@ -7,6 +7,9 @@ import { migration as migrationSource3 } from "./versions/20260918_002_create-re
 import { migration as migrationSource4 } from "./versions/20260918_003_create-file-cleanup-job-index";
 import { migration as migrationSource5 } from "./versions/20260918_004_enforce-notification-outbox-retention";
 import { migration as migrationSource6 } from "./versions/20260918_005_reconcile-user-deletion-notices";
+import { migration as migrationSource7 } from "./versions/20260919_001_validate-alumni-affiliation-identities";
+import { migration as migrationSource8 } from "./versions/20260919_002_replace-alumni-affiliation-identity-index";
+import { migration as migrationSource9 } from "./versions/20260919_003_reconcile-alumni-import-retention-indexes";
 
 export const MIGRATION_CHECKSUMS: Readonly<Record<string, string>> =
   Object.freeze({
@@ -17,6 +20,9 @@ export const MIGRATION_CHECKSUMS: Readonly<Record<string, string>> =
   "20260918_003_create-file-cleanup-job-index": "c0e0eefd24596553c9fa4757dfae7a1e81a39af4416e9cee5fc3f60a6c843eab",
   "20260918_004_enforce-notification-outbox-retention": "ba4f47c6137e0b480979bb485c3b14ed224d157f357be38a7df7f85673b39648",
   "20260918_005_reconcile-user-deletion-notices": "4581ffa10649f39177466528d2635d8ada51a0c5da93af66aa792472c10ca0df",
+  "20260919_001_validate-alumni-affiliation-identities": "91eaf7491ffc061baa732628ace8e3b2ce2a365165cf982372e2b57f0b741d8d",
+  "20260919_002_replace-alumni-affiliation-identity-index": "3652abcbc017dc534d2be81134548ba4ee4ccd849ecbe8f909b9db4da26054a0",
+  "20260919_003_reconcile-alumni-import-retention-indexes": "04deafac82884956f054822323f2c93ec851f9b1581a99d5ae165fd1e0d7983f",
   });
 
 export const MIGRATION_SOURCE_DEFINITIONS: readonly MigrationSourceDefinition[] =
@@ -28,4 +34,7 @@ export const MIGRATION_SOURCE_DEFINITIONS: readonly MigrationSourceDefinition[] 
   migrationSource4,
   migrationSource5,
   migrationSource6,
+  migrationSource7,
+  migrationSource8,
+  migrationSource9,
   ]);
