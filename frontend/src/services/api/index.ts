@@ -39,6 +39,7 @@ export * from "./donations.api";
 export * from "./refundRequests.api";
 export * from "./annualMemberships.api";
 export * from "./alumniInvitations.api";
+export * from "./featureControls.api";
 
 // Export full ApiClient for backward compatibility with code that uses apiClient instance
 export { apiClient, ApiClient } from "./apiClient";
