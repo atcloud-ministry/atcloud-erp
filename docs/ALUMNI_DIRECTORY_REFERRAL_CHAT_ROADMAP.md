@@ -350,7 +350,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 - [x] G1-03 建立 isolated backup/restore qualification、rollback runbook、outbox/deadline/membership/Service Worker recovery。
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
-  - [ ] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
+  - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
+    - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
