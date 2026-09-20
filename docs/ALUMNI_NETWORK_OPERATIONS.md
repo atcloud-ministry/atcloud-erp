@@ -209,3 +209,69 @@ npm run -s recovery-qualification -- inspect \
 `0` 表示完成，`2` 表示参数或 manifest 无效，`3` 表示 isolation、integrity、comparison 或
 recovery gate 未通过。Migration rollback 使用 [Database migrations](DATABASE_MIGRATIONS.md) 的
 rollback procedure，并记录 migration ledger evidence。
+
+## 8. G1-04 release-candidate device qualification
+
+使用同一 release artifact 的 HTTPS Render release candidate、隔离 Atlas Flex test database、
+受控测试账号和受控 email inbox。设置 `ALUMNI_NETWORK_RELEASE_AVAILABLE=true`、
+`NOTIFICATION_OUTBOX_ENABLED=true`、`WEB_PUSH_ENABLED=true`，将 stored Alumni Network mode 设为
+`on`，并配置该 release candidate 的 `FRONTEND_URL`、`VITE_API_URL` 与 VAPID secrets。
+
+### 8.1 Playwright viewport evidence
+
+将 viewport evidence 与 physical-device evidence 分别保存。前者使用 Chromium 的 desktop、
+Android、iPhone 和 iPad viewport profiles：
+
+~~~bash
+cd frontend
+npm run test:e2e:pwa
+~~~
+
+记录 commit SHA、test output、Playwright report 和失败时的 trace/screenshot。
+
+### 8.2 Physical-device matrix
+
+每个目标均使用 HTTPS release candidate，记录实际 OS 与 browser version。
+
+| Target | Browser and installation path |
+| --- | --- |
+| Android phone | Current Chrome；browser install prompt 后从 installed PWA 打开 |
+| iPhone | Safari on iOS 16.4+；Share menu 的 Add to Home Screen 后从 installed PWA 打开 |
+| iPad | Safari on iPadOS 16.4+；Share menu 的 Add to Home Screen 后从 installed PWA 打开 |
+| Desktop | Current Chrome；browser install prompt 后从 installed PWA 打开 |
+
+对每个目标完成以下受控场景：
+
+1. 完成安装并确认 standalone launch。
+2. 在 Notification Settings 通过用户手势创建 Push subscription；由另一受控账号发送 authorized
+   Room message 或 Program announcement，确认系统通知送达。点击通知后打开 authorized deep link；
+   登出状态先完成 login recovery。
+3. Mute 该 Room 后重复发送，确认 Room Push/Email 不投递；恢复 unmute。关闭或移除 Push、保持
+   Email fallback enabled 后发送 eligible update，确认受控 inbox 收到 email。
+4. 创建 Chat Rooms unread 与 System Messages unread，记录 installed PWA launcher badge 的观察值；
+   支持 native badge 的平台应显示两者之和，最大为 `99`。
+5. 载入 app shell 后断开网络，打开 Room deep link 并确认 offline fallback；恢复网络后确认 reconnect
+   和 current Room data。
+6. 部署第二个 release-candidate build，记录前后 commit SHA 和 `sw.js?v=`；在 installed PWA 中
+   完成 update prompt、更新并重新打开 Room。
+
+### 8.3 Evidence record
+
+每个 physical-device result 使用以下模板保存。测试账号使用 alias，不记录真实姓名、邮箱、Push endpoint
+或 message text。
+
+~~~text
+Release candidate URL:
+Commit SHA / deployed-at UTC:
+Target / OS version / browser version:
+Test account aliases:
+Install and standalone launch: pass | fail
+Push subscription, delivery, notification deep link, login recovery: pass | fail
+Room mute and Email fallback: pass | fail
+Launcher badge observation: pass | unavailable | fail
+Offline fallback and reconnect: pass | fail
+Service Worker update (old SHA -> new SHA): pass | fail
+Evidence links (screenshots/video, redacted logs, Playwright report):
+Defect ID or result:
+Tester / completed-at UTC:
+~~~

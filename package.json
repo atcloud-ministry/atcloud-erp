@@ -25,6 +25,8 @@
     "test:critical": "cd backend && npm run -s test:critical",
     "test:backend:perf": "cd backend && npm run -s test:perf",
     "test:backend:perf:approved": "cd backend && npm run -s test:perf:approved",
+    "test:backend:perf:g1-release": "cd backend && npm run -s test:perf:g1-release",
+    "test:g1:release-capacity": "bash scripts/run-g1-release-capacity.sh",
     "test:frontend": "cd frontend && npm test",
     "test:e2e": "cd frontend && npm run -s test:e2e",
     "test:e2e:fullstack": "bash scripts/run-fullstack-e2e.sh",

@@ -36,6 +36,20 @@ async function mockApi(page: Page) {
     if (path.endsWith("/auth/profile")) {
       return route.fulfill({ json: { success: true, data: { user } } });
     }
+    if (path.endsWith("/auth/registration-notice")) {
+      return route.fulfill({
+        json: {
+          success: true,
+          data: {
+            notice: {
+              version: "registration-privacy-v1",
+              text: "We use the information you provide to operate your account.",
+              effectiveAt: "2026-01-01T00:00:00.000Z",
+            },
+          },
+        },
+      });
+    }
     if (path.endsWith("/notifications/welcome-status")) {
       return route.fulfill({
         json: {
@@ -102,6 +116,9 @@ test("a new user can submit registration and reach check-email", async ({
   await page
     .getByPlaceholder("Enter company or organization")
     .fill("Example Co");
+  await page
+    .getByLabel(/I have read and accept this notice/i)
+    .check();
   await page.getByRole("button", { name: "Sign Up" }).click();
 
   await expect(page.getByText("We’ll keep your history")).toBeVisible();

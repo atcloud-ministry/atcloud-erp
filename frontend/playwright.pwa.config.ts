@@ -27,11 +27,11 @@ export default defineConfig({
       use: { ...devices["Pixel 7"], browserName: "chromium" },
     },
     {
-      name: "iphone-home-screen-chromium",
+      name: "iphone-viewport-chromium",
       use: { ...devices["iPhone 13"], browserName: "chromium" },
     },
     {
-      name: "ipad-home-screen-chromium",
+      name: "ipad-viewport-chromium",
       use: { ...devices["iPad Pro 11"], browserName: "chromium" },
     },
   ],
