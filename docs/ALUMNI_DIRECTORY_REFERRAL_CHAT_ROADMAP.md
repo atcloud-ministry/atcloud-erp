@@ -353,7 +353,7 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
   - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
     - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
   - [x] FIX-002 在 System Monitor 提供受保护的 Alumni Network mode control，按 revision 确认切换并刷新 runtime config。
-    - 验证：frontend 2,296 tests、lint、type-check、PWA build、root verify 通过；staging frontend `41c3637e` Live，frontend 200、backend readiness 200。
+    - 验证：frontend 2,296 tests、lint、type-check、PWA build、root verify 通过；staging frontend `41c3637e`、backend `520648e2` Live；staging migration 10/10 applied，mode `on` / revision 1，Directory、Help Requests 和 Chat Rooms 路由加载通过。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
