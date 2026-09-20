@@ -2,14 +2,14 @@
 
 ## 文档状态
 
-- 版本：4.0
-- 更新时间：2026-09-18
+- 版本：4.1
+- 更新时间：2026-09-20
 - 状态：Approved
-- 实施进度：M0–M6、G1-01 已完成
-- 下一任务：G1-02（待确认）
+- 实施进度：M0–M6、G1-01–G1-03 已完成
+- 下一任务：G1-04 staging release-candidate qualification
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
-- 新增事项经 Travis 批准并登记为 `ADD-xxx` 后进入实施清单。
+- 既定目标内的必要修复直接实施并登记；新增功能或扩大范围由 Travis 确认。
 
 任务完成时把 `[ ]` 改为 `[x]`，并在该任务后附验证证据。
 
@@ -350,6 +350,7 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 - [x] G1-03 建立 isolated backup/restore qualification、rollback runbook、outbox/deadline/membership/Service Worker recovery。
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
+  - [ ] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
