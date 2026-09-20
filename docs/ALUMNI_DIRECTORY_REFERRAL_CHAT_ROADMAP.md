@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 版本：4.1
+- 版本：4.2
 - 更新时间：2026-09-20
 - 状态：Approved
 - 实施进度：M0–M6、G1-01–G1-03 已完成
@@ -352,7 +352,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 - [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
   - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
     - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
-  - [ ] FIX-002 在 System Monitor 提供受保护的 Alumni Network mode control，按 revision 确认切换并刷新 runtime config。
+  - [x] FIX-002 在 System Monitor 提供受保护的 Alumni Network mode control，按 revision 确认切换并刷新 runtime config。
+    - 验证：frontend 2,296 tests、lint、type-check、PWA build、root verify 通过；staging frontend `41c3637e` Live，frontend 200、backend readiness 200。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
