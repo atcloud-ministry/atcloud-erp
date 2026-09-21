@@ -1387,15 +1387,21 @@ export default function ChatRoom() {
                 : "Mute Room notifications"
             }
             aria-pressed={conversation.viewer.muted}
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
+            className="inline-flex h-11 w-11 min-h-11 min-w-11 shrink-0 self-center items-center justify-center !rounded-full !border-0 !bg-transparent !p-0 text-gray-800 hover:!border-transparent hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
             disabled={muteBusy || !writable}
             onClick={() => void toggleMute()}
             type="button"
           >
             {conversation.viewer.muted ? (
-              <BellSlashIcon aria-hidden="true" className="h-5 w-5" />
+              <BellSlashIcon
+                aria-hidden="true"
+                className="h-6 w-6 shrink-0 stroke-2"
+              />
             ) : (
-              <BellIcon aria-hidden="true" className="h-5 w-5" />
+              <BellIcon
+                aria-hidden="true"
+                className="h-6 w-6 shrink-0 stroke-2"
+              />
             )}
           </button>
         </header>
