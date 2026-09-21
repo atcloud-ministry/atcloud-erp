@@ -25,7 +25,7 @@
     "test:integration:one": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts",
     "test:m0-foundation": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/reliability tests/integration/middleware/authorization-wiring.integration.test.ts tests/migration --testTimeout=60000",
     "test:migrations": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/migration --testTimeout=60000",
-    "test:critical": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/api/event-purchase-flow.integration.test.ts tests/integration/api/purchases-refund.integration.test.ts tests/integration/api/donations-webhook.integration.test.ts --testTimeout=60000",
+    "test:critical": "VITEST_SCOPE=integration vitest run --config vitest.integration.config.ts tests/integration/api/event-purchase-flow.integration.test.ts tests/integration/api/purchases-refund.integration.test.ts tests/integration/api/donations-webhook.integration.test.ts tests/integration/api/short-links-stale-evict.integration.test.ts --testTimeout=60000",
     "test:backend:single": "vitest run --config vitest.unit.config.ts --testTimeout=60000",
     "test:perf": "VITEST_SCOPE=integration vitest run --config vitest.perf.config.ts",
     "test:perf:approved": "M4_CHAT_LOAD_PROFILE=approved M6_PROGRAM_ROOM_LOAD_PROFILE=approved VITEST_VERBOSE_LOGS=true VITEST_SCOPE=integration vitest run --config vitest.perf.config.ts",
