@@ -74,6 +74,9 @@ export default function DashboardLayout() {
   const isOwnProfileRoute = /^\/dashboard\/profile\/?$/i.test(
     location.pathname,
   );
+  const isChatRoomRoute = /^\/dashboard\/chat-rooms\/[^/]+\/?$/i.test(
+    location.pathname,
+  );
 
   // Redirect to login if guest tries to access a non-allowed route
   if (isGuest && !isGuestAllowedRoute(location.pathname)) {
@@ -120,7 +123,11 @@ export default function DashboardLayout() {
 
         {/* Scrollable Main Content */}
         <main
-          className="flex-1 overflow-y-auto lg:ml-64 flex flex-col pt-16"
+          className={`flex flex-1 flex-col pt-16 lg:ml-64 ${
+            isChatRoomRoute
+              ? "h-[100dvh] overflow-hidden lg:h-auto lg:overflow-y-auto"
+              : "overflow-y-auto"
+          }`}
           id="dashboard-main-content"
           key={`main-${location.pathname}`}
           ref={mainRef}
@@ -128,7 +135,11 @@ export default function DashboardLayout() {
         >
           {/** Allow wider content specifically on Management page to fit all table columns */}
           <div
-            className={`flex-1 p-4 sm:p-6 pb-0 ${
+            className={`flex-1 ${
+              isChatRoomRoute
+                ? "flex min-h-0 flex-col overflow-hidden p-0 lg:block lg:overflow-visible lg:p-6 lg:pb-0"
+                : "p-4 pb-0 sm:p-6"
+            } ${
               location.pathname.startsWith("/dashboard/management") ||
               location.pathname.startsWith("/dashboard/admin/users")
                 ? "max-w-[1280px] xl:max-w-[1360px] 2xl:max-w-[1440px]"
@@ -143,7 +154,10 @@ export default function DashboardLayout() {
             )}
             <Outlet key={location.pathname} />
           </div>
-          <div className="mt-8">
+          <div
+            className={isChatRoomRoute ? "mt-8 hidden lg:block" : "mt-8"}
+            data-testid="dashboard-footer"
+          >
             <Footer />
           </div>
         </main>
