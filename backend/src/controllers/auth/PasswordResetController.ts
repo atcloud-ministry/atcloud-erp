@@ -10,10 +10,16 @@ import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
 import { UnifiedMessageController } from "../unifiedMessageController";
 import { UserDocLike, toIdString } from "./types";
+import {
+  logSafeErrorEvent,
+  logSafeWarningEvent,
+} from "../../utils/safeEventLogger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 export default class PasswordResetController {
   // Request password reset
   static async forgotPassword(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       const { email } = req.body;
 
@@ -41,6 +47,7 @@ export default class PasswordResetController {
         });
         return;
       }
+      userId = toIdString((user as unknown as UserDocLike)._id);
 
       // Generate password reset token
       const resetToken = (
@@ -56,7 +63,11 @@ export default class PasswordResetController {
       );
 
       if (!emailSent) {
-        console.warn("Failed to send password reset email to:", user.email);
+        logSafeWarningEvent(
+          "AUTH_PASSWORD_RESET_EMAIL_NOT_SENT",
+          { name: "PasswordResetEmailNotSent" },
+          userId,
+        );
       }
 
       // Create system message and bell notification for password reset
@@ -83,7 +94,11 @@ export default class PasswordResetController {
           }
         );
       } catch (error: unknown) {
-        console.warn("Failed to create password reset system message:", error);
+        logSafeWarningEvent(
+          "AUTH_PASSWORD_RESET_MESSAGE_FAILED",
+          error,
+          userId,
+        );
       }
 
       res.status(200).json({
@@ -91,7 +106,7 @@ export default class PasswordResetController {
         message: successMessage,
       });
     } catch (error: unknown) {
-      console.error("Forgot password error:", error);
+      logSafeErrorEvent("AUTH_PASSWORD_RESET_REQUEST_FAILED", error, userId);
       res.status(500).json({
         success: false,
         message: "Password reset request failed.",
@@ -101,6 +116,7 @@ export default class PasswordResetController {
 
   // Reset password
   static async resetPassword(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       const { newPassword, confirmPassword } = req.body;
 
@@ -129,13 +145,28 @@ export default class PasswordResetController {
       }
 
       const user = req.user as unknown as UserDocLike;
+      userId = toIdString(user._id);
 
       // Update password and clear reset token
       user.password = newPassword;
       user.passwordResetToken = undefined;
       user.passwordResetExpires = undefined;
+      user.passwordChangedAt = new Date();
 
       await user.save();
+      try {
+        await RefreshSessionService.revokeAllForUser(
+          toIdString(user._id),
+          "password_reset",
+        );
+      } catch (error: unknown) {
+        // The persisted passwordChangedAt marker still rejects every old JWT.
+        logSafeWarningEvent(
+          "AUTH_REFRESH_SESSION_REVOKE_FAILED",
+          error,
+          userId,
+        );
+      }
 
       // Invalidate user cache after password reset
       await CachePatterns.invalidateUserCache(toIdString(user._id));
@@ -169,9 +200,10 @@ export default class PasswordResetController {
           (user.firstName || user.username || "User") as string
         );
       } catch (error: unknown) {
-        console.warn(
-          "Failed to send password reset success notifications:",
-          error
+        logSafeWarningEvent(
+          "AUTH_PASSWORD_RESET_NOTIFICATION_FAILED",
+          error,
+          userId,
         );
       }
 
@@ -180,7 +212,7 @@ export default class PasswordResetController {
         message: "Password reset successfully!",
       });
     } catch (error: unknown) {
-      console.error("Reset password error:", error);
+      logSafeErrorEvent("AUTH_PASSWORD_RESET_FAILED", error, userId);
       res.status(500).json({
         success: false,
         message: "Password reset failed.",

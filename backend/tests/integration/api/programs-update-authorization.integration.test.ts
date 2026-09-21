@@ -126,6 +126,144 @@ describe("PUT /api/programs/:id - Authorization Tests", () => {
       expect(response.body.data.title).toBe("Updated by Assigned Mentor");
       expect(response.body.data.fullPriceTicket).toBe(900);
     });
+
+    it("should preserve ownership and server-maintained fields", async () => {
+      const { userId, token } = await createAndLoginTestUser({
+        role: "Participant",
+      });
+      const originalOwnerId = new mongoose.Types.ObjectId();
+      const linkedEventId = new mongoose.Types.ObjectId();
+      const program = await ProgramModel.create({
+        title: "Class Rep Program",
+        programType: "EMBA Mentor Circles",
+        fullPriceTicket: 800,
+        isFree: false,
+        createdBy: originalOwnerId,
+        classRepCount: 2,
+        programRoles: {
+          teacherRoleName: "Mentor",
+          studentRoles: [
+            {
+              id: "role-a",
+              name: "Role A",
+              discountEligible: true,
+              discountAmount: 100,
+              limit: 5,
+              count: 2,
+            },
+            {
+              id: "role-b",
+              name: "Role B",
+              discountEligible: true,
+              discountAmount: 200,
+              limit: 5,
+              count: 4,
+            },
+          ],
+        },
+        events: [linkedEventId],
+        adminEnrollments: { classReps: [userId] },
+      });
+
+      const response = await request(app)
+        .put(`/api/programs/${program._id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          title: "Updated by Class Rep",
+          createdBy: userId,
+          classRepCount: 99,
+          events: [],
+          adminEnrollments: { classReps: [] },
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: [
+              {
+                id: "ROLE B",
+                name: "Role B",
+                discountEligible: true,
+                discountAmount: 250,
+                limit: 5,
+                count: 999,
+              },
+              {
+                id: "role-new",
+                name: "New Role",
+                discountEligible: true,
+                discountAmount: 50,
+                limit: 5,
+                count: 999,
+              },
+              {
+                id: "ROLE A",
+                name: "Role A",
+                discountEligible: true,
+                discountAmount: 150,
+                limit: 5,
+                count: 999,
+              },
+              {
+                id: "role a",
+                name: "Duplicate Role A",
+                discountEligible: true,
+                discountAmount: 75,
+                limit: 5,
+                count: 999,
+              },
+            ],
+          },
+        });
+
+      expect(response.status).toBe(200);
+      const stored = await ProgramModel.findById(program._id);
+      expect(stored?.title).toBe("Updated by Class Rep");
+      expect(String(stored?.createdBy)).toBe(String(originalOwnerId));
+      expect(stored?.classRepCount).toBe(4);
+      expect(stored?.programRoles?.studentRoles.map((role) => role.count)).toEqual(
+        [4, 0, 2, 0],
+      );
+      expect(stored?.programRoles?.studentRoles.map((role) => role.id)).toEqual([
+        "role-b",
+        "role-new",
+        "role-a",
+        "role-a-2",
+      ]);
+      expect(stored?.events?.map(String)).toEqual([String(linkedEventId)]);
+      expect(stored?.adminEnrollments?.classReps?.map(String)).toEqual([
+        String(userId),
+      ]);
+
+      for (const programRoles of [
+        null,
+        {
+          teacherRoleName: "Coach",
+          studentRoles: {
+            id: "replacement",
+            name: "Replacement",
+            discountEligible: true,
+            count: 999,
+          },
+        },
+      ]) {
+        await request(app)
+          .put(`/api/programs/${program._id}`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ programRoles })
+          .expect(400);
+      }
+
+      const afterHostileUpdates = await ProgramModel.findById(program._id);
+      expect(
+        afterHostileUpdates?.programRoles?.studentRoles.map((role) => ({
+          id: role.id,
+          count: role.count,
+        })),
+      ).toEqual([
+        { id: "role-b", count: 4 },
+        { id: "role-new", count: 0 },
+        { id: "role-a", count: 2 },
+        { id: "role-a-2", count: 0 },
+      ]);
+    });
   });
 
   describe("Unauthorized Roles", () => {

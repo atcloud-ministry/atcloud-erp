@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Purchase API Integration Tests
  *
@@ -54,6 +55,7 @@ describe("Purchase API Integration Tests", () => {
 
     // Regular user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "purchaseuser",
       email: "purchase@example.com",
       password: "PurchasePass123!",
@@ -64,6 +66,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const userResponse = await request(app)
       .post("/api/auth/register")
@@ -81,6 +84,7 @@ describe("Purchase API Integration Tests", () => {
 
     // Admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "purchaseadmin",
       email: "purchaseadmin@example.com",
       password: "AdminPass123!",
@@ -91,6 +95,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const adminResponse = await request(app)
       .post("/api/auth/register")
@@ -108,6 +113,7 @@ describe("Purchase API Integration Tests", () => {
 
     // Mentor user
     const mentorData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "purchasementor",
       email: "mentor@example.com",
       password: "MentorPass123!",
@@ -119,6 +125,7 @@ describe("Purchase API Integration Tests", () => {
       gender: "female",
       isAtCloudLeader: true,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const mentorResponse = await request(app)
       .post("/api/auth/register")
@@ -493,6 +500,7 @@ describe("Purchase API Integration Tests", () => {
     it("should deny access to other users", async () => {
       // Create another user
       const otherUserData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "otheruser",
         email: "other@example.com",
         password: "OtherPass123!",
@@ -503,6 +511,7 @@ describe("Purchase API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
       await request(app).post("/api/auth/register").send(otherUserData);
       await User.findOneAndUpdate(
@@ -613,6 +622,7 @@ describe("Purchase API Integration Tests", () => {
     it("should deny access to other users", async () => {
       // Create another user
       const otherUserData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "receiptuser",
         email: "receipt@example.com",
         password: "ReceiptPass123!",
@@ -623,6 +633,7 @@ describe("Purchase API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
       await request(app).post("/api/auth/register").send(otherUserData);
       await User.findOneAndUpdate(

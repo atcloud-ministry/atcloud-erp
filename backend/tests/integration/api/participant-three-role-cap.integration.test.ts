@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -23,6 +24,7 @@ describe("Participant three-role cap (policy update)", () => {
     await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "cap_participant",
         email: "cap_participant@example.com",
         password: "Password123!",
@@ -33,6 +35,7 @@ describe("Participant three-role cap (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 
@@ -57,6 +60,7 @@ describe("Participant three-role cap (policy update)", () => {
     await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "admincapper",
         email: "admin_capper@example.com",
         password: "Password123!",
@@ -67,6 +71,7 @@ describe("Participant three-role cap (policy update)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 

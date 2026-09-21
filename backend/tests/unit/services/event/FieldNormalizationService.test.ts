@@ -186,8 +186,17 @@ describe("FieldNormalizationService.extractSuppressionFlags", () => {
 });
 
 describe("FieldNormalizationService.prepareUpdateData", () => {
-  it("removes suppressNotifications flag from update data", () => {
-    const body = { title: "Event", suppressNotifications: true };
+  it("removes control and server-owned fields from update data", () => {
+    const body = {
+      title: "Event",
+      suppressNotifications: true,
+      _id: "replacement-id",
+      id: "replacement-id",
+      createdBy: "replacement-owner",
+      createdAt: "2000-01-01",
+      updatedAt: "2000-01-01",
+      __v: 100,
+    };
     const updateData = FieldNormalizationService.prepareUpdateData(body);
 
     expect(updateData).toEqual({ title: "Event" });

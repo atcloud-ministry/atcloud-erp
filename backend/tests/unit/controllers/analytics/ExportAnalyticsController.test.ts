@@ -400,9 +400,9 @@ describe("ExportAnalyticsController", () => {
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue([
           {
-            username: "user,with,commas",
-            email: "test\n@example.com",
-            role: "member",
+            username: "user,\nwith,commas",
+            email: "test\r@example.com",
+            role: "=2+2",
             createdAt: new Date("2025-01-01"),
           },
         ]),
@@ -434,6 +434,7 @@ describe("ExportAnalyticsController", () => {
           typeof call[0] === "string" && call[0].includes("user with commas"),
       );
       expect(userRow).toBeDefined();
+      expect(userRow?.[0]).toContain(",'=2+2,");
     });
 
     it("should serialize ObjectId-like registration references without recursing", async () => {

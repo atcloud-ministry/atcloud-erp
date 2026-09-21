@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, type NextFunction } from "express";
 import CreationController from "../controllers/programs/CreationController";
 import ListController from "../controllers/programs/ListController";
 import RetrievalController from "../controllers/programs/RetrievalController";
@@ -9,13 +9,42 @@ import DeletionController from "../controllers/programs/DeletionController";
 import AdminEnrollController from "../controllers/programs/AdminEnrollController";
 import AdminUnenrollController from "../controllers/programs/AdminUnenrollController";
 import SelfUnenrollController from "../controllers/programs/SelfUnenrollController";
+import { communitySettingsController } from "../controllers/programs/CommunitySettingsController";
 import { authenticate, authenticateOptional } from "../middleware/auth";
+import {
+  requireAlumniNetworkReadable,
+  requireAlumniNetworkWritable,
+} from "../middleware/alumniNetworkFeatureGate";
+import { authorizeHttp } from "../middleware/authorization";
+import { AUTHORIZATION_ACTIONS } from "../services/authorization/types";
 import { EmailService } from "../services/infrastructure/EmailServiceFacade";
 import { EmailRecipientUtils } from "../utils/emailRecipientUtils";
 import { Program } from "../models";
 import mongoose from "mongoose";
 
 const router = Router();
+
+const authorizeProgramManagement = authorizeHttp({
+  action: AUTHORIZATION_ACTIONS.PROGRAM_MANAGE,
+  resource: (req) => ({ type: "program", id: req.params.id ?? "" }),
+  concealDeniedResource: true,
+});
+
+const requireCommunityProgramId = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id ?? "")) {
+    res.status(404).json({
+      success: false,
+      message: "Resource not found.",
+      reasonCode: "resource_not_found",
+    });
+    return;
+  }
+  next();
+};
 
 // Public list and get (with optional auth for contact info filtering)
 router.get("/", ListController.list);
@@ -25,6 +54,22 @@ router.get(
   "/:id/participants",
   authenticateOptional,
   ParticipantsController.getParticipants,
+);
+router.get(
+  "/:id/community-settings",
+  authenticate,
+  requireAlumniNetworkReadable,
+  requireCommunityProgramId,
+  authorizeProgramManagement,
+  communitySettingsController.get,
+);
+router.put(
+  "/:id/community-settings",
+  authenticate,
+  requireAlumniNetworkWritable,
+  requireCommunityProgramId,
+  authorizeProgramManagement,
+  communitySettingsController.update,
 );
 
 // Authenticated admin-only operations are validated inside controller

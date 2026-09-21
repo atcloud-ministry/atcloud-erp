@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Events API Integration Tests
  *
@@ -43,6 +44,7 @@ describe("Events API Integration Tests", () => {
 
     // Regular user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "eventuser",
       email: "event@example.com",
       password: "EventPass123!",
@@ -53,6 +55,7 @@ describe("Events API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const userResponse = await request(app)
       .post("/api/auth/register")
@@ -70,6 +73,7 @@ describe("Events API Integration Tests", () => {
 
     // Admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -80,6 +84,7 @@ describe("Events API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const adminResponse = await request(app)
       .post("/api/auth/register")
@@ -617,6 +622,7 @@ describe("Events API Integration Tests", () => {
     it("should allow Administrator to update any event (not just their own)", async () => {
       // Create a different admin user who will create an event
       const anotherAdminData = {
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Another",
         lastName: "Admin",
         email: "another.admin@example.com",
@@ -626,6 +632,7 @@ describe("Events API Integration Tests", () => {
         gender: "female",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       const anotherAdminResponse = await request(app)

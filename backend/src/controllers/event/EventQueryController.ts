@@ -143,7 +143,7 @@ export class EventQueryController {
         endDate,
         publish,
       };
-      const pageCacheKey = `events-list:${JSON.stringify({
+      const pageCacheKey = `events-list:v2:${JSON.stringify({
         ...baseFilterDescriptor,
         page: pageNumber,
         limit: limitNumber,

@@ -19,11 +19,11 @@
 
 a {
   font-weight: 500;
-  color: #747bff;
+  color: #1d4ed8;
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: #1e3a8a;
 }
 
 body {
@@ -125,7 +125,18 @@ button:focus-visible {
 /* Optional placeholder style for contentEditable elements */
 [contenteditable][data-placeholder]:empty:before {
   content: attr(data-placeholder);
-  color: #9ca3af; /* gray-400 */
+  color: #6b7280; /* gray-500: readable placeholder contrast on white */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Print Styles for Donation Receipt */

@@ -100,6 +100,34 @@ describe("program ListController", () => {
     );
   });
 
+  it("never exposes stored mentor email in the public list", async () => {
+    const id = new Types.ObjectId();
+    const mentorId = new Types.ObjectId();
+    query.lean.mockResolvedValue([
+      {
+        _id: id,
+        title: "Program",
+        mentors: [
+          {
+            userId: mentorId,
+            firstName: "Amy",
+            email: "private@example.com",
+          },
+        ],
+      },
+    ]);
+
+    await list();
+
+    const projection = query.select.mock.calls[0][0] as string;
+    expect(projection).not.toContain("mentors.email");
+    const responseBody = json.mock.calls[0][0];
+    expect(responseBody.data[0].mentors[0]).toEqual(
+      expect.objectContaining({ userId: mentorId.toString(), firstName: "Amy" }),
+    );
+    expect(responseBody.data[0].mentors[0]).not.toHaveProperty("email");
+  });
+
   it("returns a controlled error when either page query fails", async () => {
     query.lean.mockRejectedValue(new Error("database unavailable"));
 

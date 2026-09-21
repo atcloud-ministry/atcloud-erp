@@ -628,22 +628,149 @@ describe("Rate Limiting Middleware", () => {
       logSpy.mockRestore();
     });
 
-    test("emergency disable logs and skips in production", async () => {
+    test("production rejects the emergency-disable configuration", async () => {
       process.env.NODE_ENV = "production";
       process.env.ENABLE_RATE_LIMITING = "false";
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const { generalLimiter: gl } = await importWithEnv();
+      const { assertRateLimitProductionConfiguration } = await importWithEnv();
 
-      const prodApp = express();
-      prodApp.get("/x", gl, (req, res) => res.json({ ok: true }));
-
-      const res = await request(prodApp).get("/x").expect(200);
-      expect(res.body.ok).toBe(true);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[EMERGENCY] Rate limiting DISABLED")
+      expect(() => assertRateLimitProductionConfiguration()).toThrow(
+        "Production rate limiting must be explicitly enabled",
+      );
+      expect(logSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("[EMERGENCY] Rate limiting DISABLED"),
       );
       logSpy.mockRestore();
+    });
+
+    test("production validates every security rate-limit value", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "900000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "100";
+      process.env.AUTH_RATE_LIMIT_WINDOW_MS = "900000";
+      process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = "20";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS = "invalid";
+      const { assertRateLimitProductionConfiguration } = await importWithEnv();
+
+      expect(() => assertRateLimitProductionConfiguration()).toThrow(
+        "DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS",
+      );
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS = "60";
+      expect(() => assertRateLimitProductionConfiguration()).not.toThrow();
+    });
+
+    test("directory search is limited independently by account and IP", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS = "1";
+      const { directoryAccountLimiter, directoryIpLimiter } = await importWithEnv();
+
+      const accountApp = express();
+      accountApp.set("trust proxy", 1);
+      accountApp.get(
+        "/directory",
+        (req, _res, next) => {
+          req.userId = "507f1f77bcf86cd799439011";
+          next();
+        },
+        directoryAccountLimiter,
+        (_req, res) => res.json({ ok: true }),
+      );
+      await request(accountApp)
+        .get("/directory")
+        .set("X-Forwarded-For", "203.0.113.1")
+        .expect(200);
+      await request(accountApp)
+        .get("/directory")
+        .set("X-Forwarded-For", "203.0.113.2")
+        .expect(429);
+
+      const ipApp = express();
+      ipApp.set("trust proxy", 1);
+      let requestNumber = 0;
+      ipApp.get(
+        "/directory",
+        (req, _res, next) => {
+          requestNumber += 1;
+          req.userId = `507f1f77bcf86cd79943901${requestNumber}`;
+          next();
+        },
+        directoryIpLimiter,
+        (_req, res) => res.json({ ok: true }),
+      );
+      await request(ipApp)
+        .get("/directory")
+        .set("X-Forwarded-For", "203.0.113.3")
+        .expect(200);
+      await request(ipApp)
+        .get("/directory")
+        .set("X-Forwarded-For", "203.0.113.3")
+        .expect(429);
+    });
+
+    test("the global limiter does not shadow a specialized route limiter", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS = "2";
+      const {
+        generalLimiter: productionGeneralLimiter,
+        directoryIpLimiter: productionDirectoryLimiter,
+      } = await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.get(
+        "/api/directory",
+        productionDirectoryLimiter,
+        (_req, res) => res.json({ ok: true }),
+      );
+
+      const first = await request(composedApp)
+        .get("/api/directory")
+        .expect(200);
+      const second = await request(composedApp)
+        .get("/api/directory")
+        .expect(200);
+      const blocked = await request(composedApp)
+        .get("/api/directory")
+        .expect(429);
+
+      expect(first.headers["ratelimit-limit"]).toBe("2");
+      expect(second.headers["ratelimit-limit"]).toBe("2");
+      expect(blocked.body).toEqual({
+        error: "Too many directory requests, please slow down.",
+      });
+    });
+
+    test("the global limiter remains the fail-closed policy for other routes", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      const { generalLimiter: productionGeneralLimiter } =
+        await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.get("/api/directory/me", (_req, res) =>
+        res.json({ ok: true }),
+      );
+
+      await request(composedApp).get("/api/directory/me").expect(200);
+      const response = await request(composedApp)
+        .get("/api/directory/me")
+        .expect(429);
+
+      expect(response.body).toEqual({
+        error: "Too many requests from this IP, please try again later.",
+      });
     });
 
     test("production non-localhost does not log bypass or emergency", async () => {

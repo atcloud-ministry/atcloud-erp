@@ -12,25 +12,25 @@ describe("Realtime schema: all updateTypes compile against union", () => {
       {
         eventId: "e1",
         updateType: "guest_registration",
-        data: { roleId: "r1", guestName: "G" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "guest_cancellation",
-        data: { roleId: "r1", guestName: "G" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "guest_updated",
-        data: { roleId: "r1", guestName: "G" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "guest_moved",
-        data: { fromRoleId: "r1", toRoleId: "r2" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
 
@@ -38,36 +38,31 @@ describe("Realtime schema: all updateTypes compile against union", () => {
       {
         eventId: "e1",
         updateType: "user_signed_up",
-        data: { userId: "u1", roleId: "r1", roleName: "Role A" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "user_cancelled",
-        data: { userId: "u1", roleId: "r1", roleName: "Role A" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "user_removed",
-        data: { userId: "u1", roleId: "r1", roleName: "Role A" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "user_moved",
-        data: { userId: "u1", fromRoleId: "r1", toRoleId: "r2" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "user_assigned",
-        data: {
-          operatorId: "admin",
-          userId: "u1",
-          roleId: "r1",
-          roleName: "Role A",
-        },
+        data: null,
         timestamp: new Date().toISOString(),
       },
 
@@ -75,18 +70,13 @@ describe("Realtime schema: all updateTypes compile against union", () => {
       {
         eventId: "e1",
         updateType: "workshop_topic_updated",
-        data: { group: "A", topic: "Topic" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "attendance_updated",
-        data: {
-          registrationId: "reg1",
-          userId: "u1",
-          roleId: "r1",
-          attended: true,
-        },
+        data: null,
         timestamp: new Date().toISOString(),
       },
 
@@ -94,13 +84,13 @@ describe("Realtime schema: all updateTypes compile against union", () => {
       {
         eventId: "e1",
         updateType: "role_full",
-        data: { roleId: "r1" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
       {
         eventId: "e1",
         updateType: "role_available",
-        data: { roleId: "r1" },
+        data: null,
         timestamp: new Date().toISOString(),
       },
     ];

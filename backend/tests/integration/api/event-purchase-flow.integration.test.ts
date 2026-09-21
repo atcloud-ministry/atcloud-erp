@@ -12,7 +12,31 @@ vi.mock("../../../src/utils/email", () => ({
   sendEmail: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock Stripe service for webhook verification
+const stripeCheckoutMocks = vi.hoisted(() => {
+  let nextSessionNumber = 0;
+
+  return {
+    create: vi.fn(async () => {
+      nextSessionNumber += 1;
+      const id = `cs_test_event_purchase_${nextSessionNumber}`;
+      return {
+        id,
+        url: `https://checkout.stripe.com/c/pay/${id}`,
+        status: "open",
+      };
+    }),
+    retrieve: vi.fn(async () => ({ status: "open" })),
+    expire: vi.fn(async () => ({ status: "expired" })),
+    retrieveCharge: vi.fn(async () => ({
+      payment_method_details: {
+        card: { brand: "visa", last4: "4242" },
+      },
+      billing_details: { name: "Test Purchaser" },
+    })),
+  };
+});
+
+// Keep checkout and webhook processing local: no integration test may invoke Stripe.
 vi.mock("../../../src/services/stripeService", async (importOriginal) => {
   const actual = await importOriginal<
     typeof import("../../../src/services/stripeService")
@@ -22,6 +46,22 @@ vi.mock("../../../src/services/stripeService", async (importOriginal) => {
     constructWebhookEvent: vi.fn().mockImplementation((body) => {
       return body;
     }),
+    getPaymentIntent: vi.fn().mockResolvedValue({
+      id: "pi_test_event_purchase",
+      latest_charge: null,
+    }),
+    stripe: {
+      checkout: {
+        sessions: {
+          create: stripeCheckoutMocks.create,
+          retrieve: stripeCheckoutMocks.retrieve,
+          expire: stripeCheckoutMocks.expire,
+        },
+      },
+      charges: {
+        retrieve: stripeCheckoutMocks.retrieveCharge,
+      },
+    },
   };
 });
 

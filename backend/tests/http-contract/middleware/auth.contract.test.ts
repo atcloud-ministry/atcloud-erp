@@ -14,6 +14,12 @@ import { ROLES } from "../../../src/utils/roleUtils";
 
 describe("Auth Middleware Integration", () => {
   let app: express.Application;
+  const activeUser = (role: string) => ({
+    _id: "507f1f77bcf86cd799439011",
+    role,
+    isActive: true,
+    isVerified: true,
+  });
 
   beforeEach(() => {
     app = express();
@@ -178,7 +184,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/admin",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.PARTICIPANT } as any;
+          req.user = activeUser(ROLES.PARTICIPANT) as any;
           next();
         },
         authorizeRoles(ROLES.ADMINISTRATOR),
@@ -195,7 +201,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/admin",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.ADMINISTRATOR } as any;
+          req.user = activeUser(ROLES.ADMINISTRATOR) as any;
           next();
         },
         authorizeRoles(ROLES.ADMINISTRATOR),
@@ -209,7 +215,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/leader",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.PARTICIPANT } as any;
+          req.user = activeUser(ROLES.PARTICIPANT) as any;
           next();
         },
         authorizeMinimumRole(ROLES.LEADER),
@@ -223,7 +229,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/leader",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.ADMINISTRATOR } as any;
+          req.user = activeUser(ROLES.ADMINISTRATOR) as any;
           next();
         },
         authorizeMinimumRole(ROLES.LEADER),
@@ -237,7 +243,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/perm",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.PARTICIPANT } as any;
+          req.user = activeUser(ROLES.PARTICIPANT) as any;
           next();
         },
         authorizePermission("manage_users" as any),
@@ -252,7 +258,7 @@ describe("Auth Middleware Integration", () => {
       app.get(
         "/perm",
         (req: any, _res, next) => {
-          req.user = { role: ROLES.SUPER_ADMIN } as any;
+          req.user = activeUser(ROLES.SUPER_ADMIN) as any;
           next();
         },
         authorizePermission("manage_users" as any),

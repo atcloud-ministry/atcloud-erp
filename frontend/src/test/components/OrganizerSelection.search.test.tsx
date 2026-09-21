@@ -4,57 +4,51 @@ import OrganizerSelection from "../../components/events/OrganizerSelection";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import { AuthProvider } from "../../contexts/AuthContext";
 
-// Mock users hook to return only first 20 (simulate first page)
-vi.mock("../../hooks/useUserData", () => ({
-  useUserData: () => ({
-    users: Array.from({ length: 20 }).map((_, i) => ({
-      id: `u${i + 1}`,
-      username: `user${i + 1}`,
-      firstName: `First${i + 1}`,
-      lastName: `Last${i + 1}`,
-      email: `user${i + 1}@test.com`,
-      role: (i % 2 === 0 ? "Leader" : "Participant") as any,
-      isAtCloudLeader: "No",
-      joinDate: "2024-01-01",
-      gender: "male",
-      isActive: true,
-    })),
-  }),
-}));
-
-// Mock searchService to return a user beyond page 1
+const listOptionsMock = vi.fn();
 vi.mock("../../services/api", async () => {
   const actual = await vi.importActual<typeof import("../../services/api")>(
     "../../services/api"
   );
   return {
     ...actual,
-    searchService: {
-      ...actual.searchService,
-      searchUsers: vi.fn(async (q: string) => {
-        // Simulate backend returning a matching Administrator that's not in first 20
-        // And supports pagination info
-        if (q.toLowerCase().includes("zoe")) {
+    userOptionsService: {
+      list: (...args: unknown[]) => listOptionsMock(...args),
+    },
+  };
+});
+
+listOptionsMock.mockImplementation(async (params: { q?: string }) => {
+  if (params.q?.toLowerCase().includes("zoe")) {
           return {
-            results: [
+            options: [
               {
                 id: "u42",
                 username: "zoe",
                 firstName: "Zoe",
                 lastName: "Admin",
-                email: "zoe@example.com",
                 role: "Administrator",
                 gender: "female",
-                isAtCloudLeader: false,
-                createdAt: "2024-01-05T00:00:00.000Z",
-                isActive: true,
+                avatar: null,
+                roleInAtCloud: null,
               },
             ],
-            pagination: { hasNext: false },
-          } as any;
-        }
-        return { results: [], pagination: { hasNext: false } } as any;
-      }),
+            pagination: {
+              currentPage: 1,
+              totalPages: 1,
+              totalOptions: 1,
+              hasNext: false,
+              hasPrev: false,
+            },
+          };
+  }
+  return {
+    options: [],
+    pagination: {
+      currentPage: 1,
+      totalPages: 0,
+      totalOptions: 0,
+      hasNext: false,
+      hasPrev: false,
     },
   };
 });
@@ -78,7 +72,6 @@ describe("OrganizerSelection — search all authorized users", () => {
       systemAuthorizationLevel: "Administrator",
       gender: "male" as const,
       avatar: null,
-      email: "main@example.com",
     };
 
     const onChange = vi.fn();
@@ -89,6 +82,8 @@ describe("OrganizerSelection — search all authorized users", () => {
           mainOrganizer={mainOrganizer as any}
           selectedOrganizers={[]}
           onOrganizersChange={onChange}
+          context="program-mentor"
+          resourceId="program-123"
         />
       </Wrapper>
     );
@@ -97,7 +92,7 @@ describe("OrganizerSelection — search all authorized users", () => {
     fireEvent.click(screen.getByText(/add co-organizer/i));
 
     // Type in the search box
-    const input = await screen.findByPlaceholderText(/search name or email/i);
+    const input = await screen.findByPlaceholderText(/name or username/i);
     fireEvent.change(input, { target: { value: "Zoe" } });
 
     // Wait for search result to appear and click it
@@ -107,8 +102,15 @@ describe("OrganizerSelection — search all authorized users", () => {
     await waitFor(() => {
       expect(onChange).toHaveBeenCalled();
       const arg = onChange.mock.calls[0][0][0];
-      expect(arg.email).toBe("zoe@example.com");
+      expect(arg).not.toHaveProperty("email");
       expect(arg.systemAuthorizationLevel).toBe("Administrator");
+      expect(listOptionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: "program-mentor",
+          resourceId: "program-123",
+          q: "Zoe",
+        }),
+      );
     });
   });
 });

@@ -1,17 +1,27 @@
-import type { UseFormRegister, FieldErrors } from "react-hook-form";
+import type {
+  UseFormRegister,
+  FieldErrors,
+  UseFormSetValue,
+  UseFormWatch,
+} from "react-hook-form";
 import type { SignUpFormData } from "../../schemas/signUpSchema";
 import { FORM_SECTIONS } from "../../config/signUpConstants";
 import FormField from "../forms/FormField";
 import TextareaField from "../forms/TextareaField";
+import { EmploymentFields } from "../forms/RegistrationProfileFields";
 
 interface OptionalSectionProps {
   register: UseFormRegister<SignUpFormData>;
   errors: FieldErrors<SignUpFormData>;
+  watch: UseFormWatch<SignUpFormData>;
+  setValue: UseFormSetValue<SignUpFormData>;
 }
 
 export default function OptionalSection({
   register,
   errors,
+  watch,
+  setValue,
 }: OptionalSectionProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">
@@ -21,34 +31,11 @@ export default function OptionalSection({
       <p className="text-gray-600 mb-4">{FORM_SECTIONS.optional.description}</p>
 
       <div className="space-y-4">
-        {/* Home Address */}
-        <TextareaField
-          label="Home Address"
-          name="homeAddress"
+        <EmploymentFields
           register={register}
           errors={errors}
-          placeholder="Enter your home address"
-          required={false}
-        />
-
-        {/* Occupation */}
-        <FormField
-          label="Occupation"
-          name="occupation"
-          register={register}
-          errors={errors}
-          placeholder="Please enter your profession (e.g., I'm Retired, Electrical Engineer, Entrepreneur)"
-          required={false}
-        />
-
-        {/* Company */}
-        <FormField
-          label="Company"
-          name="company"
-          register={register}
-          errors={errors}
-          placeholder="Your company or organization"
-          required={false}
+          watch={watch}
+          setValue={setValue}
         />
 
         {/* Weekly Church */}

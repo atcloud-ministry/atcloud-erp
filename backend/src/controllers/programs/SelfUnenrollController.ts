@@ -12,9 +12,11 @@ import { processRefund } from "../../services/stripeService";
 import {
   calculateRefundEligibility,
   getPurchaseItemDetails,
-  markProgramPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "../../services/PurchaseRefundService";
 import { RefundRequestService } from "../../services/RefundRequestService";
+import { socketService } from "../../services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 type EnrollmentType = "mentee" | "classRep";
 type ProgramDocument = HydratedDocument<IProgram>;
@@ -108,6 +110,19 @@ export default class SelfUnenrollController {
           SelfUnenrollController.removeAdminEnrollment(program, userId);
         if (removedAdminEnrollment) {
           await program.save();
+          programMembershipMutationSyncTrigger.programAssignmentsChanged(
+            String(program._id),
+            {
+              actor: {
+                type: "user",
+                id: userId.toString(),
+                role: req.user!.role,
+              },
+              source: "http",
+              correlationId: req.correlationId,
+            },
+          );
+          socketService.disconnectUser(userId.toString());
         }
 
         await SelfUnenrollController.writeAuditLog(
@@ -186,11 +201,10 @@ export default class SelfUnenrollController {
           await program.save();
         }
 
-        await markProgramPurchaseUnenrolled(
+        await persistPurchaseUnenrollment(
           purchase,
           "self_unenroll_no_refund",
         );
-        await purchase.save();
         await SelfUnenrollController.writeAuditLog(
           req,
           program,
@@ -225,8 +239,7 @@ export default class SelfUnenrollController {
       purchase.status = "refund_processing";
       purchase.refundInitiatedAt = new Date();
       purchase.refundFailureReason = undefined;
-      await markProgramPurchaseUnenrolled(purchase, "self_unenroll_refund");
-      await purchase.save();
+      await persistPurchaseUnenrollment(purchase, "self_unenroll_refund");
 
       try {
         await PurchaseEmailService.sendRefundInitiatedEmail({

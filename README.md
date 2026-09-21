@@ -95,6 +95,8 @@ See `docs/TERMINOLOGY.md` for guidance and examples.
 
 ## Useful docs
 
+- [Alumni directory, help, messaging, and PWA implementation roadmap](docs/ALUMNI_DIRECTORY_REFERRAL_CHAT_ROADMAP.md)
+- [Email summary: alumni network implementation and cost](docs/ALUMNI_NETWORK_UPGRADE_EMAIL_BRIEF.md)
 - Deployment guide: `docs/DEPLOYMENT_GUIDE.md`
 - Deployment checklist: `docs/DEPLOYMENT_CHECKLIST.md`
 - Health and monitor routes: `docs/MONITOR_ROUTES.md`

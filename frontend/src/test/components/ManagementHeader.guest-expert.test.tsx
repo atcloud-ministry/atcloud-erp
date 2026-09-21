@@ -111,4 +111,24 @@ describe("ManagementHeader - Guest Expert Support", () => {
       )
     ).toBeInTheDocument();
   });
+
+  test("uses Community copy for an Administrator on the Members page", () => {
+    render(
+      <ManagementHeader
+        currentUserRole="Administrator"
+        roleStats={mockRoleStats}
+        scope="community"
+      />,
+    );
+
+    expect(screen.getByText("Community")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Browse and connect with active, verified members of @Cloud Marketplace Ministry.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Manage user roles and permissions/),
+    ).not.toBeInTheDocument();
+  });
 });

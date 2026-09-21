@@ -283,6 +283,7 @@ export function ProgramParticipants({
         }!`
       );
       await fetchParticipants();
+      onEnrollmentChanged?.();
     } catch (error) {
       console.error("Error enrolling:", error);
       notification.error("Failed to enroll. Please try again.");

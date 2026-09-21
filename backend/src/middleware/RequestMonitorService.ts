@@ -480,6 +480,9 @@ class RequestMonitorService {
   }
 
   public emergencyDisableRateLimit(): void {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Production rate limiting cannot be disabled at runtime.");
+    }
     process.env.ENABLE_RATE_LIMITING = "false";
     this.log.error("Rate limiting emergency disabled", undefined, "Ops", {
       enableRateLimiting: false,
@@ -494,7 +497,9 @@ class RequestMonitorService {
   }
 
   public getRateLimitingStatus() {
-    const enabled = process.env.ENABLE_RATE_LIMITING !== "false";
+    const enabled =
+      process.env.NODE_ENV === "production" ||
+      process.env.ENABLE_RATE_LIMITING !== "false";
     return { enabled, status: enabled ? "enabled" : "emergency_disabled" };
   }
 }

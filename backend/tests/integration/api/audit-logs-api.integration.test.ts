@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -32,6 +33,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
     const adminRegResponse = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "audit_admin",
         email: "audit.admin@test.com",
         password: "AdminPass123!",
@@ -41,6 +43,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (adminRegResponse.status !== 201) {
@@ -73,6 +76,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
     const leaderRegResponse = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "audit_leader",
         email: "audit.leader@test.com",
         password: "LeaderPass123!",
@@ -82,6 +86,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (leaderRegResponse.status !== 201) {
@@ -112,6 +117,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
     const memberRegResponse = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "audit_member",
         email: "audit.member@test.com",
         password: "MemberPass123!",
@@ -121,6 +127,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
     if (memberRegResponse.status !== 201) {
@@ -131,7 +138,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
 
     const memberUser = await User.findOneAndUpdate(
       { email: "audit.member@test.com" },
-      { isVerified: true, role: "Member", isActive: true },
+      { isVerified: true, role: "Participant", isActive: true },
       { new: true }
     );
 
@@ -216,7 +223,7 @@ describe("GET /api/audit-logs - Audit Logs API", () => {
       expect(response.body.success).toBe(false);
     });
 
-    it("should reject request from non-admin user (Member)", async () => {
+    it("should reject request from non-admin user (Participant)", async () => {
       const response = await request(app)
         .get("/api/audit-logs")
         .set("Authorization", `Bearer ${memberToken}`);

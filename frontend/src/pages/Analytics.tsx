@@ -10,8 +10,6 @@ import {
   UsersIcon,
 } from "@heroicons/react/24/solid";
 import { useAuth } from "../hooks/useAuth";
-import { useUserData } from "../hooks/useUserData";
-import { useRoleStats } from "../hooks/useRoleStats";
 import {
   useAnalyticsOverviewResource,
   useAttendanceAnalyticsResource,
@@ -19,6 +17,7 @@ import {
   useEventAnalyticsResource,
   useFinancialSummaryResource,
   useProgramAnalyticsResource,
+  useUserAnalyticsResource,
 } from "../hooks/useAnalyticsResources";
 import {
   AnalyticsOverviewLoadingState,
@@ -27,10 +26,8 @@ import {
 import { TabNav } from "../components/ui";
 import type { EventData } from "../types/event";
 import {
-  calculateChurchAnalytics,
   calculateEventAnalytics,
   calculateGuestAggregates,
-  calculateOccupationAnalytics,
   calculateUserEngagement,
 } from "../utils/analyticsCalculations";
 import { AnalyticsOverviewCards } from "../components/analytics/AnalyticsOverviewCards";
@@ -43,6 +40,7 @@ import {
 } from "../components/analytics/RoleFormatDistribution";
 import { UserEngagementSection } from "../components/analytics/UserEngagementSection";
 import { ParticipantDemographics } from "../components/analytics/ParticipantDemographics";
+import { RegistrationProfileKpis } from "../components/analytics/RegistrationProfileKpis";
 import { ProgramAnalyticsSection } from "../components/analytics/ProgramAnalyticsSection";
 import { DonationAnalyticsSection } from "../components/analytics/DonationAnalyticsSection";
 import { AttendanceAnalyticsSection } from "../components/analytics/AttendanceAnalyticsSection";
@@ -154,10 +152,17 @@ export default function Analytics() {
     const handleClickOutside = () => {
       if (showExportMenu) setShowExportMenu(false);
     };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowExportMenu(false);
+    };
 
     if (showExportMenu) {
       document.addEventListener("click", handleClickOutside);
-      return () => document.removeEventListener("click", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      return () => {
+        document.removeEventListener("click", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+      };
     }
   }, [showExportMenu]);
 
@@ -166,6 +171,9 @@ export default function Analytics() {
   );
   const eventResource = useEventAnalyticsResource(
     hasAnalyticsAccess && (activeTab === "events" || activeTab === "people"),
+  );
+  const userResource = useUserAnalyticsResource(
+    hasAnalyticsAccess && activeTab === "people",
   );
   const attendanceResource = useAttendanceAnalyticsResource(
     hasAnalyticsAccess && activeTab === "attendance",
@@ -179,14 +187,6 @@ export default function Analytics() {
   const donationResource = useDonationAnalyticsResource(
     hasFinancialAccess && activeTab === "finance",
   );
-
-  const { users, loading: usersLoading } = useUserData({
-    fetchAll: true,
-    limit: 100,
-    enabled: hasAnalyticsAccess && activeTab === "people",
-    suppressErrors: !hasAnalyticsAccess,
-  });
-  const roleStats = useRoleStats(users);
 
   const eventPayload = useMemo(
     () => getEventPayload(eventResource.data),
@@ -222,15 +222,6 @@ export default function Analytics() {
         : 0,
     [engagementMetrics.userSignups, engagementMetrics.uniqueParticipants],
   );
-  const churchAnalytics = useMemo(
-    () => calculateChurchAnalytics(users),
-    [users],
-  );
-  const occupationAnalytics = useMemo(
-    () => calculateOccupationAnalytics(users),
-    [users],
-  );
-
   const handleTabChange = (tabId: AnalyticsTab) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("tab", tabId);
@@ -259,6 +250,28 @@ export default function Analytics() {
     },
     [notification],
   );
+
+  const handleProfileKpiExport = useCallback(async () => {
+    try {
+      const blob = await analyticsService.exportRegistrationProfileKpis(
+        "xlsx",
+      );
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "registration-profile-kpis.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setShowExportMenu(false);
+      notification.success("Profile KPIs exported successfully");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to export profile KPIs";
+      notification.error(message);
+    }
+  }, [notification]);
 
   if (!hasAnalyticsAccess) {
     return (
@@ -297,6 +310,9 @@ export default function Analytics() {
     ((activeTab === "events" || activeTab === "people") &&
       !eventResource.data &&
       !eventResource.error);
+  const usersAreLoading =
+    userResource.loading ||
+    (activeTab === "people" && !userResource.data && !userResource.error);
   const attendanceIsLoading =
     attendanceResource.loading ||
     (activeTab === "attendance" &&
@@ -322,6 +338,8 @@ export default function Analytics() {
           </h1>
           <div className="relative self-start lg:self-auto">
             <button
+              aria-controls="analytics-export-menu"
+              aria-expanded={showExportMenu}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowExportMenu(!showExportMenu);
@@ -333,8 +351,33 @@ export default function Analytics() {
             </button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+              <div
+                className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-10"
+                id="analytics-export-menu"
+                role="group"
+                aria-label="Export options"
+              >
                 <div className="py-1">
+                  {activeTab === "people" &&
+                    userResource.data?.registrationProfileKpis && (
+                      <>
+                        <button
+                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => void handleProfileKpiExport()}
+                        >
+                          <div className="font-medium">
+                            Export Profile KPIs (Excel)
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Only aggregate groups meeting the privacy threshold
+                          </div>
+                        </button>
+                        <div
+                          className="my-1 border-t border-gray-100"
+                          role="separator"
+                        />
+                      </>
+                    )}
                   <button
                     onClick={() => void handleExport("xlsx")}
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -356,7 +399,9 @@ export default function Analytics() {
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                   >
                     <div className="font-medium">Export All (JSON)</div>
-                    <div className="text-xs text-gray-500">Complete data</div>
+                    <div className="text-xs text-gray-500">
+                      Authorized operational data
+                    </div>
                   </button>
                 </div>
               </div>
@@ -422,9 +467,15 @@ export default function Analytics() {
 
           {activeTab === "people" && (
             <>
-              {eventResource.error ? (
-                <SectionError message={eventResource.error} />
-              ) : eventsAreLoading || usersLoading ? (
+              {eventResource.error || userResource.error ? (
+                <SectionError
+                  message={
+                    eventResource.error ||
+                    userResource.error ||
+                    "Failed to load people analytics"
+                  }
+                />
+              ) : eventsAreLoading || usersAreLoading || !userResource.data ? (
                 <AnalyticsCardSectionLoadingState cardCount={2} itemCount={6} />
               ) : (
                 <div className="space-y-6">
@@ -437,11 +488,23 @@ export default function Analytics() {
                     totalEvents={eventAnalytics.totalEvents}
                     avgRolesPerParticipant={avgRolesPerParticipant}
                   />
-                  <SystemAuthorizationDistributionCard roleStats={roleStats} />
-                  <ParticipantDemographics
-                    churchAnalytics={churchAnalytics}
-                    occupationAnalytics={occupationAnalytics}
+                  <SystemAuthorizationDistributionCard
+                    roleStats={userResource.data.demographics.roleStats}
                   />
+                  <ParticipantDemographics
+                    churchAnalytics={
+                      userResource.data.demographics.churchAnalytics
+                    }
+                    occupationAnalytics={
+                      userResource.data.demographics.occupationAnalytics
+                    }
+                    showOccupation={!userResource.data.registrationProfileKpis}
+                  />
+                  {userResource.data.registrationProfileKpis && (
+                    <RegistrationProfileKpis
+                      analytics={userResource.data.registrationProfileKpis}
+                    />
+                  )}
                 </div>
               )}
             </>

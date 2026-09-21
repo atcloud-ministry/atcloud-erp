@@ -14,6 +14,20 @@ import {
 } from "../../test-utils/eventTestHelpers";
 
 let openedLocal = false;
+const originalRateLimitEnvironment = {
+  TEST_DISABLE_PUBLIC_RL: process.env.TEST_DISABLE_PUBLIC_RL,
+  RESET_RATE_LIMITER: process.env.RESET_RATE_LIMITER,
+  SHORTLINK_CREATE_LIMIT_PER_USER: process.env.SHORTLINK_CREATE_LIMIT_PER_USER,
+  SHORTLINK_CREATE_LIMIT_PER_IP: process.env.SHORTLINK_CREATE_LIMIT_PER_IP,
+};
+
+function restoreEnvironment(
+  name: keyof typeof originalRateLimitEnvironment,
+  value: string | undefined,
+): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 beforeAll(async () => {
   process.env.TEST_DISABLE_PUBLIC_RL = "false";
@@ -27,6 +41,22 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  restoreEnvironment(
+    "TEST_DISABLE_PUBLIC_RL",
+    originalRateLimitEnvironment.TEST_DISABLE_PUBLIC_RL,
+  );
+  restoreEnvironment(
+    "RESET_RATE_LIMITER",
+    originalRateLimitEnvironment.RESET_RATE_LIMITER,
+  );
+  restoreEnvironment(
+    "SHORTLINK_CREATE_LIMIT_PER_USER",
+    originalRateLimitEnvironment.SHORTLINK_CREATE_LIMIT_PER_USER,
+  );
+  restoreEnvironment(
+    "SHORTLINK_CREATE_LIMIT_PER_IP",
+    originalRateLimitEnvironment.SHORTLINK_CREATE_LIMIT_PER_IP,
+  );
   if (openedLocal && mongoose.connection.readyState !== 0) {
     // Shared integration harness owns connection lifecycle.
   }

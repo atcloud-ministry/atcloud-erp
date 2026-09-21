@@ -85,6 +85,55 @@ export const registrationFailureCounter = new client.Counter({
   registers: [register],
 });
 
+export const auditLogWriteFailureCounter = new client.Counter({
+  name: "audit_log_write_failures_total",
+  help: "Total best-effort audit log writes that failed",
+  labelNames: ["source"],
+  registers: [register],
+});
+
+export const applicationReadinessGauge = new client.Gauge({
+  name: "atcloud_application_readiness",
+  help: "Current readiness of fixed application components (1 ready, 0 not ready)",
+  labelNames: ["component"],
+  registers: [register],
+});
+
+export const alumniNetworkModeGauge = new client.Gauge({
+  name: "atcloud_alumni_network_mode",
+  help: "Effective Alumni Network mode represented by one active fixed label",
+  labelNames: ["mode"],
+  registers: [register],
+});
+
+export const notificationOutboxBacklogGauge = new client.Gauge({
+  name: "atcloud_notification_outbox_backlog",
+  help: "Current notification outbox records by fixed lifecycle status",
+  labelNames: ["status"],
+  registers: [register],
+});
+
+export const notificationOutboxRecoverableGauge = new client.Gauge({
+  name: "atcloud_notification_outbox_recoverable",
+  help: "Current notification outbox records eligible for a fixed recovery action",
+  labelNames: ["kind"],
+  registers: [register],
+});
+
+export const notificationOutboxSnapshotCollectionSuccessGauge =
+  new client.Gauge({
+    name: "atcloud_notification_outbox_snapshot_collection_success",
+    help: "Whether the latest bounded notification outbox snapshot collection succeeded",
+    registers: [register],
+  });
+
+export const recoveryOperationCounter = new client.Counter({
+  name: "atcloud_recovery_operations_total",
+  help: "Bounded recovery-control operations by fixed operation and outcome",
+  labelNames: ["operation", "outcome"],
+  registers: [register],
+});
+
 // Short link creation attempt/failure counters
 export const shortLinkCreateAttemptCounter = new client.Counter({
   name: "shortlink_create_attempts_total",

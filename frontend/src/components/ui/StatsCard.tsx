@@ -22,30 +22,30 @@ interface StatsCardProps {
 }
 
 const colorClasses = {
-  blue: { bg: "bg-blue-50", text: "text-blue-600", value: "text-blue-900" },
-  green: { bg: "bg-green-50", text: "text-green-600", value: "text-green-900" },
+  blue: { bg: "bg-blue-50", text: "text-blue-700", value: "text-blue-900" },
+  green: { bg: "bg-green-50", text: "text-green-700", value: "text-green-900" },
   yellow: {
     bg: "bg-yellow-50",
-    text: "text-yellow-600",
+    text: "text-yellow-800",
     value: "text-yellow-900",
   },
-  red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-900" },
+  red: { bg: "bg-red-50", text: "text-red-700", value: "text-red-900" },
   purple: {
     bg: "bg-purple-50",
-    text: "text-purple-600",
+    text: "text-purple-700",
     value: "text-purple-900",
   },
   orange: {
     bg: "bg-orange-50",
-    text: "text-orange-600",
+    text: "text-orange-700",
     value: "text-orange-900",
   },
   aquamarine: {
     bg: "bg-cyan-50",
-    text: "text-cyan-700",
+    text: "text-cyan-800",
     value: "text-cyan-900",
   },
-  gray: { bg: "bg-gray-50", text: "text-gray-600", value: "text-gray-900" },
+  gray: { bg: "bg-gray-50", text: "text-gray-700", value: "text-gray-900" },
 };
 
 export function StatsCard({
@@ -71,7 +71,7 @@ export function StatsCard({
             {trend && (
               <p
                 className={`ml-2 text-sm ${
-                  trend.isPositive ? "text-green-600" : "text-red-600"
+                  trend.isPositive ? "text-green-700" : "text-red-700"
                 }`}
               >
                 {trend.isPositive ? "+" : ""}

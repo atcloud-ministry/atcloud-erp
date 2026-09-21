@@ -37,11 +37,12 @@ vi.mock("../../../services/api", () => ({
   },
 }));
 
-const { programService } = await import("../../../services/api");
+const { apiClient, programService } = await import("../../../services/api");
 
 describe("ProgramParticipants self unenroll", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCurrentUser.role = "Participant";
     (programService.getParticipants as any).mockResolvedValue({
       classReps: [],
       mentees: [
@@ -105,6 +106,34 @@ describe("ProgramParticipants self unenroll", () => {
       expect(programService.selfUnenrollProgram).toHaveBeenCalledWith(
         "program-1",
       );
+    });
+  });
+
+  it("refreshes Program-dependent UI after an administrator enrolls", async () => {
+    mockCurrentUser.role = "Administrator";
+    (programService.getParticipants as any).mockResolvedValue({
+      classReps: [],
+      mentees: [],
+    });
+    const onEnrollmentChanged = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ProgramParticipants
+          onEnrollmentChanged={onEnrollmentChanged}
+          programId="program-1"
+          program={{ id: "program-1", mentors: [] }}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Enroll as Mentee" }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.adminEnroll).toHaveBeenCalledWith("program-1", "mentee");
+      expect(onEnrollmentChanged).toHaveBeenCalledOnce();
     });
   });
 });

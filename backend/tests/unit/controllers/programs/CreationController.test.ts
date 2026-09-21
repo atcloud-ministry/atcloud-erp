@@ -7,6 +7,20 @@ import { RoleUtils } from "../../../../src/utils/roleUtils";
 // Mock dependencies
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/utils/roleUtils");
+vi.mock("../../../../src/services/UserAssignmentSnapshotService", () => {
+  class AssignmentSnapshotError extends Error {}
+  return {
+    AssignmentSnapshotError,
+    UserAssignmentSnapshotService: {
+      resolveProgramMentors: vi.fn(),
+    },
+  };
+});
+
+import {
+  AssignmentSnapshotError,
+  UserAssignmentSnapshotService,
+} from "../../../../src/services/UserAssignmentSnapshotService";
 
 describe("CreationController", () => {
   let mockReq: any;
@@ -29,6 +43,9 @@ describe("CreationController", () => {
       body: {},
       user: undefined,
     };
+    vi.mocked(
+      UserAssignmentSnapshotService.resolveProgramMentors,
+    ).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -171,6 +188,7 @@ describe("CreationController", () => {
 
         expect(Program.create).toHaveBeenCalledWith({
           title: "Minimal Program",
+          classRepCount: 0,
           createdBy: "admin123",
         });
         expect(statusMock).toHaveBeenCalledWith(201);
@@ -187,21 +205,29 @@ describe("CreationController", () => {
       it("should create program with full data", async () => {
         mockReq.body = {
           title: "Full Program",
-          programType: "Mentorship",
-          description: "A comprehensive mentorship program",
-          startDate: "2025-02-01",
-          endDate: "2025-06-01",
-          capacity: 50,
+          programType: "EMBA Mentor Circles",
+          introduction: "A comprehensive mentorship program",
+          period: {
+            startYear: "2025",
+            startMonth: "02",
+            endYear: "2025",
+            endMonth: "06",
+          },
+          classRepLimit: 5,
         };
 
         const createdProgram = {
           _id: "program123",
           title: "Full Program",
-          programType: "Mentorship",
-          description: "A comprehensive mentorship program",
-          startDate: "2025-02-01",
-          endDate: "2025-06-01",
-          capacity: 50,
+          programType: "EMBA Mentor Circles",
+          introduction: "A comprehensive mentorship program",
+          period: {
+            startYear: "2025",
+            startMonth: "02",
+            endYear: "2025",
+            endMonth: "06",
+          },
+          classRepLimit: 5,
           createdBy: "admin123",
         };
 
@@ -214,11 +240,16 @@ describe("CreationController", () => {
 
         expect(Program.create).toHaveBeenCalledWith({
           title: "Full Program",
-          programType: "Mentorship",
-          description: "A comprehensive mentorship program",
-          startDate: "2025-02-01",
-          endDate: "2025-06-01",
-          capacity: 50,
+          programType: "EMBA Mentor Circles",
+          introduction: "A comprehensive mentorship program",
+          period: {
+            startYear: "2025",
+            startMonth: "02",
+            endYear: "2025",
+            endMonth: "06",
+          },
+          classRepLimit: 5,
+          classRepCount: 0,
           createdBy: "admin123",
         });
         expect(statusMock).toHaveBeenCalledWith(201);
@@ -263,16 +294,34 @@ describe("CreationController", () => {
         );
 
         expect(Program.create).toHaveBeenCalledWith({
+          classRepCount: 0,
           createdBy: "admin123",
         });
       });
 
-      it("should preserve all fields from request body", async () => {
+      it("should select mutable fields and initialize nested counts", async () => {
         mockReq.body = {
           title: "Custom Program",
-          programType: "Workshop",
-          description: "Description",
+          programType: "Webinar",
+          introduction: "Description",
           customField: "customValue",
+          createdBy: "attacker",
+          events: ["event123"],
+          adminEnrollments: { classReps: ["user123"] },
+          classRepCount: 99,
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: [
+              {
+                id: "ROLE A",
+                name: "Role A",
+                discountEligible: true,
+                discountAmount: 100,
+                limit: 5,
+                count: 99,
+              },
+            ],
+          },
         };
 
         vi.mocked(Program.create).mockResolvedValue({
@@ -288,11 +337,35 @@ describe("CreationController", () => {
 
         expect(Program.create).toHaveBeenCalledWith({
           title: "Custom Program",
-          programType: "Workshop",
-          description: "Description",
-          customField: "customValue",
+          programType: "Webinar",
+          introduction: "Description",
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: [
+              expect.objectContaining({ id: "role-a", count: 0 }),
+            ],
+          },
+          classRepCount: 0,
           createdBy: "admin123",
         });
+      });
+
+      it("should reject a non-array studentRoles payload", async () => {
+        mockReq.body = {
+          title: "Invalid Roles",
+          programRoles: {
+            teacherRoleName: "Coach",
+            studentRoles: { id: "replacement" },
+          },
+        };
+
+        await CreationController.create(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(Program.create).not.toHaveBeenCalled();
       });
     });
 
@@ -323,6 +396,30 @@ describe("CreationController", () => {
           success: false,
           message: "Title is required",
         });
+      });
+
+      it("should return 400 when a selected mentor is ineligible", async () => {
+        mockReq.body = {
+          title: "Test Program",
+          mentors: [{ userId: "507f191e810c19729de860ea" }],
+        };
+        vi.mocked(
+          UserAssignmentSnapshotService.resolveProgramMentors,
+        ).mockRejectedValue(
+          new AssignmentSnapshotError("Selected user is not eligible."),
+        );
+
+        await CreationController.create(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith({
+          success: false,
+          message: "Selected user is not eligible.",
+        });
+        expect(Program.create).not.toHaveBeenCalled();
       });
 
       it("should return 400 on duplicate key error", async () => {
@@ -405,6 +502,7 @@ describe("CreationController", () => {
         );
 
         expect(Program.create).toHaveBeenCalledWith({
+          classRepCount: 0,
           createdBy: "admin123",
         });
       });

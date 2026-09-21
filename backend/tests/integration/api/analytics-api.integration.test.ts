@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, afterEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -12,6 +13,7 @@ describe("Analytics API integration", () => {
 
     // participant
     const p = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "an_participant",
       email: "an_participant@example.com",
       password: "Passw0rd!",
@@ -21,6 +23,7 @@ describe("Analytics API integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(p).expect(201);
     await User.findOneAndUpdate({ email: p.email }, { isVerified: true });
@@ -32,6 +35,7 @@ describe("Analytics API integration", () => {
 
     // admin
     const a = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "an_admin",
       email: "an_admin@example.com",
       password: "AdminPass123!",
@@ -41,6 +45,7 @@ describe("Analytics API integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(a).expect(201);
     await User.findOneAndUpdate(

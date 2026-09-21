@@ -4,13 +4,16 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import UserProfile from "../pages/UserProfile";
 import { AuthProvider } from "../contexts/AuthContext";
 import { NotificationProvider } from "../contexts/NotificationModalContext";
-import { userService } from "../services/api";
+import { adminUsersService } from "../services/api";
 import type { Gender, User as AppUser } from "../types";
 
 // Mock the API service
 vi.mock("../services/api", () => ({
-  userService: {
-    getUser: vi.fn(),
+  adminUsersService: {
+    get: vi.fn(),
+  },
+  communityMembersService: {
+    get: vi.fn(),
   },
   authService: {
     getProfile: vi.fn(async () => ({
@@ -38,6 +41,8 @@ vi.mock("../hooks/useAuth", () => ({
       firstName: "Admin",
       lastName: "User",
     },
+    canManageUsers: true,
+    isLoading: false,
   }),
 }));
 
@@ -70,7 +75,7 @@ describe("Profile Access Rules", () => {
       churchAddress: undefined,
     };
 
-    vi.mocked(userService.getUser).mockResolvedValueOnce(superAdminProfile);
+    vi.mocked(adminUsersService.get).mockResolvedValueOnce(superAdminProfile as never);
 
     render(
       <MemoryRouter initialEntries={["/dashboard/profile/super123"]}>
@@ -89,7 +94,7 @@ describe("Profile Access Rules", () => {
 
     // Wait for API call and profile to load
     await waitFor(() => {
-      expect(userService.getUser).toHaveBeenCalledWith("super123");
+      expect(adminUsersService.get).toHaveBeenCalledWith("super123");
     });
 
     // Wait for profile to load and check that Super Admin info is displayed
@@ -108,7 +113,7 @@ describe("Profile Access Rules", () => {
     // Mock API to throw 403 error (access denied)
     const accessDeniedError = new Error("Access denied");
     (accessDeniedError as any).status = 403;
-    vi.mocked(userService.getUser).mockRejectedValueOnce(accessDeniedError);
+    vi.mocked(adminUsersService.get).mockRejectedValueOnce(accessDeniedError);
 
     render(
       <MemoryRouter initialEntries={["/dashboard/profile/other456"]}>
@@ -127,7 +132,7 @@ describe("Profile Access Rules", () => {
 
     // Wait for API call
     await waitFor(() => {
-      expect(userService.getUser).toHaveBeenCalledWith("other456");
+      expect(adminUsersService.get).toHaveBeenCalledWith("other456");
     });
 
     // Wait for error handling to complete

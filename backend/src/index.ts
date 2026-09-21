@@ -11,7 +11,20 @@ import { SchedulerService } from "./services/SchedulerService";
 import app from "./app";
 import { lockService } from "./services/LockService";
 import { createLogger } from "./services/LoggerService";
-import { SystemConfig } from "./models"; // Import SystemConfig for initialization
+import {
+  initializeAlumniDataModels,
+  SystemConfig,
+} from "./models"; // Import models required during startup
+import { TokenService } from "./middleware/auth";
+import { isSchedulerEnabled } from "./config/scheduler";
+import { reliabilityFoundationService } from "./services/reliability/ReliabilityFoundationService";
+import { readHttpBindHost } from "./config/httpBinding";
+import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature";
+import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
+import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
+import { assertWebPushConfiguration } from "./config/webPush";
+import { assertRateLimitProductionConfiguration } from "./middleware/rateLimiting";
+import { assertWebRuntimeIsNotRestoreIsolation } from "./config/restoreIsolation";
 
 const log = createLogger("App");
 
@@ -42,6 +55,81 @@ const ensureUploadDirectories = () => {
 
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
+const HTTP_BIND_HOST = readHttpBindHost();
+const HTTP_DRAIN_TIMEOUT_MS = 8_000;
+let shutdownPromise: Promise<void> | null = null;
+
+const classifyOperationalError = (error: unknown) => {
+  const candidate = error as { name?: unknown; code?: unknown };
+  return {
+    name:
+      typeof candidate?.name === "string" ? candidate.name : "UnknownError",
+    ...(typeof candidate?.code === "string" ||
+    typeof candidate?.code === "number"
+      ? { code: candidate.code }
+      : {}),
+  };
+};
+
+const drainHttpServer = async (): Promise<void> => {
+  if (!httpServer.listening) return;
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timeout = setTimeout(() => {
+      console.warn(
+        `HTTP drain exceeded ${HTTP_DRAIN_TIMEOUT_MS}ms; closing remaining connections`,
+      );
+      httpServer.closeAllConnections?.();
+      finish();
+    }, HTTP_DRAIN_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+      httpServer.close((error) => finish(error));
+      httpServer.closeIdleConnections?.();
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("HTTP drain failed"));
+    }
+  });
+};
+
+const listenHttpServer = async (): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      httpServer.off("error", onError);
+      reject(error);
+    };
+    const onListening = () => {
+      httpServer.off("error", onError);
+      resolve();
+    };
+
+    httpServer.once("error", onError);
+    if (HTTP_BIND_HOST) {
+      httpServer.listen(Number(PORT), HTTP_BIND_HOST, onListening);
+    } else {
+      httpServer.listen(PORT, onListening);
+    }
+  });
+};
+
+const cleanupAfterStartupFailure = async (): Promise<void> => {
+  const httpDrain = drainHttpServer();
+  const socketDrain = socketService.shutdown();
+  await Promise.allSettled([httpDrain, socketDrain]);
+  await reliabilityFoundationService.stop().catch(() => undefined);
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.connection.close().catch(() => undefined);
+  }
+};
 
 // Guard: In-memory lock requires single backend instance. Warn or fail fast based on env.
 const enforceSingleInstanceIfNecessary = () => {
@@ -111,7 +199,7 @@ const connectDB = async () => {
     const mongoURI =
       process.env.MONGODB_URI || "mongodb://localhost:27017/atcloud-signup";
 
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, MONGODB_CONNECTION_OPTIONS);
     console.log("✅ Connected to MongoDB successfully");
     log.info("Connected to MongoDB successfully", undefined, {
       mongoURI: mongoURI.replace(/:\/\/.*@/, "://***@"),
@@ -159,8 +247,13 @@ const connectDB = async () => {
 };
 
 // Graceful shutdown
-const gracefulShutdown = async () => {
+const performGracefulShutdown = async () => {
   try {
+    // Refuse new HTTP/Socket work before stopping producers and draining the
+    // bounded outbox worker. The worker keeps unfinished leases recoverable.
+    const httpDrain = drainHttpServer();
+    const socketDrain = socketService.shutdown();
+
     // Stop event reminder scheduler
     const scheduler = EventReminderScheduler.getInstance();
     scheduler.stop();
@@ -172,13 +265,22 @@ const gracefulShutdown = async () => {
     // Stop message cleanup scheduler
     SchedulerService.stop();
 
+    // Existing request producers must finish before the outbox worker drains.
+    await Promise.all([httpDrain, socketDrain]);
+    await reliabilityFoundationService.stop();
     await mongoose.connection.close();
     process.exit(0);
   } catch (error) {
-    console.error("Error closing MongoDB connection:", error);
-    log.error("Error closing MongoDB connection", error as Error);
+    const classification = classifyOperationalError(error);
+    console.error("Error during graceful shutdown:", classification);
+    log.error("Graceful shutdown failed", undefined, undefined, classification);
     process.exit(1);
   }
+};
+
+const gracefulShutdown = (): Promise<void> => {
+  if (!shutdownPromise) shutdownPromise = performGracefulShutdown();
+  return shutdownPromise;
 };
 
 process.on("SIGTERM", gracefulShutdown);
@@ -187,6 +289,16 @@ process.on("SIGINT", gracefulShutdown);
 // Start server
 const startServer = async () => {
   try {
+    assertWebRuntimeIsNotRestoreIsolation();
+
+    // Never start production HTTP/Socket authentication with fallback secrets.
+    TokenService.assertProductionConfiguration();
+    assertRateLimitProductionConfiguration();
+    if (readAlumniNetworkReleaseAvailable()) {
+      assertAlumniInvitationReleaseConfiguration();
+    }
+    assertWebPushConfiguration();
+
     // Validate runtime concurrency constraints for in-memory locking
     enforceSingleInstanceIfNecessary();
 
@@ -195,61 +307,87 @@ const startServer = async () => {
 
     await connectDB();
 
+    // Verify transaction support and initialize reliability indexes before
+    // accepting traffic. Production failures abort startup.
+    await reliabilityFoundationService.initialize();
+    console.log("✅ Reliability foundation initialized");
+    log.info("Reliability foundation initialized");
+
+    // Explicit Alumni-network model initialization makes required identity,
+    // retention, and resolver-index failures abort deployment before traffic.
+    await initializeAlumniDataModels();
+    console.log("✅ Alumni data models initialized");
+    log.info("Alumni data models initialized");
+
     // Initialize WebSocket server
     socketService.initialize(httpServer);
 
     // Setup API documentation
     setupSwagger(app);
 
-    httpServer.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
-      console.log(`🔗 API Health: http://localhost:${PORT}/api/health`);
-      console.log(`🔗 Legacy Health (kept): http://localhost:${PORT}/health`);
-      console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
-      console.log(`🔌 WebSocket ready for real-time notifications`);
-      log.info("Server started", undefined, {
-        port: PORT,
-        health: `/api/health`,
-        legacyHealth: `/health`,
-        docs: `/api-docs`,
-        websocket: true,
+    // Confirm the HTTP listener before any background worker can claim work.
+    await listenHttpServer();
+
+    reliabilityFoundationService.start();
+    if (
+      reliabilityFoundationService.getStatusSnapshot().notificationOutbox
+        .workerStarted
+    ) {
+      console.log("📤 Notification outbox worker active");
+      log.info("Notification outbox worker active");
+    }
+
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`🔗 API Readiness: http://localhost:${PORT}/api/readiness`);
+    console.log(`🔗 API Liveness: http://localhost:${PORT}/api/readiness/live`);
+    console.log(`🔗 Legacy Health (kept): http://localhost:${PORT}/health`);
+    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+    console.log(`🔌 WebSocket ready for real-time notifications`);
+    log.info("Server started", undefined, {
+      port: PORT,
+      readiness: `/api/readiness`,
+      liveness: `/api/readiness/live`,
+      compatibilityHealth: `/api/health`,
+      legacyHealth: `/health`,
+      docs: `/api-docs`,
+      websocket: true,
+    });
+
+    // Start event reminder scheduler
+    const schedulerEnabled = isSchedulerEnabled();
+    if (schedulerEnabled) {
+      const scheduler = EventReminderScheduler.getInstance();
+      scheduler.start();
+      console.log(`⏰ Event reminder scheduler active`);
+      log.info("Event reminder scheduler active");
+    } else {
+      console.log(
+        `⏸️ Event reminder scheduler disabled by env (SCHEDULER_ENABLED!=true)`,
+      );
+      log.info("Event reminder scheduler disabled by env", undefined, {
+        SCHEDULER_ENABLED: process.env.SCHEDULER_ENABLED,
       });
+    }
 
-      // Start event reminder scheduler
-      // Enabled by default in all environments except when explicitly disabled.
-      // Disable automatically in test to avoid flakiness unless opted-in.
-      const explicitlyDisabled = process.env.SCHEDULER_ENABLED === "false";
-      const isTestEnv = process.env.NODE_ENV === "test";
-      const schedulerEnabled = !explicitlyDisabled && !isTestEnv;
-      if (schedulerEnabled) {
-        const scheduler = EventReminderScheduler.getInstance();
-        scheduler.start();
-        console.log(`⏰ Event reminder scheduler active`);
-        log.info("Event reminder scheduler active");
-      } else {
-        console.log(
-          `⏸️ Event reminder scheduler disabled by env (SCHEDULER_ENABLED!=true)`
-        );
-        log.info("Event reminder scheduler disabled by env", undefined, {
-          SCHEDULER_ENABLED: process.env.SCHEDULER_ENABLED,
-        });
-      }
-
-      // Start maintenance scheduler
+    // Start maintenance scheduler only with the same explicit scheduler gate
+    // used for event reminders and message cleanup.
+    if (schedulerEnabled) {
       const maintenance = MaintenanceScheduler.getInstance();
       maintenance.start();
       log.info("Maintenance scheduler started");
+    }
 
-      // Start message cleanup scheduler (automated daily cleanup at 2 AM)
-      if (schedulerEnabled) {
-        SchedulerService.start();
-        console.log(`🧹 Message cleanup scheduler active (daily at 2:00 AM)`);
-        log.info("Message cleanup scheduler started");
-      }
-    });
+    // Start message cleanup scheduler (automated daily cleanup at 2 AM)
+    if (schedulerEnabled) {
+      SchedulerService.start();
+      console.log(`🧹 Message cleanup scheduler active (daily at 2:00 AM)`);
+      log.info("Message cleanup scheduler started");
+    }
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
-    log.error("Failed to start server", error as Error);
+    await cleanupAfterStartupFailure();
+    const classification = classifyOperationalError(error);
+    console.error("❌ Failed to start server:", classification);
+    log.error("Failed to start server", undefined, undefined, classification);
     process.exit(1);
   }
 };

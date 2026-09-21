@@ -9,9 +9,15 @@ import { Router, Request, Response } from "express";
 import { lockService } from "../services/LockService";
 import RequestMonitorService from "../middleware/RequestMonitorService";
 import EventReminderScheduler from "../services/EventReminderScheduler";
-import { authenticate, requireAdmin } from "../middleware/auth";
+import {
+  authenticate,
+  authorizePermission,
+  requireAdmin,
+} from "../middleware/auth";
 import { Logger } from "../services/LoggerService";
 import { CorrelatedLogger } from "../services/CorrelatedLogger";
+import { PERMISSIONS } from "../utils/roleUtils";
+import { isSchedulerEnabled } from "../config/scheduler";
 
 const router = Router();
 
@@ -163,10 +169,7 @@ router.get("/scheduler", (_req: Request, res: Response) => {
       runs?: number;
       lastErrorAt?: number;
     };
-    // Effective flag matches server bootstrap logic (enabled in dev by default)
-    const explicitlyDisabled = process.env.SCHEDULER_ENABLED === "false";
-    const isTestEnv = process.env.NODE_ENV === "test";
-    const schedulerEnabled = !explicitlyDisabled && !isTestEnv;
+    const schedulerEnabled = isSchedulerEnabled();
 
     res.status(200).json({
       success: true,
@@ -179,9 +182,7 @@ router.get("/scheduler", (_req: Request, res: Response) => {
       const clog = CorrelatedLogger.fromRequest(_req, "SystemRoutes");
       clog.error("Error getting scheduler status", err as Error, "System");
     } catch {}
-    const explicitlyDisabled = process.env.SCHEDULER_ENABLED === "false";
-    const isTestEnv = process.env.NODE_ENV === "test";
-    const schedulerEnabled = !explicitlyDisabled && !isTestEnv;
+    const schedulerEnabled = isSchedulerEnabled();
     res.status(200).json({
       success: true,
       schedulerEnabled,
@@ -190,15 +191,15 @@ router.get("/scheduler", (_req: Request, res: Response) => {
   }
 });
 
-// Manual trigger for scheduler (Admin only)
+// Manual trigger for scheduler
 router.post(
   "/scheduler/manual-trigger",
   authenticate,
-  requireAdmin,
+  authorizePermission(PERMISSIONS.MANAGE_NOTIFICATIONS),
   async (_req: Request, res: Response) => {
     try {
       const scheduler = EventReminderScheduler.getInstance();
-      await scheduler.triggerManualCheck();
+      await scheduler.triggerManualCheck(_req.userId);
       res.status(200).json({
         success: true,
         message: "Manual scheduler check executed",

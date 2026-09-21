@@ -32,7 +32,12 @@ describe("LogoutController", () => {
     it("should clear refresh token cookie", async () => {
       await LogoutController.logout(mockReq as Request, mockRes as Response);
 
-      expect(clearCookieMock).toHaveBeenCalledWith("refreshToken");
+      expect(clearCookieMock).toHaveBeenCalledWith("refreshToken", {
+        httpOnly: true,
+        secure: false,
+        sameSite: "strict",
+        path: "/api/auth",
+      });
     });
 
     it("should return 200 with success message", async () => {

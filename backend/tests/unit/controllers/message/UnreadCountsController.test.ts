@@ -12,7 +12,7 @@ vi.mock("../../../../src/models/Message", () => ({
 import Message from "../../../../src/models/Message";
 
 interface MockRequest {
-  user?: { id: string };
+  user?: { id: string; role: string };
 }
 
 describe("UnreadCountsController", () => {
@@ -37,7 +37,7 @@ describe("UnreadCountsController", () => {
     };
 
     mockReq = {
-      user: { id: "user123" },
+      user: { id: "user123", role: "Participant" },
     };
   });
 
@@ -63,7 +63,7 @@ describe("UnreadCountsController", () => {
       });
 
       it("should return 401 if user.id is undefined", async () => {
-        mockReq.user = {} as { id: string };
+        mockReq.user = {} as { id: string; role: string };
 
         await UnreadCountsController.getUnreadCounts(
           mockReq as unknown as Request,
@@ -93,7 +93,10 @@ describe("UnreadCountsController", () => {
           mockRes as Response,
         );
 
-        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith("user123");
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          "user123",
+          "Participant",
+        );
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

@@ -9,9 +9,17 @@ import { User, IUser } from "../../models";
 import { TokenService } from "../../middleware/auth";
 import { createErrorResponse, createSuccessResponse } from "../../types/api";
 import { LoginRequest } from "./types";
+import { serializeSelfUser } from "../../serializers/userReadSerializers";
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  refreshTokenCookieOptions,
+} from "../../utils/refreshTokenCookie";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 export default class LoginController {
   static async login(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       const { emailOrUsername, password, rememberMe }: LoginRequest = req.body;
 
@@ -30,7 +38,9 @@ export default class LoginController {
           { email: emailOrUsername.toLowerCase() },
           { username: emailOrUsername },
         ],
-      }).select("+password +loginAttempts +lockUntil");
+      }).select(
+        "+password +loginAttempts +lockUntil +birthYear +passwordChangedAt",
+      );
 
       if (!user) {
         res
@@ -38,6 +48,7 @@ export default class LoginController {
           .json(createErrorResponse("Invalid email/username or password", 401));
         return;
       }
+      if (user._id != null) userId = String(user._id);
 
       // Check if account is locked
       if ((user as IUser).isAccountLocked()) {
@@ -93,45 +104,34 @@ export default class LoginController {
       await (user as IUser).resetLoginAttempts();
       await (user as IUser).updateLastLogin();
 
-      // Generate tokens
-      const tokens = TokenService.generateTokenPair(user);
-
       // Set cookie options based on rememberMe
       const refreshExpireMs = TokenService.parseTimeToMs(
         process.env.JWT_REFRESH_EXPIRE || "7d"
       );
       const shortExpireMs = 24 * 60 * 60 * 1000; // 1 day for non-rememberMe
+      const sessionLifetimeMs = rememberMe ? refreshExpireMs : shortExpireMs;
 
-      const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict" as const,
-        maxAge: rememberMe ? refreshExpireMs : shortExpireMs,
-      };
+      // Generate tokens and persist the device-scoped refresh-token family
+      // before exposing either token to the client.
+      const tokens = TokenService.generateTokenPair(user, {
+        refreshLifetimeMs: sessionLifetimeMs,
+      });
+      await RefreshSessionService.register({
+        userId: String(user._id),
+        identity: tokens.refreshIdentity,
+        expiresAt: tokens.refreshTokenExpires,
+        refreshLifetimeMs: sessionLifetimeMs,
+      });
 
       // Set refresh token as httpOnly cookie
-      res.cookie("refreshToken", tokens.refreshToken, cookieOptions);
+      res.cookie(
+        REFRESH_TOKEN_COOKIE_NAME,
+        tokens.refreshToken,
+        refreshTokenCookieOptions(sessionLifetimeMs),
+      );
 
       const responseData = {
-        user: {
-          id: (user as IUser)._id,
-          username: (user as IUser).username,
-          email: (user as IUser).email,
-          phone: (user as IUser).phone,
-          firstName: (user as IUser).firstName,
-          lastName: (user as IUser).lastName,
-          gender: (user as IUser).gender,
-          role: (user as IUser).role,
-          isAtCloudLeader: (user as IUser).isAtCloudLeader,
-          roleInAtCloud: (user as IUser).roleInAtCloud,
-          occupation: (user as IUser).occupation,
-          company: (user as IUser).company,
-          weeklyChurch: (user as IUser).weeklyChurch,
-          homeAddress: (user as IUser).homeAddress,
-          churchAddress: (user as IUser).churchAddress,
-          avatar: (user as IUser).avatar,
-          lastLogin: (user as IUser).lastLogin,
-        },
+        user: serializeSelfUser(user),
         accessToken: tokens.accessToken,
         expiresAt: tokens.accessTokenExpires,
       };
@@ -140,7 +140,7 @@ export default class LoginController {
         .status(200)
         .json(createSuccessResponse(responseData, "Login successful!"));
     } catch (error: unknown) {
-      console.error("Login error:", error);
+      logSafeErrorEvent("AUTH_LOGIN_FAILED", error, userId);
       res
         .status(500)
         .json(createErrorResponse("Login failed. Please try again"));

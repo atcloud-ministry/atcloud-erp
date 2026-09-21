@@ -1,5 +1,19 @@
 import { BaseApiClient } from "./common";
 import type { User as AppUser } from "../../types";
+import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
+import type { AdminUserListParams } from "./userDirectory.api";
+import {
+  decodeAdminUserDetail,
+  decodeAdminUsersPage,
+  type AdminUserDTO,
+  type AdminUsersPageDTO,
+} from "./userDirectory.contracts";
+
+export type AdminProfileUpdate = Partial<RegistrationProfileFields> & {
+  avatar?: string;
+  isAtCloudLeader?: boolean;
+  roleInAtCloud?: string;
+};
 
 /**
  * Users API Service
@@ -13,25 +27,9 @@ class UsersApiClient extends BaseApiClient {
    * @param params - Pagination, search, and filter parameters
    * @returns Paginated users list with metadata
    */
-  async getUsers(params?: {
-    page?: number;
-    limit?: number;
-    search?: string;
-    role?: string;
-    isActive?: boolean;
-    emailVerified?: boolean;
-    sortBy?: string;
-    sortOrder?: "asc" | "desc";
-  }): Promise<{
-    users: AppUser[];
-    pagination: {
-      currentPage: number;
-      totalPages: number;
-      totalUsers: number;
-      hasNext: boolean;
-      hasPrev: boolean;
-    };
-  }> {
+  async getUsers(
+    params?: AdminUserListParams,
+  ): Promise<AdminUsersPageDTO> {
     const queryParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -44,19 +42,10 @@ class UsersApiClient extends BaseApiClient {
     const endpoint = `/users${
       queryParams.toString() ? `?${queryParams.toString()}` : ""
     }`;
-    const response = await this.request<{
-      users: AppUser[];
-      pagination: {
-        currentPage: number;
-        totalPages: number;
-        totalUsers: number;
-        hasNext: boolean;
-        hasPrev: boolean;
-      };
-    }>(endpoint);
+    const response = await this.request<unknown>(endpoint);
 
-    if (response.data) {
-      return response.data;
+    if (response.data !== undefined) {
+      return decodeAdminUsersPage(response.data);
     }
 
     throw new Error(response.message || "Failed to get users");
@@ -67,11 +56,11 @@ class UsersApiClient extends BaseApiClient {
    * @param id - User ID
    * @returns User object
    */
-  async getUser(id: string): Promise<AppUser> {
-    const response = await this.request<{ user: AppUser }>(`/users/${id}`);
+  async getUser(id: string): Promise<AdminUserDTO> {
+    const response = await this.request<unknown>(`/users/${id}`);
 
-    if (response.data) {
-      return response.data.user;
+    if (response.data !== undefined) {
+      return decodeAdminUserDetail(response.data);
     }
 
     throw new Error(response.message || "Failed to get user");
@@ -107,27 +96,15 @@ class UsersApiClient extends BaseApiClient {
    */
   async adminEditProfile(
     userId: string,
-    updates: {
-      avatar?: string;
-      phone?: string;
-      isAtCloudLeader?: boolean;
-      roleInAtCloud?: string;
-    },
-  ): Promise<{
-    avatar?: string;
-    phone?: string;
-    isAtCloudLeader?: boolean;
-    roleInAtCloud?: string;
-  }> {
-    const response = await this.request<{
-      avatar?: string;
-      phone?: string;
-      isAtCloudLeader?: boolean;
-      roleInAtCloud?: string;
-    }>(`/users/${userId}/admin-edit`, {
-      method: "PUT",
-      body: JSON.stringify(updates),
-    });
+    updates: AdminProfileUpdate,
+  ): Promise<AdminProfileUpdate> {
+    const response = await this.request<AdminProfileUpdate>(
+      `/users/${userId}/admin-edit`,
+      {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      },
+    );
 
     if (response.data) {
       return response.data;

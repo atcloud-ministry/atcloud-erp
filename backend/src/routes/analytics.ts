@@ -9,6 +9,7 @@ import DonationAnalyticsController from "../controllers/analytics/DonationAnalyt
 import FinancialAnalyticsController from "../controllers/analytics/FinancialAnalyticsController";
 import TrendsAnalyticsController from "../controllers/analytics/TrendsAnalyticsController";
 import ExportAnalyticsController from "../controllers/analytics/ExportAnalyticsController";
+import RegistrationProfileKpiExportController from "../controllers/analytics/RegistrationProfileKpiExportController";
 import { authenticate, authorizePermission } from "../middleware/auth";
 import { PERMISSIONS } from "../utils/roleUtils";
 import { analyticsLimiter, exportLimiter } from "../middleware/rateLimiting";
@@ -49,6 +50,11 @@ router.get(
   FinancialAnalyticsController.getFinancialSummary
 );
 router.get("/trends", analyticsLimiter, TrendsAnalyticsController.getTrends);
+router.get(
+  "/registration-profile-kpis/export",
+  exportLimiter,
+  RegistrationProfileKpiExportController.exportRegistrationProfileKpis,
+);
 router.get("/export", exportLimiter, ExportAnalyticsController.exportAnalytics);
 
 export default router;

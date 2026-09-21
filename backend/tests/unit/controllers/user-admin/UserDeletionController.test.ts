@@ -10,12 +10,6 @@ vi.mock("../../../../src/models", () => ({
   },
 }));
 
-vi.mock("../../../../src/models/AuditLog", () => ({
-  default: {
-    create: vi.fn(),
-  },
-}));
-
 vi.mock("../../../../src/utils/roleUtils", () => ({
   ROLES: {
     SUPER_ADMIN: "Super Admin",
@@ -44,6 +38,12 @@ vi.mock("../../../../src/controllers/unifiedMessageController", () => ({
 vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
   CachePatterns: {
     invalidateUserCache: vi.fn(),
+  },
+}));
+
+vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
   },
 }));
 
@@ -78,12 +78,22 @@ vi.mock("../../../../src/utils/responseHelper", () => ({
     ),
   },
 }));
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      userEligibilityChanged: vi.fn(),
+    },
+  }),
+);
 
 import { User } from "../../../../src/models";
-import AuditLog from "../../../../src/models/AuditLog";
 import { lockService } from "../../../../src/services/LockService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import { ResponseHelper } from "../../../../src/utils/responseHelper";
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
+import { UnifiedMessageController } from "../../../../src/controllers/unifiedMessageController";
 
 interface MockRequest {
   params: Record<string, string>;
@@ -138,10 +148,10 @@ describe("UserDeletionController", () => {
     };
 
     vi.mocked(CachePatterns.invalidateUserCache).mockResolvedValue(undefined);
-    vi.mocked(AuditLog.create).mockResolvedValue({} as any);
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
   });
@@ -292,6 +302,17 @@ describe("UserDeletionController", () => {
           expect.any(Function),
           10000
         );
+        expect(
+          programMembershipMutationSyncTrigger.userEligibilityChanged,
+        ).toHaveBeenCalledWith("targetUser123", {
+          actor: {
+            type: "user",
+            id: "admin123",
+            role: "Super Admin",
+          },
+          source: "http",
+          correlationId: undefined,
+        });
         expect(ResponseHelper.success).toHaveBeenCalled();
       });
 
@@ -308,7 +329,7 @@ describe("UserDeletionController", () => {
         );
       });
 
-      it("should create audit log for deletion", async () => {
+      it("should disconnect every live socket for the deleted user", async () => {
         vi.mocked(lockService.withLock).mockResolvedValue(mockDeletionReport);
 
         await UserDeletionController.deleteUser(
@@ -316,34 +337,41 @@ describe("UserDeletionController", () => {
           mockRes as Response
         );
 
-        expect(AuditLog.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            action: "user_deletion",
-            actor: expect.objectContaining({
-              id: "admin123",
-              role: "Super Admin",
-            }),
-            targetModel: "User",
-            targetId: "targetUser123",
-          })
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          "targetUser123"
         );
       });
 
-      it("should succeed even if audit log creation fails", async () => {
+      it("creates a short-lived deletion notice without retaining target PII", async () => {
+        const now = new Date("2032-01-31T20:15:00.000Z");
+        vi.useFakeTimers();
+        vi.setSystemTime(now);
         vi.mocked(lockService.withLock).mockResolvedValue(mockDeletionReport);
-        vi.mocked(AuditLog.create).mockRejectedValue(new Error("Audit failed"));
 
         await UserDeletionController.deleteUser(
           mockReq as unknown as Request,
-          mockRes as Response
+          mockRes as Response,
         );
 
-        expect(ResponseHelper.success).toHaveBeenCalled();
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-          "Failed to create audit log for user deletion:",
-          expect.any(Error)
-        );
+        const call = vi.mocked(
+          UnifiedMessageController.createTargetedSystemMessage,
+        ).mock.calls[0];
+        expect(call).toBeDefined();
+        expect(call?.[0]).toMatchObject({
+          title: "User Account Deleted",
+          content: "A user account was permanently deleted by Admin User.",
+          type: "user_management",
+          expiresAt: new Date("2032-03-01T20:15:00.000Z"),
+        });
+        expect(call?.[1]).toEqual(["admin1", "admin2"]);
+
+        const persistedNoticeInput = JSON.stringify(call);
+        expect(persistedNoticeInput).not.toContain("targetUser123");
+        expect(persistedNoticeInput).not.toContain("targetuser");
+        expect(persistedNoticeInput).not.toContain("target@test.com");
+        expect(persistedNoticeInput).not.toContain("Target User");
       });
+
     });
 
     describe("Error Handling", () => {
@@ -355,10 +383,7 @@ describe("UserDeletionController", () => {
           mockRes as Response
         );
 
-        expect(ResponseHelper.serverError).toHaveBeenCalledWith(
-          mockRes,
-          expect.any(Error)
-        );
+        expect(ResponseHelper.serverError).toHaveBeenCalledWith(mockRes);
         expect(consoleErrorSpy).toHaveBeenCalled();
       });
     });

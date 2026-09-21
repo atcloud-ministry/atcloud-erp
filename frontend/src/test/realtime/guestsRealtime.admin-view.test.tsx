@@ -6,36 +6,39 @@ import EventDetail from "../../pages/EventDetail";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 
 // Capture handler for socket event_update
-let capturedHandler: ((data: any) => void) | null = null;
+let capturedHandler: ((data: any) => Promise<void> | void) | null = null;
+const getEventGuestsMock = vi.hoisted(() => vi.fn());
 
 beforeEach(() => {
   // Ensure a token exists so EventDetail registers socket listeners
   window.localStorage.setItem("authToken", "test-token");
   capturedHandler = null;
+  getEventGuestsMock.mockReset();
+  getEventGuestsMock.mockResolvedValue({
+    guests: [
+      {
+        id: "g1",
+        roleId: "r1",
+        fullName: "Alpha Guest",
+        email: "a@e.com",
+        phone: "+1 111",
+      },
+      {
+        id: "g2",
+        roleId: "r1",
+        fullName: "Beta Guest",
+        email: "b@e.com",
+        phone: "+1 222",
+      },
+    ],
+  });
 });
 
 // Mock Guest API to return initial guests by role
 vi.mock("../../services/guestApi", () => ({
   __esModule: true,
   default: {
-    getEventGuests: vi.fn(async () => ({
-      guests: [
-        {
-          id: "g1",
-          roleId: "r1",
-          fullName: "Alpha Guest",
-          email: "a@e.com",
-          phone: "+1 111",
-        },
-        {
-          id: "g2",
-          roleId: "r1",
-          fullName: "Beta Guest",
-          email: "b@e.com",
-          phone: "+1 222",
-        },
-      ],
-    })),
+    getEventGuests: getEventGuestsMock,
     resendManageLink: vi.fn(),
     adminCancelGuest: vi.fn(),
     adminUpdateGuest: vi.fn(),
@@ -48,9 +51,11 @@ vi.mock("../../services/socketService", () => ({
     connect: vi.fn(),
     joinEventRoom: vi.fn(async () => {}),
     leaveEventRoom: vi.fn(),
-    on: vi.fn((event: string, handler: (data: any) => void) => {
+    on: vi.fn(
+      (event: string, handler: (data: any) => Promise<void> | void) => {
       if (event === "event_update") capturedHandler = handler;
-    }),
+      }
+    ),
     off: vi.fn(),
   },
 }));
@@ -171,7 +176,7 @@ describe("EventDetail admin realtime guest updates", () => {
       capturedHandler?.({
         eventId: "e1",
         updateType: "guest_updated",
-        data: { roleId: "r1", guestName: "Alpha Guest" },
+        data: null,
         timestamp: new Date().toISOString(),
       });
     });
@@ -180,12 +185,25 @@ describe("EventDetail admin realtime guest updates", () => {
     expect(await screen.findByText("Alpha Guest")).toBeInTheDocument();
     expect(screen.getByText("Beta Guest")).toBeInTheDocument();
 
-    // Fire a guest_cancellation for Alpha Guest
+    // The authorized HTTP refresh now reflects the cancellation.
+    getEventGuestsMock.mockResolvedValue({
+      guests: [
+        {
+          id: "g2",
+          roleId: "r1",
+          fullName: "Beta Guest",
+          email: "b@e.com",
+          phone: "+1 222",
+        },
+      ],
+    });
+
+    // Fire an invalidation-only guest_cancellation notification.
     await act(async () => {
       capturedHandler?.({
         eventId: "e1",
         updateType: "guest_cancellation",
-        data: { roleId: "r1", guestName: "Alpha Guest" },
+        data: null,
         timestamp: new Date().toISOString(),
       });
     });
@@ -218,5 +236,79 @@ describe("EventDetail admin realtime guest updates", () => {
     expect(
       inviteGuestItem.closest("button")?.hasAttribute("disabled") ?? false
     ).toBe(false);
+  });
+
+  it("keeps an earlier guest refresh eligible when a later non-guest update arrives", async () => {
+    render(
+      <NotificationProvider>
+        <MemoryRouter initialEntries={["/events/e1"]}>
+          <Routes>
+            <Route path="/events/:id" element={<EventDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </NotificationProvider>
+    );
+
+    await screen.findByText("Alpha Guest");
+
+    let resolveGuestRefresh!: (value: {
+      guests: Array<{
+        id: string;
+        roleId: string;
+        fullName: string;
+        email: string;
+      }>;
+    }) => void;
+    const pendingGuestRefresh = new Promise<{
+      guests: Array<{
+        id: string;
+        roleId: string;
+        fullName: string;
+        email: string;
+      }>;
+    }>((resolve) => {
+      resolveGuestRefresh = resolve;
+    });
+    getEventGuestsMock.mockReturnValueOnce(pendingGuestRefresh);
+
+    let firstUpdate: Promise<void> | void;
+    act(() => {
+      firstUpdate = capturedHandler?.({
+        eventId: "e1",
+        updateType: "guest_updated",
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(getEventGuestsMock).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      await capturedHandler?.({
+        eventId: "e1",
+        updateType: "attendance_updated",
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    await act(async () => {
+      resolveGuestRefresh({
+        guests: [
+          {
+            id: "g3",
+            roleId: "r1",
+            fullName: "Gamma Guest",
+            email: "g@e.com",
+          },
+        ],
+      });
+      await firstUpdate;
+    });
+
+    expect(await screen.findByText("Gamma Guest")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha Guest")).toBeNull();
   });
 });

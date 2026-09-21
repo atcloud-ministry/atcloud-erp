@@ -14,12 +14,16 @@ describe("Session expired prompt and redirect", () => {
     __resetSessionPromptFlag();
     // Fresh token to be cleared
     localStorage.setItem("authToken", "test-token");
+    sessionStorage.clear();
     // Mock alert
     vi.spyOn(window, "alert").mockImplementation(() => {});
     // Mock location.assign
     // jsdom's window.location is read-only; replace with a mockable object
     delete (window as any).location;
-    (window as any).location = { assign: vi.fn() } as unknown as Location;
+    (window as any).location = {
+      assign: vi.fn(),
+      hash: "",
+    } as unknown as Location;
   });
 
   afterEach(() => {
@@ -31,6 +35,7 @@ describe("Session expired prompt and redirect", () => {
     delete (window as any).location;
     (window as any).location = originalLocation;
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it("shows a single fallback prompt (no listeners) and schedules redirect", async () => {
@@ -46,6 +51,17 @@ describe("Session expired prompt and redirect", () => {
     expect(assign).toHaveBeenCalledTimes(1);
     expect(assign).toHaveBeenCalledWith("/#/login");
     expect(localStorage.getItem("authToken")).toBeNull();
+  });
+
+  it("captures a cold notification hash route before the fallback redirect", async () => {
+    (window.location as unknown as { hash: string }).hash =
+      "#/dashboard/chat-rooms/507f1f77bcf86cd799439011#latest";
+
+    handleSessionExpired();
+
+    expect(sessionStorage.getItem("returnUrl")).toBe(
+      "/dashboard/chat-rooms/507f1f77bcf86cd799439011#latest",
+    );
   });
 
   it("triggers fallback prompt via ApiClient on 401 with failed refresh", async () => {
@@ -87,5 +103,64 @@ describe("Session expired prompt and redirect", () => {
     expect(assign).toHaveBeenCalledTimes(1);
     expect(assign).toHaveBeenCalledWith("/#/login");
     expect(localStorage.getItem("authToken")).toBeNull();
+  });
+
+  it("preserves the token when refresh cannot reach the network", async () => {
+    const mocked = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.includes("/auth/refresh-token")) {
+          throw new TypeError("Failed to fetch");
+        }
+        return new Response(
+          JSON.stringify({ success: false, message: "Token has expired." }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      },
+    );
+    globalThis.fetch = mocked;
+
+    await expect(apiClient.getUserStats()).rejects.toThrow(
+      /check your connection and try again/i,
+    );
+
+    expect(localStorage.getItem("authToken")).toBe("test-token");
+    expect(window.alert).not.toHaveBeenCalled();
+    expect(window.location.assign).not.toHaveBeenCalled();
+  });
+
+  it("preserves the token when refresh returns a temporary server error", async () => {
+    const mocked = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.includes("/auth/refresh-token")) {
+          return new Response(
+            JSON.stringify({ success: false, message: "Temporarily unavailable" }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: false, message: "Token has expired." }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      },
+    );
+    globalThis.fetch = mocked;
+
+    await expect(apiClient.getUserStats()).rejects.toMatchObject({
+      status: 503,
+    });
+
+    expect(localStorage.getItem("authToken")).toBe("test-token");
+    expect(window.alert).not.toHaveBeenCalled();
   });
 });

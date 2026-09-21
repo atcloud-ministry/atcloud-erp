@@ -32,13 +32,20 @@ export default function Header({
           <div className="flex items-center space-x-2 sm:space-x-4 min-w-0 flex-1">
             {/* Mobile menu button */}
             <button
+              aria-controls="dashboard-primary-navigation"
+              aria-expanded={sidebarOpen}
+              aria-label={
+                sidebarOpen ? "Close navigation menu" : "Open navigation menu"
+              }
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-shrink-0"
+              className="lg:hidden p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-600 flex-shrink-0"
+              id="dashboard-mobile-menu-button"
+              type="button"
             >
               {sidebarOpen ? (
-                <XMarkIcon className="h-6 w-6" />
+                <XMarkIcon aria-hidden="true" className="h-6 w-6" />
               ) : (
-                <Bars3Icon className="h-6 w-6" />
+                <Bars3Icon aria-hidden="true" className="h-6 w-6" />
               )}
             </button>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -8,13 +8,26 @@ import {
   calculatePasswordStrength,
   type PasswordStrength,
 } from "../utils/passwordUtils";
-import { authService } from "../services/api";
+import {
+  authService,
+  type RegistrationNoticeDTO,
+} from "../services/api";
+import {
+  inferPhoneCountry,
+  prepareRegistrationProfileSubmission,
+} from "../utils/registrationProfile";
 
 export function useSignUpForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [migrationNoticeEmail, setMigrationNoticeEmail] = useState<
     string | null
   >(null);
+  const [registrationNotice, setRegistrationNotice] =
+    useState<RegistrationNoticeDTO | null>(null);
+  const [registrationNoticeError, setRegistrationNoticeError] = useState<
+    string | null
+  >(null);
+  const [registrationNoticeReload, setRegistrationNoticeReload] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const notification = useToastReplacement();
@@ -35,9 +48,19 @@ export function useSignUpForm() {
       lastName: prefill.lastName || "",
       email: prefill.email || "",
       phone: prefill.phone || "",
+      phoneCountryCode: inferPhoneCountry(prefill.phone) || "",
+      birthYear: undefined,
+      residenceCountryCode: "",
+      residenceRegion: "",
+      residenceCity: "",
+      employmentStatus: "",
+      company: "",
+      occupation: "",
       // Ensure selects start on placeholder instead of defaulting to first option
       gender: "",
       isAtCloudLeader: "false",
+      acceptTerms: false,
+      registrationNoticeVersion: "",
     },
     mode: "onChange", // Enable real-time validation
   });
@@ -47,6 +70,8 @@ export function useSignUpForm() {
     handleSubmit,
     formState: { errors },
     watch,
+    setValue,
+    setError,
   } = form;
 
   // Watch form values
@@ -54,6 +79,37 @@ export function useSignUpForm() {
   const password = watch("password");
   const isAtCloudLeader = watch("isAtCloudLeader");
   const email = watch("email");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setRegistrationNotice(null);
+    setRegistrationNoticeError(null);
+    setValue("acceptTerms", false, { shouldValidate: false });
+    setValue("registrationNoticeVersion", "", { shouldValidate: false });
+    void authService
+      .getRegistrationNotice(controller.signal)
+      .then((notice) => {
+        if (controller.signal.aborted) return;
+        setRegistrationNotice(notice);
+        setValue("registrationNoticeVersion", notice.version, {
+          shouldValidate: true,
+        });
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setRegistrationNoticeError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to load the registration privacy notice.",
+        );
+      });
+    return () => controller.abort();
+  }, [registrationNoticeReload, setValue]);
+
+  const reloadRegistrationNotice = useCallback(
+    () => setRegistrationNoticeReload((value) => value + 1),
+    [],
+  );
 
   // Calculate password strength
   const passwordStrength: PasswordStrength = calculatePasswordStrength(
@@ -64,6 +120,14 @@ export function useSignUpForm() {
     setIsSubmitting(true);
 
     try {
+      const profile = prepareRegistrationProfileSubmission(data);
+      if (!profile.success) {
+        for (const issue of profile.issues) {
+          setError(issue.field, { type: "validate", message: issue.message });
+        }
+        return;
+      }
+
       // Use a local flag to orchestrate modal sequencing for this submit
       const showMigrationNotice = migrationNoticeEmail !== email;
 
@@ -78,13 +142,11 @@ export function useSignUpForm() {
         gender: data.gender as "male" | "female",
         isAtCloudLeader: data.isAtCloudLeader === "true",
         roleInAtCloud: data.roleInAtCloud,
-        occupation: data.occupation,
-        company: data.company,
+        ...profile.value,
         weeklyChurch: data.weeklyChurch,
-        homeAddress: data.homeAddress,
-        phone: data.phone,
         churchAddress: data.churchAddress,
-        acceptTerms: true, // This is handled by validation in the form
+        acceptTerms: data.acceptTerms,
+        registrationNoticeVersion: data.registrationNoticeVersion,
       };
 
       // Informational: surface a soft notice that we will link past guest registrations
@@ -192,6 +254,8 @@ export function useSignUpForm() {
     form,
     register,
     errors,
+    watch,
+    setValue,
     isSubmitting,
 
     // Watched values
@@ -200,9 +264,12 @@ export function useSignUpForm() {
     isAtCloudLeader,
     email,
     passwordStrength,
+    registrationNotice,
+    registrationNoticeError,
 
     // Actions
     handleSubmit,
     onSubmit: handleSubmit(onSubmit), // Wrap with react-hook-form validation
+    reloadRegistrationNotice,
   };
 }

@@ -59,6 +59,7 @@ import {
   useNotifications,
 } from "../contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "../contexts/NotificationModalContext";
+import { notificationService } from "../services/notificationService";
 
 function renderNotifications() {
   const wrapper = ({ children }: any) => (
@@ -80,6 +81,7 @@ describe("Bell 'Mark all read' should not mark system messages as read", () => {
     // Wait for provider's async load to populate system messages
     await waitFor(() => {
       expect(result.current.systemMessages.length).toBe(1);
+      expect(result.current.systemMessageUnreadCount).toBe(1);
     });
     // Precondition: the single system message is unread
     expect(result.current.systemMessages[0].isRead).toBe(false);
@@ -91,5 +93,25 @@ describe("Bell 'Mark all read' should not mark system messages as read", () => {
 
     // Assert: system messages remain unchanged (still unread)
     expect(result.current.systemMessages[0].isRead).toBe(false);
+    expect(result.current.systemMessageUnreadCount).toBe(1);
+  });
+
+  it("updates the System Messages and launcher-source count after a read", async () => {
+    const result = renderNotifications();
+    await waitFor(() => {
+      expect(result.current.systemMessageUnreadCount).toBe(1);
+    });
+    vi.mocked(notificationService.getUnreadCounts).mockResolvedValueOnce({
+      bellNotifications: 0,
+      systemMessages: 0,
+      total: 0,
+    });
+
+    await act(async () => {
+      await result.current.markSystemMessageAsRead("m-1");
+    });
+
+    expect(result.current.systemMessages[0].isRead).toBe(true);
+    expect(result.current.systemMessageUnreadCount).toBe(0);
   });
 });

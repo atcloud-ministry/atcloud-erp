@@ -91,6 +91,11 @@ describe("ExportAnalyticsController - Comprehensive Coverage", () => {
       lastName: "Doe",
       email: "john@example.com",
       phone: "555-1234",
+      birthYear: 1987,
+      residenceCity: "Seattle",
+      residenceRegion: "US-WA",
+      residenceCountryCode: "US",
+      employmentStatus: "employed",
       role: "member",
       isAtCloudLeader: true,
       roleInAtCloud: "Team Lead",
@@ -110,6 +115,11 @@ describe("ExportAnalyticsController - Comprehensive Coverage", () => {
       lastName: "Smith",
       email: "jane@example.com",
       phone: "555-5678",
+      birthYear: 1992,
+      residenceCity: "Vancouver",
+      residenceRegion: "CA-BC",
+      residenceCountryCode: "CA",
+      employmentStatus: "employed",
       role: "admin",
       isAtCloudLeader: false,
       roleInAtCloud: undefined,
@@ -410,8 +420,8 @@ describe("ExportAnalyticsController - Comprehensive Coverage", () => {
     );
   });
 
-  describe("JSON format - complete user data columns", () => {
-    it("should export users with all columns in JSON format", async () => {
+  describe("JSON format - privacy-safe user allowlist", () => {
+    it("should export only approved legacy user columns", async () => {
       req.query = { format: "json" };
       vi.mocked(User.find).mockReturnValue(
         createChainedMock(mockUsersComplete) as unknown as ReturnType<
@@ -444,6 +454,18 @@ describe("ExportAnalyticsController - Comprehensive Coverage", () => {
         role: "member",
         isAtCloudLeader: true,
       });
+      for (const privateField of [
+        "phone",
+        "birthYear",
+        "residenceCity",
+        "residenceRegion",
+        "residenceCountryCode",
+        "employmentStatus",
+        "company",
+        "occupation",
+      ]) {
+        expect(sentData.users[0]).not.toHaveProperty(privateField);
+      }
     });
 
     it("should include meta information with filter dates", async () => {

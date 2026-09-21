@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import mongoose from "mongoose";
@@ -38,6 +39,7 @@ describe("Public Events API - audit logs", () => {
     await AuditLog.deleteMany({});
     console.log("[audit-test] collections cleared");
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "auditadmin",
       email: "auditadmin@example.com",
       password: "AdminPass123!",
@@ -48,6 +50,7 @@ describe("Public Events API - audit logs", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await request(app).post("/api/auth/register").send(adminData);
     console.log("[audit-test] admin registered");

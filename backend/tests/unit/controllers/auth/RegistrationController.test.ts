@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Request, Response } from "express";
 import RegistrationController from "../../../../src/controllers/auth/RegistrationController";
@@ -6,10 +7,24 @@ import { EmailService } from "../../../../src/services/infrastructure/EmailServi
 import { AutoEmailNotificationService } from "../../../../src/services/infrastructure/autoEmailNotificationService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import GuestMigrationService from "../../../../src/services/GuestMigrationService";
+import { REGISTRATION_PRIVACY_NOTICE } from "../../../../src/config/registrationPrivacyNotice";
+
+const registrationLog = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+}));
 
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/services/infrastructure/EmailServiceFacade");
 vi.mock("../../../../src/services/infrastructure/autoEmailNotificationService");
+vi.mock("../../../../src/services/LoggerService", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../../src/services/LoggerService")>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => registrationLog),
+  };
+});
 vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
   const actual = await vi.importActual("../../../../src/services/infrastructure/CacheService");
   return {
@@ -17,10 +32,6 @@ vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
     CachePatterns: {
       invalidateUserCache: vi.fn().mockResolvedValue(undefined),
     },
-    createLogger: vi.fn(() => ({
-      info: vi.fn(),
-      error: vi.fn(),
-    })),
   };
 });
 vi.mock("../../../../src/services/GuestMigrationService");
@@ -30,6 +41,7 @@ describe("RegistrationController", () => {
   let mockRes: Response;
   let statusMock: ReturnType<typeof vi.fn>;
   let jsonMock: ReturnType<typeof vi.fn>;
+  let setHeaderMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -40,14 +52,35 @@ describe("RegistrationController", () => {
 
     statusMock = vi.fn().mockReturnThis();
     jsonMock = vi.fn();
+    setHeaderMock = vi.fn();
     mockRes = {
       status: statusMock,
       json: jsonMock,
+      setHeader: setHeaderMock,
     } as unknown as Response;
 
     // Default env setup
     process.env.ENABLE_GUEST_AUTO_MIGRATION = "false";
     process.env.NODE_ENV = "test";
+  });
+
+  it("returns the server-owned registration privacy notice", () => {
+    RegistrationController.notice(mockReq as Request, mockRes as Response);
+
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(setHeaderMock).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: {
+          notice: {
+            version: REGISTRATION_PRIVACY_NOTICE.version,
+            text: REGISTRATION_PRIVACY_NOTICE.text,
+            effectiveAt: REGISTRATION_PRIVACY_NOTICE.effectiveAt,
+          },
+        },
+      }),
+    );
   });
 
   describe("register", () => {
@@ -70,19 +103,45 @@ describe("RegistrationController", () => {
         expect(jsonMock).toHaveBeenCalledWith(
           expect.objectContaining({
             success: false,
-            message: "You must accept the terms and conditions to register",
+            message: "You must accept the registration privacy notice to register",
             statusCode: 400,
           })
         );
       });
 
+      it("rejects a missing or stale registration notice version", async () => {
+        for (const registrationNoticeVersion of [undefined, "registration-privacy-v0"]) {
+          mockReq.body = {
+            ...TEST_REGISTRATION_PROFILE,
+            username: "testuser",
+            email: "test@example.com",
+            password: "Password123",
+            confirmPassword: "Password123",
+            gender: "male",
+            isAtCloudLeader: false,
+            acceptTerms: true,
+            registrationNoticeVersion,
+          };
+
+          await RegistrationController.register(
+            mockReq as Request,
+            mockRes as Response,
+          );
+
+          expect(statusMock).toHaveBeenLastCalledWith(409);
+          expect(User.findOne).not.toHaveBeenCalled();
+        }
+      });
+
       it("should return 400 if passwords do not match", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
           confirmPassword: "differentpassword",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         await RegistrationController.register(
@@ -102,12 +161,14 @@ describe("RegistrationController", () => {
 
       it("should return 409 if email is already registered", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "existing@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue({
@@ -132,12 +193,14 @@ describe("RegistrationController", () => {
 
       it("should return 409 if username is already taken", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "existinguser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue({
@@ -162,12 +225,14 @@ describe("RegistrationController", () => {
 
       it("should return 400 if isAtCloudLeader is true but roleInAtCloud is missing", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
           isAtCloudLeader: true,
           // roleInAtCloud is missing
         };
@@ -191,11 +256,13 @@ describe("RegistrationController", () => {
 
       it("should return 400 if gender is missing or invalid", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "test@example.com",
           password: "password123",
           confirmPassword: "password123",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         await RegistrationController.register(
@@ -213,14 +280,45 @@ describe("RegistrationController", () => {
         );
       });
 
+      it("should reject an incomplete structured registration profile", async () => {
+        mockReq.body = {
+          username: "testuser",
+          email: "test@example.com",
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          isAtCloudLeader: false,
+          acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
+          birthYear: 1988,
+        };
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(jsonMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            success: false,
+            statusCode: 400,
+            message: expect.stringContaining("phone: phone is required"),
+          }),
+        );
+        expect(User.findOne).not.toHaveBeenCalled();
+      });
+
       it("should check for existing users case-insensitively", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "testuser",
           email: "TEST@EXAMPLE.COM",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -256,6 +354,7 @@ describe("RegistrationController", () => {
     describe("successful registration", () => {
       it("should register a user and send verification email", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
@@ -264,6 +363,7 @@ describe("RegistrationController", () => {
           lastName: "Doe",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -318,8 +418,74 @@ describe("RegistrationController", () => {
         );
       });
 
+      it("should normalize and persist a complete structured profile", async () => {
+        mockReq.body = {
+          username: "profileuser",
+          email: "profile@example.com",
+          phone: " +12065550123 ",
+          birthYear: "1988",
+          residenceCity: " San   José ",
+          residenceRegion: "us-wa",
+          residenceCountryCode: "us",
+          employmentStatus: "employed",
+          occupation: " Product   Manager ",
+          company: " Example   Company ",
+          homeAddress: "Legacy address that must be cleared",
+          password: "password123",
+          confirmPassword: "password123",
+          firstName: "Profile",
+          lastName: "User",
+          gender: "female",
+          isAtCloudLeader: false,
+          acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
+        };
+
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        const mockSave = vi.fn().mockResolvedValue({});
+        vi.mocked(User).mockReturnValue({
+          _id: "profile-user-id",
+          email: "profile@example.com",
+          username: "profileuser",
+          firstName: "Profile",
+          lastName: "User",
+          role: "Participant",
+          isAtCloudLeader: false,
+          isVerified: false,
+          save: mockSave,
+          generateEmailVerificationToken: vi.fn().mockReturnValue("token"),
+        } as any);
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(User).toHaveBeenCalledWith(
+          expect.objectContaining({
+            phone: "+12065550123",
+            birthYear: 1988,
+            residenceCity: "San José",
+            residenceRegion: "US-WA",
+            residenceCountryCode: "US",
+            employmentStatus: "employed",
+            occupation: "Product Manager",
+            company: "Example Company",
+            registrationPrivacyNoticeVersion:
+              REGISTRATION_PRIVACY_NOTICE.version,
+            registrationPrivacyNoticeDocumentHash:
+              REGISTRATION_PRIVACY_NOTICE.documentHash,
+            registrationPrivacyNoticeAcceptedAt: expect.any(Date),
+          }),
+        );
+        expect(mockSave).toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(201);
+      });
+
       it("should send admin notification for @Cloud co-worker signup", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "cloudworker",
           email: "worker@example.com",
           password: "password123",
@@ -328,6 +494,7 @@ describe("RegistrationController", () => {
           isAtCloudLeader: true,
           roleInAtCloud: "IT Support",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -375,10 +542,78 @@ describe("RegistrationController", () => {
           })
         );
         expect(statusMock).toHaveBeenCalledWith(201);
+        expect(registrationLog.info).toHaveBeenCalledWith(
+          "Registration event completed",
+          "Registration",
+          {
+            eventCode: "REGISTRATION_ADMIN_NOTIFICATION_SENT",
+            userId: "user-id",
+          },
+        );
+      });
+
+      it("does not put registration PII or provider payloads in success logs", async () => {
+        const canaryEmail = "canary+registration-success@example.test";
+        const canaryToken = "provider-token-success-canary";
+        mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
+          username: "canary-success-user",
+          email: canaryEmail,
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          isAtCloudLeader: true,
+          roleInAtCloud: "IT Support",
+          acceptTerms: true,
+          registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        };
+
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        vi.mocked(User).mockReturnValue({
+          _id: "canary-success-user-id",
+          email: canaryEmail,
+          username: "canary-success-user",
+          role: "Participant",
+          isAtCloudLeader: true,
+          roleInAtCloud: "IT Support",
+          isVerified: false,
+          save: vi.fn().mockResolvedValue({}),
+          generateEmailVerificationToken: vi.fn().mockReturnValue(canaryToken),
+        } as any);
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+        vi.mocked(
+          AutoEmailNotificationService.sendAtCloudRoleChangeNotification,
+        ).mockResolvedValue({
+          emailsSent: 1,
+          messagesCreated: 1,
+          success: true,
+          providerPayload: canaryToken,
+        } as any);
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        const serializedLogs = JSON.stringify({
+          error: registrationLog.error.mock.calls,
+          info: registrationLog.info.mock.calls,
+        });
+        expect(serializedLogs).not.toContain(canaryEmail);
+        expect(serializedLogs).not.toContain(canaryToken);
+        expect(registrationLog.info).toHaveBeenCalledWith(
+          "Registration event completed",
+          "Registration",
+          {
+            eventCode: "REGISTRATION_ADMIN_NOTIFICATION_SENT",
+            userId: "canary-success-user-id",
+          },
+        );
       });
 
       it("should still succeed if admin notification fails", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "cloudworker",
           email: "worker@example.com",
           password: "password123",
@@ -387,6 +622,7 @@ describe("RegistrationController", () => {
           isAtCloudLeader: true,
           roleInAtCloud: "IT Support",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -424,14 +660,77 @@ describe("RegistrationController", () => {
         );
       });
 
+      it("does not put registration PII or provider errors in failure logs", async () => {
+        const canaryEmail = "canary+registration-failure@example.test";
+        const providerSecret = "provider-secret-failure-canary";
+        mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
+          username: "canary-failure-user",
+          email: canaryEmail,
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          isAtCloudLeader: true,
+          roleInAtCloud: "IT Support",
+          acceptTerms: true,
+          registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        };
+
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        vi.mocked(User).mockReturnValue({
+          _id: "canary-failure-user-id",
+          email: canaryEmail,
+          username: "canary-failure-user",
+          role: "Participant",
+          isAtCloudLeader: true,
+          roleInAtCloud: "IT Support",
+          isVerified: false,
+          save: vi.fn().mockResolvedValue({}),
+          generateEmailVerificationToken: vi.fn().mockReturnValue(
+            "verification-token-failure-canary",
+          ),
+        } as any);
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+        vi.mocked(
+          AutoEmailNotificationService.sendAtCloudRoleChangeNotification,
+        ).mockRejectedValue(
+          new Error(`${providerSecret} for ${canaryEmail}`),
+        );
+
+        await RegistrationController.register(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        const serializedLogs = JSON.stringify({
+          error: registrationLog.error.mock.calls,
+          info: registrationLog.info.mock.calls,
+        });
+        expect(serializedLogs).not.toContain(canaryEmail);
+        expect(serializedLogs).not.toContain(providerSecret);
+        expect(serializedLogs).not.toContain("verification-token-failure-canary");
+        expect(registrationLog.error).toHaveBeenCalledWith(
+          "Registration event failed",
+          undefined,
+          "Registration",
+          {
+            eventCode: "REGISTRATION_ADMIN_NOTIFICATION_FAILED",
+            userId: "canary-failure-user-id",
+            errorName: "Error",
+          },
+        );
+      });
+
       it("should still succeed if verification email fails to send", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -471,12 +770,14 @@ describe("RegistrationController", () => {
         process.env.VITEST_SCOPE = "integration";
 
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -517,12 +818,14 @@ describe("RegistrationController", () => {
         process.env.VITEST_SCOPE = "integration";
 
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -563,12 +866,14 @@ describe("RegistrationController", () => {
     describe("error handling", () => {
       it("should handle duplicate key errors (11000)", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "duplicateuser",
           email: "duplicate@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -601,12 +906,14 @@ describe("RegistrationController", () => {
 
       it("should handle validation errors", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);
@@ -641,12 +948,14 @@ describe("RegistrationController", () => {
 
       it("should handle generic database errors", async () => {
         mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
           username: "newuser",
           email: "new@example.com",
           password: "password123",
           confirmPassword: "password123",
           gender: "male",
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         };
 
         vi.mocked(User.findOne).mockResolvedValue(null);

@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { userService, apiClient } from "../services/api";
+import {
+  adminUsersService,
+  apiClient,
+  communityMembersService,
+  userService,
+  type AdminUserDTO,
+  type CommunityMemberListParams,
+  type CommunityMemberDTO,
+} from "../services/api";
+import type { AdminUserListParams } from "../services/api/userDirectory.api";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
 
 // Backend response shapes we actually consume in this hook
@@ -25,29 +34,6 @@ interface BackendUserBase {
   emailVerified?: boolean | null;
 }
 
-interface BackendUser extends BackendUserBase {
-  // Admin list specific extras (optional in API, used where available)
-  isAtCloudLeader?: boolean | null;
-  lastActive?: string | null;
-  isActive?: boolean | null;
-  // Analytics extras (only in list)
-  occupation?: string | null;
-  company?: string | null;
-  weeklyChurch?: string | null;
-  churchAddress?: string | null;
-}
-
-interface BackendUsersResponse {
-  users: BackendUser[];
-  pagination: {
-    currentPage: number;
-    totalPages: number;
-    totalUsers: number;
-    hasNext: boolean;
-    hasPrev: boolean;
-  };
-}
-
 export interface UserProfile {
   id: string;
   username: string;
@@ -69,6 +55,10 @@ export interface UserProfile {
   lastActive?: string;
   isActive?: boolean;
   emailVerified?: boolean;
+  occupation?: string;
+  company?: string;
+  weeklyChurch?: string;
+  churchAddress?: string;
 }
 
 export interface UseUserProfileReturn {
@@ -182,7 +172,7 @@ export function useUsers(options?: {
   autoFetch?: boolean;
 }) {
   const { error: showError } = useToastReplacement();
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [users, setUsers] = useState<AdminUserDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pagination, setPagination] = useState({
@@ -194,47 +184,13 @@ export function useUsers(options?: {
   });
 
   const fetchUsers = useCallback(
-    async (params: Record<string, unknown> = {}) => {
+    async (params: AdminUserListParams = {}) => {
       setLoading(true);
       setError(null);
 
       try {
-        const response = (await userService.getUsers(
-          params,
-        )) as unknown as BackendUsersResponse;
-
-        // Convert backend users format to frontend UserProfile format
-        const convertedUsers: UserProfile[] = response.users.map(
-          (user: BackendUser) => ({
-            id: user.id || user._id || "", // Handle both id and _id (MongoDB)
-            username: user.username,
-            email: user.email,
-            firstName: user.firstName ?? "",
-            lastName: user.lastName ?? "",
-            role: user.role,
-            systemAuthorizationLevel: user.role,
-            isAtCloudLeader: user.isAtCloudLeader ?? undefined,
-            roleInAtCloud: user.roleInAtCloud ?? undefined,
-            avatar: user.avatar ?? undefined,
-            gender: (user.gender ?? undefined) as UserProfile["gender"],
-            phone: user.phone ?? undefined,
-            dateOfBirth: user.dateOfBirth ?? undefined,
-            location: user.location ?? undefined,
-            bio: user.bio ?? undefined,
-            joinedAt:
-              user.createdAt ?? user.joinedAt ?? new Date().toISOString(),
-            lastActive: user.lastActive ?? undefined,
-            isActive: user.isActive !== false,
-            emailVerified: user.emailVerified ?? undefined,
-            // Add missing fields for analytics
-            occupation: user.occupation ?? undefined,
-            company: user.company ?? undefined,
-            weeklyChurch: user.weeklyChurch ?? undefined,
-            churchAddress: user.churchAddress ?? undefined,
-          }),
-        );
-
-        setUsers(convertedUsers);
+        const response = await adminUsersService.list(params);
+        setUsers(response.users);
         setPagination(response.pagination);
       } catch (err: unknown) {
         const errorMessage =
@@ -253,7 +209,7 @@ export function useUsers(options?: {
 
   const searchUsers = useCallback(
     async (searchTerm: string) => {
-      await fetchUsers({ search: searchTerm, page: 1 });
+      await fetchUsers({ q: searchTerm, page: 1 });
     },
     [fetchUsers],
   );
@@ -262,9 +218,13 @@ export function useUsers(options?: {
     async (filters: {
       role?: string;
       isActive?: boolean;
-      emailVerified?: boolean;
+      isVerified?: boolean;
     }) => {
-      await fetchUsers({ ...filters, page: 1 });
+      await fetchUsers({
+        ...filters,
+        role: filters.role as AdminUserListParams["role"],
+        page: 1,
+      });
     },
     [fetchUsers],
   );
@@ -272,7 +232,7 @@ export function useUsers(options?: {
   // Enhanced method for advanced filtering and sorting
   const fetchUsersWithFilters = useCallback(
     async (params: {
-      search?: string;
+      q?: string;
       role?: string;
       gender?: string;
       sortBy?: string;
@@ -287,7 +247,7 @@ export function useUsers(options?: {
         ),
       );
 
-      await fetchUsers(cleanParams);
+      await fetchUsers(cleanParams as AdminUserListParams);
     },
     [fetchUsers],
   );
@@ -296,7 +256,7 @@ export function useUsers(options?: {
     async (
       page: number,
       currentFilters?: {
-        search?: string;
+        q?: string;
         role?: string;
         gender?: string;
         sortBy?: string;
@@ -336,13 +296,56 @@ export function useUsers(options?: {
   };
 }
 
+export function useCommunityMembers(options?: { autoFetch?: boolean }) {
+  const { error: showError } = useToastReplacement();
+  const [members, setMembers] = useState<CommunityMemberDTO[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 0,
+    totalMembers: 0,
+    hasNext: false,
+    hasPrev: false,
+  });
+
+  const fetchMembers = useCallback(
+    async (params: CommunityMemberListParams = {}) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await communityMembersService.list(params);
+        setMembers(response.members);
+        setPagination(response.pagination);
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Failed to load community members";
+        setError(message);
+        showError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [showError],
+  );
+
+  useEffect(() => {
+    if (options?.autoFetch !== false) void fetchMembers();
+  }, [fetchMembers, options?.autoFetch]);
+
+  return { members, loading, error, pagination, fetchMembers };
+}
+
 // Hook for getting community-level statistics (available to all authenticated users)
-export function useCommunityStats() {
+export function useCommunityStats(shouldFetch: boolean = true) {
   const [stats, setStats] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStats = useCallback(async () => {
+    if (!shouldFetch) return;
     setLoading(true);
     setError(null);
 
@@ -363,7 +366,7 @@ export function useCommunityStats() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [shouldFetch]);
 
   useEffect(() => {
     fetchStats();

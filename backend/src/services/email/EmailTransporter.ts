@@ -5,7 +5,11 @@
  * Handles production, development, and test environments
  */
 
-import nodemailer from "nodemailer";
+import nodemailer, {
+  type SendMailOptions,
+  type SentMessageInfo,
+  type Transporter,
+} from "nodemailer";
 import { createLogger } from "../LoggerService";
 
 const log = createLogger("EmailTransporter");
@@ -16,17 +20,17 @@ export interface EmailOptions {
   html: string;
   text?: string;
   replyTo?: string;
-  attachments?: nodemailer.SendMailOptions["attachments"];
+  attachments?: SendMailOptions["attachments"];
 }
 
 export class EmailTransporter {
-  private static transporter: nodemailer.Transporter;
+  private static transporter: Transporter;
 
   /**
    * Get or create the nodemailer transporter instance
    * Configures based on environment and available credentials
    */
-  static getTransporter(): nodemailer.Transporter {
+  static getTransporter(): Transporter {
     if (!this.transporter) {
       // Check if real SMTP credentials are configured
       const hasRealCredentials =
@@ -79,10 +83,10 @@ export class EmailTransporter {
    */
   static async send(
     options: EmailOptions
-  ): Promise<nodemailer.SentMessageInfo> {
+  ): Promise<SentMessageInfo> {
     const transporter = this.getTransporter();
 
-    const mailOptions: nodemailer.SendMailOptions = {
+    const mailOptions: SendMailOptions = {
       from:
         process.env.EMAIL_FROM ||
         '"@Cloud Ministry" <atcloudministry@gmail.com>',

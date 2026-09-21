@@ -5,7 +5,7 @@
  * - Singleton pattern implementation
  * - Scheduler lifecycle management (start/stop)
  * - Event reminder processing logic
- * - API integration for reminder sending
+ * - transport-neutral dispatch integration
  * - Timezone handling and timing logic
  * - Error handling and resilience
  * - Manual trigger functionality
@@ -27,16 +27,23 @@ import mongoose from "mongoose";
 import EventReminderScheduler from "../../../src/services/EventReminderScheduler";
 import { Event } from "../../../src/models";
 
+const dispatchMocks = vi.hoisted(() => ({
+  dispatch: vi.fn(),
+}));
+
+vi.mock(
+  "../../../src/services/notifications/EventReminderDispatchService",
+  () => ({
+    eventReminderDispatchService: { dispatch: dispatchMocks.dispatch },
+  }),
+);
+
 // Mock the Event model
 vi.mock("../../../src/models", () => ({
   Event: {
     find: vi.fn(),
   },
 }));
-
-// Mock global fetch for API calls
-const mockFetch = vi.fn() as MockedFunction<typeof fetch>;
-global.fetch = mockFetch;
 
 // Mock global setTimeout and setInterval for timer control (restore after file)
 const realSetTimeout = global.setTimeout;
@@ -94,6 +101,10 @@ describe("EventReminderScheduler Service", () => {
   beforeEach(() => {
     // Reset all mocks
     vi.clearAllMocks();
+    dispatchMocks.dispatch.mockResolvedValue({
+      message: "Reminder sent successfully",
+      systemMessageCreated: true,
+    });
 
     // Reset environment
     delete process.env.NODE_ENV;
@@ -276,19 +287,15 @@ describe("EventReminderScheduler Service", () => {
         mockEvent,
       ]);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            message: "Reminder sent successfully",
-            systemMessageCreated: true,
-            details: {
-              emailsSent: 5,
-              totalParticipants: 5,
-              systemMessageSuccess: true,
-            },
-          }),
-      } as Response);
+      dispatchMocks.dispatch.mockResolvedValue({
+        message: "Reminder sent successfully",
+        systemMessageCreated: true,
+        details: {
+          emailsSent: 5,
+          totalParticipants: 5,
+          systemMessageSuccess: true,
+        },
+      });
 
       await scheduler.triggerManualCheck();
 
@@ -299,13 +306,12 @@ describe("EventReminderScheduler Service", () => {
           { "24hReminderSentAt": { $lt: expect.any(Date) } },
         ],
       });
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/email-notifications/test-event-reminder"),
+      expect(dispatchMocks.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: expect.stringContaining(mockEvent.title),
-        })
+          eventId: mockEvent._id.toString(),
+          reminderType: "24h",
+          eventData: expect.objectContaining({ title: mockEvent.title }),
+        }),
       );
     });
 
@@ -317,7 +323,7 @@ describe("EventReminderScheduler Service", () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         "ℹ️ No events need 24h reminders at this time"
       );
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(dispatchMocks.dispatch).not.toHaveBeenCalled();
     });
 
     it("should handle database errors during event query", async () => {
@@ -332,46 +338,40 @@ describe("EventReminderScheduler Service", () => {
         "Error querying events for reminders:",
         dbError
       );
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(dispatchMocks.dispatch).not.toHaveBeenCalled();
     });
 
-    it("should handle API failures when sending reminders", async () => {
+    it("should handle dispatch failures when sending reminders", async () => {
       const mockEvent = createTestEvent("Test Event");
 
       (Event.find as MockedFunction<typeof Event.find>).mockResolvedValue([
         mockEvent,
       ]);
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 500,
-        text: () => Promise.resolve("Internal Server Error"),
-      } as Response);
+      const dispatchError = new Error("Dispatch failed");
+      dispatchMocks.dispatch.mockRejectedValue(dispatchError);
 
       await scheduler.triggerManualCheck();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "❌ Failed to send event reminder trio: 500 Internal Server Error"
-        )
+        `❌ Failed to send trio for ${mockEvent.title}:`,
+        dispatchError,
       );
     });
 
-    it("should handle network errors during API calls", async () => {
+    it("should isolate an unexpected dispatch error", async () => {
       const mockEvent = createTestEvent("Test Event");
 
       (Event.find as MockedFunction<typeof Event.find>).mockResolvedValue([
         mockEvent,
       ]);
-      const networkError = new Error("Network request failed");
-      mockFetch.mockRejectedValue(networkError);
+      const dispatchError = new Error("Unexpected dispatch failure");
+      dispatchMocks.dispatch.mockRejectedValue(dispatchError);
 
       await scheduler.triggerManualCheck();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          `❌ Error sending event reminder trio for ${mockEvent.title}:`
-        ),
-        networkError
+        `❌ Failed to send trio for ${mockEvent.title}:`,
+        dispatchError,
       );
     });
 
@@ -381,19 +381,15 @@ describe("EventReminderScheduler Service", () => {
       (Event.find as MockedFunction<typeof Event.find>).mockResolvedValue([
         mockEvent,
       ]);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            message: "Emails sent but system message failed",
-            systemMessageCreated: false,
-            details: {
-              emailsSent: 3,
-              totalParticipants: 3,
-              systemMessageSuccess: false,
-            },
-          }),
-      } as Response);
+      dispatchMocks.dispatch.mockResolvedValue({
+        message: "Emails sent but system message failed",
+        systemMessageCreated: false,
+        details: {
+          emailsSent: 3,
+          totalParticipants: 3,
+          systemMessageSuccess: false,
+        },
+      });
 
       await scheduler.triggerManualCheck();
 
@@ -495,20 +491,16 @@ describe("EventReminderScheduler Service", () => {
         pastEvent,
       ]);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ message: "Success" }),
-      } as Response);
-
       await scheduler.triggerManualCheck();
 
       // Should only process the event that needs reminder
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
+      expect(dispatchMocks.dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatchMocks.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
-          body: expect.stringContaining("Event Needs Reminder"),
-        })
+          eventData: expect.objectContaining({
+            title: "Event Needs Reminder",
+          }),
+        }),
       );
     });
   });
@@ -551,24 +543,16 @@ describe("EventReminderScheduler Service", () => {
         event2,
       ]);
 
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 500,
-          text: () => Promise.resolve("Server Error"),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ message: "Success" }),
-        } as Response);
+      dispatchMocks.dispatch
+        .mockRejectedValueOnce(new Error("Server Error"))
+        .mockResolvedValueOnce({ message: "Success" });
 
       await scheduler.triggerManualCheck();
 
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(dispatchMocks.dispatch).toHaveBeenCalledTimes(2);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "❌ Failed to send event reminder trio: 500 Server Error"
-        )
+        "❌ Failed to send trio for Event 1:",
+        expect.any(Error),
       );
       expect(consoleLogSpy).toHaveBeenCalledWith(
         expect.stringContaining("✅ Completed processing for event: Event 2")
@@ -590,8 +574,8 @@ describe("EventReminderScheduler Service", () => {
     });
   });
 
-  describe("API Integration", () => {
-    it("should send correct reminder data structure to API", async () => {
+  describe("Dispatch Integration", () => {
+    it("should send the correct reminder command to the shared service", async () => {
       const mockEvent = createTestEvent("Integration Test Event");
       // Override specific fields for testing
       mockEvent.location = "Conference Room A";
@@ -601,34 +585,20 @@ describe("EventReminderScheduler Service", () => {
       (Event.find as MockedFunction<typeof Event.find>).mockResolvedValue([
         mockEvent,
       ]);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ message: "Success" }),
-      } as Response);
-
       await scheduler.triggerManualCheck();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/email-notifications/test-event-reminder"),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            eventId: mockEvent._id.toString(),
-            eventData: {
-              title: "Integration Test Event",
-              date: mockEvent.date,
-              time: mockEvent.time,
-              location: "Conference Room A",
-              zoomLink: "https://zoom.us/j/123456789",
-              format: "hybrid",
-            },
-            reminderType: "24h",
-          }),
-        }
-      );
+      expect(dispatchMocks.dispatch).toHaveBeenCalledWith({
+        eventId: mockEvent._id.toString(),
+        eventData: {
+          title: "Integration Test Event",
+          date: mockEvent.date,
+          time: mockEvent.time,
+          location: "Conference Room A",
+          zoomLink: "https://zoom.us/j/123456789",
+          format: "hybrid",
+        },
+        reminderType: "24h",
+      });
     });
 
     it("should handle missing optional event fields gracefully", async () => {
@@ -657,32 +627,20 @@ describe("EventReminderScheduler Service", () => {
       (Event.find as MockedFunction<typeof Event.find>).mockResolvedValue([
         mockEvent,
       ]);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ message: "Success" }),
-      } as Response);
-
       await scheduler.triggerManualCheck();
 
-      const expectedBody = JSON.stringify({
+      expect(dispatchMocks.dispatch).toHaveBeenCalledWith({
         eventId: mockEvent._id.toString(),
         eventData: {
           title: "Minimal Event",
           date: eventDate,
           time: eventTime,
-          location: undefined,
+          location: "TBD",
           zoomLink: undefined,
-          format: "in-person", // Default value
+          format: "in-person",
         },
         reminderType: "24h",
       });
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          body: expectedBody,
-        })
-      );
     });
   });
 

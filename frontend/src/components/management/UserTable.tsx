@@ -37,7 +37,7 @@ export default function UserTable({
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-visible">
       <div className="px-6 py-4 border-b border-gray-200">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold text-gray-900">
             {hasLimitedVisibility ? "Community Members" : "All Users"}
           </h2>
@@ -105,7 +105,7 @@ export default function UserTable({
                     <td className="px-6 py-4 whitespace-nowrap">
                       {hasLimitedVisibility ? (
                         // Participants and Guest Experts cannot click on user profiles
-                        <div className="flex items-center">
+                        <div className="flex min-w-0 items-center">
                           <img
                             className="h-10 w-10 rounded-full object-cover aspect-square"
                             src={getAvatarUrlWithCacheBust(
@@ -118,11 +118,11 @@ export default function UserTable({
                               !!user.avatar
                             )}
                           />
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
+                          <div className="ml-4 min-w-0">
+                            <div className="break-words text-sm font-medium text-gray-900">
                               {user.firstName} {user.lastName}
                             </div>
-                            <div className="text-sm text-gray-500">
+                            <div className="break-all text-sm text-gray-500">
                               @{user.username}
                             </div>
                           </div>
@@ -131,7 +131,7 @@ export default function UserTable({
                         // Other roles can click on user profiles
                         <Link
                           to={getProfileLink(user)}
-                          className="flex items-center hover:bg-gray-100 -m-2 p-2 rounded-lg transition-colors"
+                          className="-m-2 flex min-w-0 items-center rounded-lg p-2 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                         >
                           <img
                             className="h-10 w-10 rounded-full object-cover aspect-square"
@@ -145,11 +145,11 @@ export default function UserTable({
                               !!user.avatar
                             )}
                           />
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
+                          <div className="ml-4 min-w-0">
+                            <div className="break-words text-sm font-medium text-gray-900">
                               {user.firstName} {user.lastName}
                             </div>
-                            <div className="text-sm text-gray-500">
+                            <div className="break-all text-sm text-gray-500">
                               @{user.username}
                             </div>
                           </div>
@@ -163,7 +163,7 @@ export default function UserTable({
                             {user.roleInAtCloud}
                           </span>
                         ) : (
-                          <span className="text-sm text-gray-400">—</span>
+                          <span className="text-sm text-gray-600">—</span>
                         )}
                       </td>
                     )}
@@ -195,7 +195,7 @@ export default function UserTable({
                             user.role === "Participant" &&
                             (currentUserRole === "Super Admin" ||
                               currentUserRole === "Administrator") && (
-                              <span className="text-xs text-orange-600 font-medium mt-1">
+                              <span className="mt-1 text-xs font-medium text-orange-700">
                                 Need promotion
                               </span>
                             )}
@@ -218,7 +218,7 @@ export default function UserTable({
                           {user.roleInAtCloud ? (
                             <span>{user.roleInAtCloud}</span>
                           ) : (
-                            <span className="text-gray-400">—</span>
+                            <span className="text-gray-600">—</span>
                           )}
                         </div>
                       </td>
@@ -245,6 +245,7 @@ export default function UserTable({
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <ActionDropdown
                           userId={user.id}
+                          userName={`${user.firstName} ${user.lastName}`}
                           actions={actions}
                           isOpen={openDropdown === user.id}
                           onToggle={onToggleDropdown}
@@ -266,11 +267,11 @@ export default function UserTable({
           const actions = getActionsForUser(user);
 
           return (
-            <div key={user.id} className="p-6">
-              <div className="flex items-center justify-between mb-4">
+            <div key={user.id} className="p-4 sm:p-6">
+              <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {hasLimitedVisibility ? (
                   // Participants and Guest Experts cannot click on user profiles
-                  <div className="flex items-center flex-1">
+                  <div className="flex min-w-0 flex-1 items-center">
                     <img
                       className="h-12 w-12 rounded-full object-cover aspect-square"
                       src={getAvatarUrlWithCacheBust(
@@ -283,11 +284,11 @@ export default function UserTable({
                         !!user.avatar
                       )}
                     />
-                    <div className="ml-4">
-                      <div className="text-lg font-medium text-gray-900">
+                    <div className="ml-4 min-w-0">
+                      <div className="break-words text-lg font-medium text-gray-900">
                         {user.firstName} {user.lastName}
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="break-all text-sm text-gray-500">
                         @{user.username}
                       </div>
                     </div>
@@ -296,7 +297,7 @@ export default function UserTable({
                   // Other roles can click on user profiles
                   <Link
                     to={getProfileLink(user)}
-                    className="flex items-center hover:bg-gray-100 -m-2 p-2 rounded-lg transition-colors flex-1"
+                    className="-m-2 flex min-w-0 flex-1 items-center rounded-lg p-2 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                   >
                     <img
                       className="h-12 w-12 rounded-full object-cover aspect-square"
@@ -310,29 +311,29 @@ export default function UserTable({
                         !!user.avatar
                       )}
                     />
-                    <div className="ml-4">
-                      <div className="text-lg font-medium text-gray-900">
+                    <div className="ml-4 min-w-0">
+                      <div className="break-words text-lg font-medium text-gray-900">
                         {user.firstName} {user.lastName}
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="break-all text-sm text-gray-500">
                         @{user.username}
                       </div>
                     </div>
                   </Link>
                 )}
                 {hasLimitedVisibility && (
-                  <div className="flex flex-col items-end">
+                  <div className="flex flex-col items-start sm:items-end">
                     {user.roleInAtCloud ? (
                       <span className="text-sm text-gray-900">
                         {user.roleInAtCloud}
                       </span>
                     ) : (
-                      <span className="text-sm text-gray-400">—</span>
+                      <span className="text-sm text-gray-600">—</span>
                     )}
                   </div>
                 )}
                 {!hasLimitedVisibility && (
-                  <div className="flex flex-col items-end">
+                  <div className="flex flex-col items-start sm:items-end">
                     <span
                       className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full text-center ${
                         user.role === "Super Admin"
@@ -353,7 +354,7 @@ export default function UserTable({
                       user.role === "Participant" &&
                       (currentUserRole === "Super Admin" ||
                         currentUserRole === "Administrator") && (
-                        <span className="text-xs text-orange-600 font-medium mt-1">
+                        <span className="mt-1 text-xs font-medium text-orange-700">
                           Need promotion
                         </span>
                       )}
@@ -375,7 +376,7 @@ export default function UserTable({
                 {!hasLimitedVisibility && (
                   <div>
                     <span className="font-medium text-gray-600">Email:</span>
-                    <span className="ml-2 text-gray-900">{user.email}</span>
+                    <span className="ml-2 break-all text-gray-900">{user.email}</span>
                   </div>
                 )}
                 {!hasLimitedVisibility && (
@@ -414,6 +415,7 @@ export default function UserTable({
                 <div className="mt-4">
                   <ActionDropdown
                     userId={user.id}
+                    userName={`${user.firstName} ${user.lastName}`}
                     actions={actions}
                     isOpen={openDropdown === user.id}
                     onToggle={onToggleDropdown}

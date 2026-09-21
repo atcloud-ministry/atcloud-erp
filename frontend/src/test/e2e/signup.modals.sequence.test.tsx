@@ -10,6 +10,11 @@ vi.mock("../../services/api", async (orig) => {
     authService: {
       ...actual.authService,
       register: vi.fn().mockResolvedValue({ success: true }),
+      getRegistrationNotice: vi.fn().mockResolvedValue({
+        version: "registration-privacy-v1",
+        text: "Registration privacy notice for testing.",
+        effectiveAt: "2026-09-18T00:00:00.000Z",
+      }),
     },
   };
 });
@@ -17,10 +22,17 @@ vi.mock("../../services/api", async (orig) => {
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import SignUp from "../../pages/SignUp";
 import CheckEmail from "../../pages/CheckEmail";
+import { authService } from "../../services/api";
 
 describe("SignUp modal sequence", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(authService.getRegistrationNotice).mockResolvedValue({
+      version: "registration-privacy-v1",
+      text: "Registration privacy notice for testing.",
+      effectiveAt: "2026-09-18T00:00:00.000Z",
+    });
+    vi.mocked(authService.register).mockResolvedValue({ success: true } as never);
   });
 
   it("shows 'We’ll keep your history' until OK, then 'Welcome to @Cloud!' until OK, then navigates", async () => {
@@ -61,8 +73,36 @@ describe("SignUp modal sequence", () => {
     fireEvent.change(screen.getByPlaceholderText(/Enter your email address/i), {
       target: { value: "john@example.com" },
     });
+    fireEvent.change(screen.getByLabelText(/Birth Year/i), {
+      target: { value: "1990" },
+    });
+    fireEvent.change(screen.getByLabelText(/Phone Country/i), {
+      target: { value: "US" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter your phone number/i), {
+      target: { value: "415 555 2671" },
+    });
+    fireEvent.change(screen.getByLabelText(/Country of Residence/i), {
+      target: { value: "US" },
+    });
+    fireEvent.change(screen.getByLabelText(/^State/i), {
+      target: { value: "US-CA" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter city/i), {
+      target: { value: "San Francisco" },
+    });
+    fireEvent.change(screen.getByLabelText(/Employment Status/i), {
+      target: { value: "employed" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Enter company or organization/i),
+      { target: { value: "Example Co" } },
+    );
 
     // isAtCloudLeader defaults to "false"; no change needed.
+    fireEvent.click(
+      await screen.findByLabelText(/I have read and accept this notice/i),
+    );
 
     // Submit the form
     fireEvent.click(screen.getByRole("button", { name: /sign up/i }));
@@ -70,6 +110,23 @@ describe("SignUp modal sequence", () => {
     // First modal should appear and persist until user clicks OK
     const firstTitle = await screen.findByText(/We’ll keep your history/i);
     expect(firstTitle).toBeInTheDocument();
+    expect(authService.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: "+14155552671",
+        birthYear: 1990,
+        residenceCountryCode: "US",
+        residenceRegion: "US-CA",
+        residenceCity: "San Francisco",
+        employmentStatus: "employed",
+        company: "Example Co",
+        occupation: null,
+        acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
+      }),
+    );
+    const submittedPayload = vi.mocked(authService.register).mock.calls[0]?.[0];
+    expect(submittedPayload).not.toHaveProperty("phoneCountryCode");
+    expect(submittedPayload).not.toHaveProperty("homeAddress");
 
     // No "X" close button (showCloseButton: false), but an OK button exists
     const ok1 = screen.getByRole("button", { name: /^OK$/i });

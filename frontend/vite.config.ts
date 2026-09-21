@@ -2,8 +2,12 @@
 
 /// <reference types="vitest" />
 import { defineConfig, loadEnv } from "vite";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { buildContentSecurityPolicy } from "./src/config/contentSecurityPolicy";
 
 // Read version from package.json
@@ -13,14 +17,142 @@ function isSharedBuildHelper(id: string) {
   return id.includes("commonjsHelpers") || id.includes("vite/preload-helper");
 }
 
+function isGuardedFullstackLoopbackBuild(apiUrl: string): boolean {
+  const backendValue = process.env.FULLSTACK_E2E_BACKEND_URL?.trim();
+  const frontendValue = process.env.FULLSTACK_E2E_FRONTEND_URL?.trim();
+  if (!backendValue || !frontendValue || !process.env.FULLSTACK_E2E_MONGODB_URI) {
+    return false;
+  }
+  try {
+    const api = new URL(apiUrl);
+    const backend = new URL(backendValue);
+    const frontend = new URL(frontendValue);
+    return (
+      api.origin === backend.origin &&
+      (api.pathname === "/api" || api.pathname.startsWith("/api/")) &&
+      backend.protocol === "http:" &&
+      backend.hostname === "127.0.0.1" &&
+      frontend.protocol === "http:" &&
+      frontend.hostname === "127.0.0.1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+const serviceWorkerTemplatePath = fileURLToPath(
+  new URL("./pwa/service-worker.js", import.meta.url),
+);
+
+function pwaServiceWorkerPlugin(buildDiscriminator: string): Plugin {
+  return {
+    name: "build-versioned-pwa-service-worker",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const shellFiles = new Set<string>();
+      const pendingChunks = Object.values(bundle)
+        .filter((output) => output.type === "chunk" && output.isEntry)
+        .map((output) => output.fileName);
+
+      while (pendingChunks.length > 0) {
+        const fileName = pendingChunks.pop();
+        if (!fileName || shellFiles.has(fileName)) continue;
+        shellFiles.add(fileName);
+
+        const output = bundle[fileName];
+        if (output?.type === "chunk") {
+          pendingChunks.push(...output.imports);
+        }
+      }
+
+      for (const output of Object.values(bundle)) {
+        if (output.fileName.endsWith(".css")) {
+          shellFiles.add(output.fileName);
+        }
+      }
+
+      const precacheUrls = [
+        "/index.html",
+        "/offline.html",
+        "/offline-retry.js",
+        "/manifest.json",
+        "/Cloud-browsertag.png",
+        "/pwa-icon-192.png",
+        "/pwa-icon-512.png",
+        "/pwa-maskable-512.png",
+        "/apple-touch-icon.png",
+        ...Array.from(shellFiles, (fileName) => `/${fileName}`),
+      ].sort();
+
+      const template = readFileSync(serviceWorkerTemplatePath, "utf8");
+      const fingerprint = createHash("sha256")
+        .update(packageJson.version)
+        .update(buildDiscriminator)
+        .update(template)
+        .update(JSON.stringify(precacheUrls));
+      for (const fileName of [
+        "index.html",
+        "manifest.json",
+        "offline.html",
+        "offline-retry.js",
+        "Cloud-browsertag.png",
+        "pwa-icon-192.png",
+        "pwa-icon-512.png",
+        "pwa-maskable-512.png",
+        "apple-touch-icon.png",
+      ]) {
+        fingerprint.update(
+          readFileSync(
+            fileURLToPath(
+              new URL(
+                fileName === "index.html" ? `./${fileName}` : `./public/${fileName}`,
+                import.meta.url,
+              ),
+            ),
+          ),
+        );
+      }
+      const serviceWorkerVersion = `${packageJson.version}-${fingerprint
+        .digest("hex")
+        .slice(0, 12)}`;
+      const source = template
+        .replace('"__PWA_VERSION__"', JSON.stringify(serviceWorkerVersion))
+        .replace(
+          "/* __PWA_PRECACHE_MANIFEST__ */ []",
+          JSON.stringify(precacheUrls),
+        );
+
+      if (
+        source.includes("__PWA_VERSION__") ||
+        source.includes("__PWA_PRECACHE_MANIFEST__")
+      ) {
+        throw new Error("Unable to inject the PWA Service Worker build metadata");
+      }
+
+      this.emitFile({
+        type: "asset",
+        fileName: "sw.js",
+        source,
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
-  const contentSecurityPolicy = buildContentSecurityPolicy(env.VITE_API_URL);
+  const allowExplicitLoopback =
+    mode === "production" && isGuardedFullstackLoopbackBuild(env.VITE_API_URL);
+  const contentSecurityPolicy = buildContentSecurityPolicy(
+    env.VITE_API_URL,
+    mode === "production",
+    allowExplicitLoopback,
+  );
 
   return {
     plugins: [
       react(),
+      pwaServiceWorkerPlugin(contentSecurityPolicy),
       {
         name: "inject-content-security-policy",
         transformIndexHtml(html) {

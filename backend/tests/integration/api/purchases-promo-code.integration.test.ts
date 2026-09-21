@@ -13,6 +13,44 @@ import Purchase from "../../../src/models/Purchase";
 import { createAndLoginTestUser } from "../../test-utils/createTestUser";
 import { ensureIntegrationDB } from "../setup/connect";
 
+const stripeCheckoutMocks = vi.hoisted(() => {
+  let nextSessionNumber = 0;
+
+  return {
+    create: vi.fn(async () => {
+      nextSessionNumber += 1;
+      const id = `cs_test_promo_purchase_${nextSessionNumber}`;
+      return {
+        id,
+        url: `https://checkout.stripe.com/c/pay/${id}`,
+        status: "open",
+      };
+    }),
+    retrieve: vi.fn(async () => ({ status: "open" })),
+    expire: vi.fn(async () => ({ status: "expired" })),
+  };
+});
+
+vi.mock("../../../src/services/stripeService", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../src/services/stripeService")
+  >();
+
+  return {
+    ...actual,
+    createCheckoutSession: stripeCheckoutMocks.create,
+    stripe: {
+      checkout: {
+        sessions: {
+          create: stripeCheckoutMocks.create,
+          retrieve: stripeCheckoutMocks.retrieve,
+          expire: stripeCheckoutMocks.expire,
+        },
+      },
+    },
+  };
+});
+
 beforeAll(async () => {
   await ensureIntegrationDB();
 });

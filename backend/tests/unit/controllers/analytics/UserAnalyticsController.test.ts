@@ -14,6 +14,13 @@ vi.mock("../../../../src/utils/roleUtils", () => ({
   PERMISSIONS: {
     VIEW_SYSTEM_ANALYTICS: "view_system_analytics",
   },
+  ROLES: {
+    SUPER_ADMIN: "Super Admin",
+    ADMINISTRATOR: "Administrator",
+    LEADER: "Leader",
+    GUEST_EXPERT: "Guest Expert",
+    PARTICIPANT: "Participant",
+  },
 }));
 
 vi.mock("../../../../src/services/CorrelatedLogger", () => ({
@@ -26,14 +33,25 @@ vi.mock("../../../../src/services/CorrelatedLogger", () => ({
   },
 }));
 
+vi.mock(
+  "../../../../src/services/RegistrationProfileKpiAnalyticsService",
+  () => ({
+    default: {
+      getRegistrationProfileKpis: vi.fn(),
+    },
+  }),
+);
+
 import { User } from "../../../../src/models";
 import { hasPermission } from "../../../../src/utils/roleUtils";
+import RegistrationProfileKpiAnalyticsService from "../../../../src/services/RegistrationProfileKpiAnalyticsService";
 
 describe("UserAnalyticsController", () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let statusMock: ReturnType<typeof vi.fn>;
   let jsonMock: ReturnType<typeof vi.fn>;
+  let setHeaderMock: ReturnType<typeof vi.fn>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let consoleErrorSpy: any;
 
@@ -43,11 +61,13 @@ describe("UserAnalyticsController", () => {
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     jsonMock = vi.fn();
+    setHeaderMock = vi.fn();
     statusMock = vi.fn().mockReturnValue({ json: jsonMock });
 
     mockRes = {
       status: statusMock as unknown as Response["status"],
       json: jsonMock as unknown as Response["json"],
+      setHeader: setHeaderMock as unknown as Response["setHeader"],
     };
 
     mockReq = {
@@ -124,13 +144,56 @@ describe("UserAnalyticsController", () => {
         { _id: { year: 2025, month: 2 }, count: 8 },
       ];
 
+      const mockUsersByOccupation = [
+        { _id: "Engineer", count: 5 },
+      ];
+
+      const mockDemographicRows = [
+        {
+          role: "Super Admin",
+          isActive: true,
+          isAtCloudLeader: true,
+          weeklyChurch: "First Baptist",
+          churchAddress: "1 Main St",
+          occupation: "Engineer",
+        },
+        {
+          role: "Participant",
+          isActive: false,
+          isAtCloudLeader: false,
+          occupation: "Engineer",
+        },
+      ];
+
+      const mockRegistrationProfileKpis = {
+        minimumGroupSize: 5,
+        birthYearDecades: {
+          buckets: [{ startYear: 1990, endYear: 1999, count: 5 }],
+          suppressionApplied: false,
+        },
+        residenceCountries: { buckets: [], suppressionApplied: true },
+        residenceRegions: { buckets: [], suppressionApplied: true },
+        residenceCities: { buckets: [], suppressionApplied: true },
+        employmentStatuses: { buckets: [], suppressionApplied: true },
+        companies: { buckets: [], suppressionApplied: true },
+        occupations: {
+          buckets: [{ occupation: "Engineer", count: 5 }],
+          suppressionApplied: true,
+        },
+      } as const;
+
       beforeEach(() => {
+        mockReq.query = { includeRegistrationProfileKpis: "1" };
         vi.mocked(hasPermission).mockReturnValue(true);
         vi.mocked(User.aggregate)
           .mockResolvedValueOnce(mockUsersByRole)
           .mockResolvedValueOnce(mockUsersByAtCloudStatus)
           .mockResolvedValueOnce(mockUsersByChurch)
-          .mockResolvedValueOnce(mockRegistrationTrends);
+          .mockResolvedValueOnce(mockRegistrationTrends)
+          .mockResolvedValueOnce(mockDemographicRows);
+        vi.mocked(
+          RegistrationProfileKpiAnalyticsService.getRegistrationProfileKpis,
+        ).mockResolvedValue(mockRegistrationProfileKpis);
       });
 
       it("should return user analytics data", async () => {
@@ -140,6 +203,10 @@ describe("UserAnalyticsController", () => {
         );
 
         expect(statusMock).toHaveBeenCalledWith(200);
+        expect(setHeaderMock).toHaveBeenCalledWith(
+          "Cache-Control",
+          "no-store",
+        );
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,
           data: {
@@ -147,17 +214,91 @@ describe("UserAnalyticsController", () => {
             usersByAtCloudStatus: mockUsersByAtCloudStatus,
             usersByChurch: mockUsersByChurch,
             registrationTrends: mockRegistrationTrends,
+            usersByOccupation: mockUsersByOccupation,
+            totalUsers: 2,
+            activeUsers: 1,
+            demographics: {
+              roleStats: {
+                total: 2,
+                superAdmin: 1,
+                administrators: 0,
+                leaders: 0,
+                guestExperts: 0,
+                participants: 1,
+                atCloudLeaders: 1,
+              },
+              churchAnalytics: {
+                weeklyChurchStats: { "First Baptist": 1 },
+                churchAddressStats: { "1 Main St": 1 },
+                usersWithChurchInfo: 1,
+                usersWithoutChurchInfo: 1,
+                totalChurches: 1,
+                totalChurchLocations: 1,
+                churchParticipationRate: 50,
+              },
+              occupationAnalytics: {
+                occupationStats: { Engineer: 5 },
+                usersWithOccupation: 5,
+                usersWithoutOccupation: 0,
+                totalOccupationTypes: 1,
+                topOccupations: [{ occupation: "Engineer", count: 5 }],
+                occupationCompletionRate: 0,
+              },
+            },
+            registrationProfileKpis: mockRegistrationProfileKpis,
           },
         });
       });
 
-      it("should call User.aggregate four times for different analytics", async () => {
+      it("uses the same suppressed occupation buckets in every response path", async () => {
         await UserAnalyticsController.getUserAnalytics(
           mockReq as Request,
           mockRes as Response,
         );
 
-        expect(User.aggregate).toHaveBeenCalledTimes(4);
+        expect(User.aggregate).toHaveBeenCalledTimes(5);
+        expect(
+          RegistrationProfileKpiAnalyticsService.getRegistrationProfileKpis,
+        ).toHaveBeenCalledTimes(1);
+        const response = jsonMock.mock.calls[0][0] as {
+          data: {
+            usersByOccupation: unknown;
+            demographics: { occupationAnalytics: unknown };
+            registrationProfileKpis: typeof mockRegistrationProfileKpis;
+          };
+        };
+        expect(response.data.usersByOccupation).toEqual([
+          { _id: "Engineer", count: 5 },
+        ]);
+        expect(response.data.demographics.occupationAnalytics).toMatchObject({
+          occupationStats: { Engineer: 5 },
+          usersWithOccupation: 5,
+          usersWithoutOccupation: 0,
+          occupationCompletionRate: 0,
+        });
+        expect(
+          response.data.registrationProfileKpis.occupations.buckets,
+        ).toEqual([{ occupation: "Engineer", count: 5 }]);
+      });
+
+      it("preserves the legacy response when KPI data is not requested", async () => {
+        mockReq.query = {};
+
+        await UserAnalyticsController.getUserAnalytics(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        const response = jsonMock.mock.calls[0][0] as {
+          data: Record<string, unknown>;
+        };
+        expect(response.data).not.toHaveProperty("registrationProfileKpis");
+        expect(
+          RegistrationProfileKpiAnalyticsService.getRegistrationProfileKpis,
+        ).toHaveBeenCalledTimes(1);
+        expect(response.data.usersByOccupation).toEqual([
+          { _id: "Engineer", count: 5 },
+        ]);
       });
     });
 

@@ -158,9 +158,11 @@ describe("Co-Organizer Program Access Integration Tests", () => {
 
       expect(response.status).toBe(403);
       expect(response.body.success).toBe(false);
-      expect(response.body.message).toContain("Leader One");
+      expect(response.body.message).toContain("Test User");
       expect(response.body.message).toContain("do not have access");
-      expect(response.body.data?.unauthorizedCoOrganizers).toHaveLength(1);
+      expect(response.body.data?.unauthorizedCoOrganizers).toEqual([
+        { userId: leaderUserId, name: "Test User" },
+      ]);
     });
 
     it("should allow event creation when co-organizer purchased the paid program", async () => {
@@ -512,7 +514,7 @@ describe("Co-Organizer Program Access Integration Tests", () => {
 
       expect(updateResponse.status).toBe(403);
       expect(updateResponse.body.success).toBe(false);
-      expect(updateResponse.body.message).toContain("Leader One");
+      expect(updateResponse.body.message).toContain("Test User");
       expect(updateResponse.body.message).toContain("do not have access");
     });
 

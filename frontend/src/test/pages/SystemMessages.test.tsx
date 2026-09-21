@@ -89,6 +89,7 @@ const mockMessages = [
 describe("SystemMessages", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockCurrentUser.role = "Administrator";
     localStorage.setItem("authToken", "fake-token");
 
     // Import the mocked module to get access to the mock function
@@ -166,6 +167,51 @@ describe("SystemMessages", () => {
         expect(screen.getByText("2 total messages")).toBeInTheDocument();
       });
     });
+  });
+
+  describe("Create Message Authorization", () => {
+    it.each(["Administrator", "Super Admin"])(
+      "shows the create action for %s",
+      async (role) => {
+        mockCurrentUser.role = role;
+
+        render(
+          <MemoryRouter>
+            <SystemMessages />
+          </MemoryRouter>
+        );
+
+        await waitFor(() => {
+          expect(
+            screen.getByRole("button", {
+              name: /create new system message/i,
+            })
+          ).toBeInTheDocument();
+        });
+      }
+    );
+
+    it.each(["Leader", "Guest Expert", "Participant"])(
+      "hides the create action from %s while preserving message access",
+      async (role) => {
+        mockCurrentUser.role = role;
+
+        render(
+          <MemoryRouter>
+            <SystemMessages />
+          </MemoryRouter>
+        );
+
+        await waitFor(() => {
+          expect(screen.getByText("System Update")).toBeInTheDocument();
+        });
+        expect(
+          screen.queryByRole("button", {
+            name: /create new system message/i,
+          })
+        ).not.toBeInTheDocument();
+      }
+    );
   });
 
   describe("Message List Display", () => {

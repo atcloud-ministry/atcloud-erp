@@ -17,9 +17,17 @@ export * from "./publicEvents.api";
 export * from "./events.api";
 export * from "./rolesTemplates.api";
 export * from "./programs.api";
+export * from "./programCommunitySettings.contracts";
 export * from "./purchases.api";
 export * from "./promoCodes.api";
 export * from "./users.api";
+export * from "./userDirectory.api";
+export * from "./alumniDirectory.api";
+export * from "./alumniHelp.api";
+export * from "./conversations.api";
+export * from "./conversations.contracts";
+export * from "./pushNotifications.api";
+export * from "./pushNotifications.contracts";
 export * from "./files.api";
 export * from "./notifications.api";
 export * from "./systemMessages.api";
@@ -30,6 +38,8 @@ export * from "./assignments.api";
 export * from "./donations.api";
 export * from "./refundRequests.api";
 export * from "./annualMemberships.api";
+export * from "./alumniInvitations.api";
+export * from "./featureControls.api";
 
 // Export full ApiClient for backward compatibility with code that uses apiClient instance
 export { apiClient, ApiClient } from "./apiClient";

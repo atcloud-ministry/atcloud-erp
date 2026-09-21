@@ -12,6 +12,7 @@ import { UnifiedMessageController } from "../unifiedMessageController";
 import { UserDocLike, toIdString } from "./types";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 export default class PasswordChangeController {
   // Phase 1: Request password change - requires current password and new password
@@ -82,59 +83,38 @@ export default class PasswordChangeController {
 
       // Send password change request trio
       try {
-        console.log(
-          "🔄 Starting trio notification for password change request..."
-        );
-
-        // Email notification
-        console.log("📧 Sending email notification...");
         await EmailService.sendPasswordChangeRequestEmail(
           user.email,
           user.firstName || user.username,
           passwordChangeToken
         );
-        console.log("✅ Email notification sent successfully");
 
-        // System message
-        console.log("📬 Creating system message...");
-        const systemMessage =
-          await UnifiedMessageController.createTargetedSystemMessage(
-            {
-              title: "Password Change Request",
-              content: `A password change was requested for your account. Please check your email to confirm this change. This request expires in 10 minutes.`,
-              // Use a valid type in the Message schema
-              type: "warning",
-              priority: "high",
-              hideCreator: true,
-            },
-            [userId.toString()],
-            {
-              id: "system",
-              firstName: "System",
-              lastName: "",
-              username: "system",
-              // Use valid values per schema to avoid validation failures
-              gender: "male",
-              authLevel: "Super Admin",
-              avatar: "",
-            }
-          );
-        console.log(
-          "✅ System message created successfully:",
-          systemMessage?._id
-        );
-
-        console.log(
-          `Password change request trio sent for user: ${user.email}`
+        await UnifiedMessageController.createTargetedSystemMessage(
+          {
+            title: "Password Change Request",
+            content: `A password change was requested for your account. Please check your email to confirm this change. This request expires in 10 minutes.`,
+            // Use a valid type in the Message schema
+            type: "warning",
+            priority: "high",
+            hideCreator: true,
+          },
+          [userId.toString()],
+          {
+            id: "system",
+            firstName: "System",
+            lastName: "",
+            username: "system",
+            // Use valid values per schema to avoid validation failures
+            gender: "male",
+            authLevel: "Super Admin",
+            avatar: "",
+          }
         );
       } catch (error) {
-        console.error(
-          "❌ Failed to send password change request notifications:",
-          error
-        );
-        if (error instanceof Error) {
-          console.error("📋 Error stack:", error.stack);
-        }
+        console.error("Password change request notification failed", {
+          userId,
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
       }
 
       res.status(200).json({
@@ -143,7 +123,9 @@ export default class PasswordChangeController {
           "Password change request sent. Please check your email to confirm.",
       });
     } catch (error: unknown) {
-      console.error("Request password change error:", error);
+      console.error("Password change request failed", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
       res.status(500).json({
         success: false,
         message: "Password change request failed.",
@@ -158,10 +140,8 @@ export default class PasswordChangeController {
   ): Promise<void> {
     try {
       const { token } = req.params;
-      console.log("🔐 Starting password change completion for token:", token);
 
       if (!token) {
-        console.log("❌ No token provided");
         res.status(400).json({
           success: false,
           message: "Password change token is required.",
@@ -175,34 +155,13 @@ export default class PasswordChangeController {
         .update(token)
         .digest("hex");
 
-      console.log("🔑 Token processing:", {
-        originalToken: token,
-        hashedToken: hashedToken.substring(0, 10) + "...",
-        currentTime: new Date(Date.now()),
-      });
-
       // Find user with valid password change token
       const user = await User.findOne({
         passwordChangeToken: hashedToken,
         passwordChangeExpires: { $gt: Date.now() },
       }).select("+pendingPassword");
 
-      console.log("👤 User lookup result:", {
-        found: !!user,
-        userId: user?._id?.toString(),
-        email: user?.email,
-        hasPasswordChangeToken: !!user?.passwordChangeToken,
-        hasExpiration: !!user?.passwordChangeExpires,
-        hasPendingPassword: !!user?.pendingPassword,
-        tokenExpires: user?.passwordChangeExpires,
-        currentTime: new Date(Date.now()),
-        isExpired: user?.passwordChangeExpires
-          ? Date.now() > user.passwordChangeExpires.getTime()
-          : "N/A",
-      });
-
       if (!user) {
-        console.log("❌ Password change failed: Token invalid or expired");
         res.status(400).json({
           success: false,
           message: "Password change token is invalid or has expired.",
@@ -211,7 +170,6 @@ export default class PasswordChangeController {
       }
 
       if (!user.pendingPassword) {
-        console.log("❌ Password change failed: No pending password found");
         res.status(400).json({
           success: false,
           message: "No pending password change found.",
@@ -219,27 +177,19 @@ export default class PasswordChangeController {
         return;
       }
 
-      console.log("🔒 User passwords before update:", {
-        currentPasswordLength: user.password ? user.password.length : 0,
-        pendingPasswordLength: user.pendingPassword
-          ? user.pendingPassword.length
-          : 0,
-        currentPasswordStart: user.password
-          ? user.password.substring(0, 10)
-          : "none",
-        pendingPasswordStart: user.pendingPassword
-          ? user.pendingPassword.substring(0, 10)
-          : "none",
-      });
-
       // Apply the new password using direct update to avoid double hashing
       // The pendingPassword is already hashed, so we update directly without triggering pre-save hooks
+      const changedAt = new Date();
       const updateResult = await User.updateOne(
-        { _id: user._id },
+        {
+          _id: user._id,
+          passwordChangeToken: hashedToken,
+          passwordChangeExpires: { $gt: changedAt },
+        },
         {
           $set: {
             password: user.pendingPassword,
-            passwordChangedAt: new Date(),
+            passwordChangedAt: changedAt,
           },
           $unset: {
             passwordChangeToken: 1,
@@ -248,83 +198,63 @@ export default class PasswordChangeController {
           },
         }
       );
+      if (updateResult.modifiedCount !== 1) {
+        res.status(400).json({
+          success: false,
+          message: "Password change token is invalid or has expired.",
+        });
+        return;
+      }
+
+      try {
+        await RefreshSessionService.revokeAllForUser(
+          toIdString(user._id),
+          "password_changed",
+        );
+      } catch (error: unknown) {
+        // The CAS wrote passwordChangedAt with the password, so all prior JWTs
+        // remain rejected even if defense-in-depth session cleanup is delayed.
+        console.warn("Refresh session revocation after password change failed", {
+          userId: toIdString(user._id),
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
 
       // Invalidate user cache after password update
       await CachePatterns.invalidateUserCache(toIdString(user._id));
 
-      console.log("📝 Database update result:", {
-        acknowledged: updateResult.acknowledged,
-        modifiedCount: updateResult.modifiedCount,
-        matchedCount: updateResult.matchedCount,
-        upsertedCount: updateResult.upsertedCount,
-      });
-
-      // Verify the update by fetching the user again
-      const updatedUser = await User.findById(user._id);
-      console.log("✅ User after update:", {
-        userId: updatedUser?._id?.toString(),
-        passwordLength: updatedUser?.password ? updatedUser.password.length : 0,
-        passwordStart: updatedUser?.password
-          ? updatedUser.password.substring(0, 10)
-          : "none",
-        hasPasswordChangeToken: !!updatedUser?.passwordChangeToken,
-        hasPendingPassword: !!updatedUser?.pendingPassword,
-        passwordChangedAt: updatedUser?.passwordChangedAt,
-      });
-
       // Send password change success trio
       try {
-        console.log(
-          "🔄 Starting trio notification for password change completion..."
-        );
-
-        // Email notification
-        console.log("📧 Sending email notification...");
         await EmailService.sendPasswordResetSuccessEmail(
           user.email,
           user.firstName || user.username
         );
-        console.log("✅ Email notification sent successfully");
 
-        // System message
-        console.log("📬 Creating system message...");
-        const systemMessage =
-          await UnifiedMessageController.createTargetedSystemMessage(
-            {
-              title: "Password Changed Successfully",
-              content: `Your account password was changed successfully on ${new Date().toLocaleString()}. If you didn't make this change, please contact support immediately.`,
-              // Use a valid type in the Message schema
-              type: "update",
-              priority: "medium",
-              hideCreator: true,
-            },
-            [toIdString(user._id)],
-            {
-              id: "system",
-              firstName: "System",
-              lastName: "",
-              username: "system",
-              gender: "male",
-              authLevel: "Super Admin",
-              avatar: "",
-            }
-          );
-        console.log(
-          "✅ System message created successfully:",
-          systemMessage?._id
-        );
-
-        console.log(
-          `Password change success trio sent for user: ${user.email}`
+        await UnifiedMessageController.createTargetedSystemMessage(
+          {
+            title: "Password Changed Successfully",
+            content: `Your account password was changed successfully on ${new Date().toLocaleString()}. If you didn't make this change, please contact support immediately.`,
+            // Use a valid type in the Message schema
+            type: "update",
+            priority: "medium",
+            hideCreator: true,
+          },
+          [toIdString(user._id)],
+          {
+            id: "system",
+            firstName: "System",
+            lastName: "",
+            username: "system",
+            gender: "male",
+            authLevel: "Super Admin",
+            avatar: "",
+          }
         );
       } catch (error) {
-        console.error(
-          "❌ Failed to send password change success notifications:",
-          error
-        );
-        if (error instanceof Error) {
-          console.error("📋 Error stack:", error.stack);
-        }
+        console.error("Password change success notification failed", {
+          userId: toIdString(user._id),
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        });
       }
 
       res.status(200).json({
@@ -332,7 +262,9 @@ export default class PasswordChangeController {
         message: "Password changed successfully!",
       });
     } catch (error: unknown) {
-      console.error("Complete password change error:", error);
+      console.error("Password change completion failed", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
       res.status(500).json({
         success: false,
         message: "Password change completion failed.",

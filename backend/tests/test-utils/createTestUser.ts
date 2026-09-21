@@ -1,10 +1,14 @@
 import request from "supertest";
 import app from "../../src/app";
 import User from "../../src/models/User";
+import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
+import { TEST_REGISTRATION_PROFILE } from "./registrationProfileFixture";
+import { REGISTRATION_PRIVACY_NOTICE } from "../../src/config/registrationPrivacyNotice";
 
 type TestGender = "male" | "female";
 
-export interface CreateTestUserOptions {
+export interface CreateTestUserOptions
+  extends Partial<RegistrationProfileFields> {
   username?: string;
   email?: string;
   password?: string;
@@ -18,7 +22,7 @@ export interface CreateTestUserOptions {
   verified?: boolean;
 }
 
-export interface TestRegistrationPayload {
+export interface TestRegistrationPayload extends RegistrationProfileFields {
   username: string;
   email: string;
   password: string;
@@ -29,6 +33,7 @@ export interface TestRegistrationPayload {
   isAtCloudLeader: boolean;
   roleInAtCloud?: string;
   acceptTerms: boolean;
+  registrationNoticeVersion: string;
 }
 
 const uniqueId = () => Math.random().toString(36).slice(2, 8);
@@ -38,7 +43,17 @@ export function buildTestRegistrationPayload(
 ): TestRegistrationPayload {
   const password = opts.password ?? "TestPass123!";
   const isAtCloudLeader = opts.isAtCloudLeader ?? false;
+  const residenceCountryCode =
+    opts.residenceCountryCode ??
+    TEST_REGISTRATION_PROFILE.residenceCountryCode;
+  const residenceRegion =
+    opts.residenceRegion !== undefined
+      ? opts.residenceRegion
+      : residenceCountryCode.toUpperCase() === "US"
+        ? TEST_REGISTRATION_PROFILE.residenceRegion
+        : null;
   const payload: TestRegistrationPayload = {
+    ...TEST_REGISTRATION_PROFILE,
     username: opts.username ?? `user_${uniqueId()}`,
     email: opts.email ?? `${uniqueId()}@example.com`,
     password,
@@ -48,6 +63,21 @@ export function buildTestRegistrationPayload(
     gender: opts.gender ?? "male",
     isAtCloudLeader,
     acceptTerms: opts.acceptTerms ?? true,
+    registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+    phone: opts.phone ?? TEST_REGISTRATION_PROFILE.phone,
+    birthYear: opts.birthYear ?? TEST_REGISTRATION_PROFILE.birthYear,
+    residenceCity:
+      opts.residenceCity ?? TEST_REGISTRATION_PROFILE.residenceCity,
+    residenceRegion,
+    residenceCountryCode,
+    employmentStatus:
+      opts.employmentStatus ?? TEST_REGISTRATION_PROFILE.employmentStatus,
+    company:
+      opts.company === undefined ? TEST_REGISTRATION_PROFILE.company : opts.company,
+    occupation:
+      opts.occupation === undefined
+        ? TEST_REGISTRATION_PROFILE.occupation
+        : opts.occupation,
   };
 
   if (isAtCloudLeader || opts.roleInAtCloud) {
@@ -83,11 +113,20 @@ export async function createAndLoginTestUser(opts: CreateTestUserOptions = {}) {
     .send({ emailOrUsername: base.email, password: base.password })
     .expect(200);
 
+  const setCookie = loginRes.headers["set-cookie"];
+  const refreshCookie = Array.isArray(setCookie)
+    ? setCookie.find((value) => value.startsWith("refreshToken="))?.split(";")[0]
+    : typeof setCookie === "string"
+      ? setCookie.split(";")[0]
+      : undefined;
+
   // Get user ID from database
   const user = await User.findOne({ email: base.email });
 
   return {
     token: loginRes.body.data.accessToken as string,
+    refreshCookie,
+    refreshToken: refreshCookie?.slice("refreshToken=".length),
     email: base.email,
     username: base.username,
     password: base.password,

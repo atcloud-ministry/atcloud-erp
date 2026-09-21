@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 import { Request, Response, NextFunction } from "express";
 import { randomUUID } from "crypto";
+import { scrubSensitiveString } from "../utils/sensitiveString";
 
 /**
  * Request Correlation Middleware
@@ -27,12 +28,35 @@ const DEFAULT_OPTIONS: Required<CorrelationOptions> = {
   generator: () => randomUUID(),
 };
 
+export const CORRELATION_ID_MAX_LENGTH = 128;
+export const CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+export function isValidCorrelationId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= CORRELATION_ID_MAX_LENGTH &&
+    CORRELATION_ID_PATTERN.test(value) &&
+    scrubSensitiveString(value) === value
+  );
+}
+
+function generateSafeCorrelationId(generator: () => string): string {
+  try {
+    const generated = generator();
+    if (isValidCorrelationId(generated)) return generated;
+  } catch {
+    // Fall through to a server-owned UUID when a custom generator fails.
+  }
+  return randomUUID();
+}
+
 /**
  * Middleware to add correlation ID to requests
  *
  * Features:
- * - Uses existing correlation ID from request header if present
- * - Generates new UUID if no correlation ID provided
+ * - Uses a valid correlation ID from the request header if present
+ * - Generates a safe server-owned ID when the header is absent or invalid
  * - Adds correlation ID to response headers
  * - Attaches correlation ID to request object for use in controllers/services
  *
@@ -49,12 +73,9 @@ export const requestCorrelation = (
     const incomingId = Array.isArray(headerVal)
       ? headerVal[0]
       : (headerVal as string | undefined);
-    let correlationId = incomingId;
-
-    // Generate new correlation ID if none provided
-    if (!correlationId) {
-      correlationId = config.generator();
-    }
+    const correlationId = isValidCorrelationId(incomingId)
+      ? incomingId
+      : generateSafeCorrelationId(config.generator);
 
     // Attach correlation ID to request object
     req.correlationId = correlationId;

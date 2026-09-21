@@ -1,24 +1,63 @@
 {
-  "name": "@Cloud Events Management System",
-  "short_name": "@Cloud Events",
-  "description": "Event management and registration system for @Cloud Ministry",
-  "start_url": "/",
+  "id": "/",
+  "name": "@Cloud Events & Community",
+  "short_name": "@Cloud",
+  "description": "Events, programs, alumni support, and community conversations for @Cloud Marketplace Ministry.",
+  "lang": "en-US",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#3b82f6",
-  "orientation": "portrait-primary",
+  "background_color": "#f9fafb",
+  "theme_color": "#111827",
+  "categories": ["business", "education", "social"],
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/Cloud-browsertag.png",
+      "src": "/pwa-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/Cloud-browsertag.png",
+      "src": "/pwa-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Chat Rooms",
+      "short_name": "Chats",
+      "description": "Open your community conversations",
+      "url": "/#/dashboard/chat-rooms",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Alumni Directory",
+      "short_name": "Directory",
+      "description": "Find alumni who are willing to help",
+      "url": "/#/dashboard/community/alumni",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

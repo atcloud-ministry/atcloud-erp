@@ -5,7 +5,7 @@ import BellNotificationsRemovalController from "../../../../src/controllers/mess
 // Mock dependencies
 vi.mock("../../../../src/models/Message", () => ({
   default: {
-    findById: vi.fn(),
+    findOne: vi.fn(),
   },
 }));
 
@@ -26,7 +26,7 @@ import { socketService } from "../../../../src/services/infrastructure/SocketSer
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 
 interface MockRequest {
-  user?: { id: string };
+  user?: { id: string; role: string };
   params: Record<string, string>;
 }
 
@@ -52,7 +52,7 @@ describe("BellNotificationsRemovalController", () => {
     };
 
     mockReq = {
-      user: { id: "user123" },
+      user: { id: "user123", role: "Participant" },
       params: { messageId: "507f1f77bcf86cd799439011" },
     };
   });
@@ -79,7 +79,7 @@ describe("BellNotificationsRemovalController", () => {
       });
 
       it("should return 401 if user.id is undefined", async () => {
-        mockReq.user = {} as { id: string };
+        mockReq.user = {} as { id: string; role: string };
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,
@@ -96,16 +96,23 @@ describe("BellNotificationsRemovalController", () => {
 
     describe("Not Found", () => {
       it("should return 404 if message not found", async () => {
-        vi.mocked(Message.findById).mockResolvedValue(null);
+        vi.mocked(Message.findOne).mockResolvedValue(null);
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,
           mockRes as Response,
         );
 
-        expect(Message.findById).toHaveBeenCalledWith(
-          "507f1f77bcf86cd799439011",
-        );
+        expect(Message.findOne).toHaveBeenCalledWith({
+          _id: "507f1f77bcf86cd799439011",
+          isActive: true,
+          "userStates.user123": { $exists: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
         expect(statusMock).toHaveBeenCalledWith(404);
         expect(jsonMock).toHaveBeenCalledWith({
           success: false,
@@ -122,7 +129,7 @@ describe("BellNotificationsRemovalController", () => {
           save: vi.fn().mockResolvedValue(true),
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,
@@ -157,7 +164,7 @@ describe("BellNotificationsRemovalController", () => {
           }),
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,
@@ -170,7 +177,7 @@ describe("BellNotificationsRemovalController", () => {
 
     describe("Error Handling", () => {
       it("should return 500 on database error during find", async () => {
-        vi.mocked(Message.findById).mockRejectedValue(
+        vi.mocked(Message.findOne).mockRejectedValue(
           new Error("Database connection failed"),
         );
 
@@ -194,7 +201,7 @@ describe("BellNotificationsRemovalController", () => {
           save: vi.fn().mockRejectedValue(new Error("Save failed")),
         };
 
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage);
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,
@@ -207,7 +214,7 @@ describe("BellNotificationsRemovalController", () => {
 
       it("should log error details on failure", async () => {
         const testError = new Error("Test error");
-        vi.mocked(Message.findById).mockRejectedValue(testError);
+        vi.mocked(Message.findOne).mockRejectedValue(testError);
 
         await BellNotificationsRemovalController.removeBellNotification(
           mockReq as unknown as Request,

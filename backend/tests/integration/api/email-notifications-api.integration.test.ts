@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -22,6 +23,7 @@ import { User, Event, Registration, AuditLog } from "../../../src/models";
 describe("Email Notifications API - Integration Tests", () => {
   let adminToken: string;
   let leaderToken: string;
+  let guestExpertToken: string;
   let memberToken: string;
   let adminUserId: string;
   let leaderUserId: string;
@@ -47,6 +49,7 @@ describe("Email Notifications API - Integration Tests", () => {
 
     // Create admin user
     const adminRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_admin",
       email: "emailnotif.admin@test.com",
       password: "Admin123!@#",
@@ -59,6 +62,7 @@ describe("Email Notifications API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!adminRegister.body.success) {
@@ -98,6 +102,7 @@ describe("Email Notifications API - Integration Tests", () => {
 
     // Create leader user
     const leaderRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_leader",
       email: "emailnotif.leader@test.com",
       password: "Leader123!@#",
@@ -110,6 +115,7 @@ describe("Email Notifications API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!leaderRegister.body.success) {
@@ -144,8 +150,34 @@ describe("Email Notifications API - Integration Tests", () => {
 
     leaderToken = leaderLogin.body.data.accessToken;
 
+    const guestExpert = await User.create({
+      username: "emailnotif_guest",
+      email: "emailnotif.guest.expert@test.com",
+      password: "Guest123!@#",
+      firstName: "Guest",
+      lastName: "Expert",
+      gender: "female",
+      role: "Guest Expert",
+      isVerified: true,
+      isActive: true,
+    });
+
+    const guestExpertLogin = await request(app).post("/api/auth/login").send({
+      emailOrUsername: guestExpert.email,
+      password: "Guest123!@#",
+    });
+
+    if (!guestExpertLogin.body.success) {
+      throw new Error(
+        `Guest Expert login failed: ${guestExpertLogin.body.message}`,
+      );
+    }
+
+    guestExpertToken = guestExpertLogin.body.data.accessToken;
+
     // Create regular member
     const memberRegister = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "emailnotif_member",
       email: "emailnotif.member@test.com",
       password: "Member123!@#",
@@ -158,6 +190,7 @@ describe("Email Notifications API - Integration Tests", () => {
       bio: "",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     if (!memberRegister.body.success) {
@@ -249,21 +282,50 @@ describe("Email Notifications API - Integration Tests", () => {
   // ========================================
 
   describe("Authentication and Authorization", () => {
-    it("should reject requests without authentication token", async () => {
-      const response = await request(app)
-        .post("/api/email-notifications/event-created")
-        .send({
-          eventData: {
-            title: "Test Event",
-            date: "2026-01-15",
-            time: "14:00",
-            location: "Test Location",
-            organizerName: "Test Organizer",
-          },
-        });
+    const controlPlaneEndpoints = [
+      "/event-created",
+      "/system-authorization-change",
+      "/atcloud-role-change",
+      "/new-leader-signup",
+      "/co-organizer-assigned",
+      "/event-reminder",
+      "/password-reset",
+      "/email-verification",
+      "/security-alert",
+      "/schedule-reminder",
+      "/event-role-removal",
+      "/event-role-move",
+    ] as const;
 
-      expect(response.status).toBe(401);
-      expect(response.body.success).toBe(false);
+    it("requires authentication for every control-plane endpoint", async () => {
+      for (const endpoint of controlPlaneEndpoints) {
+        const response = await request(app).post(
+          `/api/email-notifications${endpoint}`,
+        );
+
+        expect(response.status, endpoint).toBe(401);
+        expect(response.body.success, endpoint).toBe(false);
+      }
+    });
+
+    it("denies every role without notification-management permission", async () => {
+      const deniedPrincipals = [
+        ["Participant", memberToken],
+        ["Guest Expert", guestExpertToken],
+        ["Leader", leaderToken],
+      ] as const;
+
+      for (const [role, token] of deniedPrincipals) {
+        for (const endpoint of controlPlaneEndpoints) {
+          const response = await request(app)
+            .post(`/api/email-notifications${endpoint}`)
+            .set("Authorization", `Bearer ${token}`)
+            .send({});
+
+          expect(response.status, `${role}: ${endpoint}`).toBe(403);
+          expect(response.body.success, `${role}: ${endpoint}`).toBe(false);
+        }
+      }
     });
 
     it("should accept requests with valid authentication token", async () => {
@@ -284,9 +346,10 @@ describe("Email Notifications API - Integration Tests", () => {
       expect(response.body.success).toBe(true);
     });
 
-    it("should allow test-event-reminder endpoint without authentication", async () => {
+    it("does not expose the former test-event-reminder endpoint", async () => {
       const response = await request(app)
         .post("/api/email-notifications/test-event-reminder")
+        .set("Authorization", `Bearer ${adminToken}`)
         .send({
           eventId: testEventId,
           eventData: {
@@ -298,8 +361,7 @@ describe("Email Notifications API - Integration Tests", () => {
           reminderType: "24h",
         });
 
-      // Should not return 401 (may return 400 for validation or 200 for success)
-      expect(response.status).not.toBe(401);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -653,6 +715,25 @@ describe("Email Notifications API - Integration Tests", () => {
   // ========================================
 
   describe("POST /api/email-notifications/event-reminder", () => {
+    it("should deny a user without notification-management permission", async () => {
+      const response = await request(app)
+        .post("/api/email-notifications/event-reminder")
+        .set("Authorization", `Bearer ${memberToken}`)
+        .send({
+          eventId: testEventId,
+          eventData: {
+            title: "Test Event",
+            date: "2026-01-15",
+            time: "14:00",
+            location: "Test Location",
+          },
+          reminderType: "1h",
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
+    });
+
     it("should send event reminder notification successfully", async () => {
       const response = await request(app)
         .post("/api/email-notifications/event-reminder")
@@ -742,6 +823,16 @@ describe("Email Notifications API - Integration Tests", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.message).toContain("reminder check triggered");
+    });
+
+    it("should deny a user without notification-management permission", async () => {
+      const response = await request(app)
+        .post("/api/email-notifications/schedule-reminder")
+        .set("Authorization", `Bearer ${memberToken}`)
+        .send({});
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
     });
   });
 

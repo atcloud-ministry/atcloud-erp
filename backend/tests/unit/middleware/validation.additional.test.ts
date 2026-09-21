@@ -931,5 +931,54 @@ describe("System Message Validation Rules", () => {
       const hideErrors = result.errors.filter((e) => e.path === "hideCreator");
       expect(hideErrors.length).toBeGreaterThan(0);
     });
+
+    it("should accept valid recipient selectors", async () => {
+      const result = await runBodyValidation(validateSystemMessage, {
+        ...validMessage,
+        targetRoles: ["Leader", "Administrator"],
+        excludeUserIds: ["507F1F77BCF86CD799439011"],
+      });
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it("should accept an empty excluded-user list", async () => {
+      const result = await runBodyValidation(validateSystemMessage, {
+        ...validMessage,
+        excludeUserIds: [],
+      });
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it.each([
+      ["scalar targetRoles", { targetRoles: "Administrator" }],
+      ["null targetRoles", { targetRoles: null }],
+      ["empty targetRoles", { targetRoles: [] }],
+      ["invalid targetRoles", { targetRoles: ["Admin"] }],
+      [
+        "too many targetRoles",
+        {
+          targetRoles: [
+            "Participant",
+            "Guest Expert",
+            "Leader",
+            "Administrator",
+            "Super Admin",
+            "Leader",
+          ],
+        },
+      ],
+      ["scalar excludeUserIds", { excludeUserIds: "507f1f77bcf86cd799439011" }],
+      ["null excludeUserIds", { excludeUserIds: null }],
+      ["invalid excludeUserIds", { excludeUserIds: ["not-an-object-id"] }],
+    ])("should reject %s", async (_label, selectors) => {
+      const result = await runBodyValidation(validateSystemMessage, {
+        ...validMessage,
+        ...selectors,
+      });
+
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import type { IEvent } from "../../models/Event";
+import { UserAssignmentSnapshotService } from "../UserAssignmentSnapshotService";
 
 /**
  * OrganizerManagementService
@@ -30,19 +31,13 @@ export class OrganizerManagementService {
    * Normalize organizer details from update request.
    * Strips email/phone to use placeholders (fetched fresh at read time).
    */
-  normalizeOrganizerDetails(organizerDetails: any[]): any[] {
-    if (!Array.isArray(organizerDetails)) {
-      return [];
-    }
-
-    return organizerDetails.map((organizer) => ({
-      userId: organizer.userId,
-      name: organizer.name,
-      role: organizer.role,
-      avatar: organizer.avatar,
-      gender: organizer.gender,
-      email: "placeholder@example.com", // Fetched fresh at read time
-      phone: "Phone not provided",
-    }));
+  async normalizeOrganizerDetails(
+    organizerDetails: unknown[],
+    existingUserIds: readonly string[] = [],
+  ) {
+    return UserAssignmentSnapshotService.resolveEventOrganizers(
+      organizerDetails,
+      existingUserIds,
+    );
   }
 }

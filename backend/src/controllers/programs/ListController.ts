@@ -19,7 +19,12 @@ const PROGRAM_LIST_PROJECTION = [
   "earlyBirdDeadline",
   "isFree",
   "programRoles",
-  "mentors",
+  "mentors.userId",
+  "mentors.firstName",
+  "mentors.lastName",
+  "mentors.gender",
+  "mentors.avatar",
+  "mentors.roleInAtCloud",
   "adminEnrollments",
   "fullPriceTicket",
   "classRepDiscount",
@@ -64,8 +69,36 @@ export default class ListController {
         const { _id, ...rest } = program as Record<string, unknown> & {
           _id: unknown;
         };
+        const mentors = Array.isArray(rest.mentors)
+          ? rest.mentors.map((value) => {
+              const mentor = value as Record<string, unknown>;
+              return {
+                userId:
+                  mentor.userId == null ? undefined : String(mentor.userId),
+                firstName:
+                  typeof mentor.firstName === "string"
+                    ? mentor.firstName
+                    : undefined,
+                lastName:
+                  typeof mentor.lastName === "string"
+                    ? mentor.lastName
+                    : undefined,
+                gender:
+                  mentor.gender === "male" || mentor.gender === "female"
+                    ? mentor.gender
+                    : undefined,
+                avatar:
+                  typeof mentor.avatar === "string" ? mentor.avatar : undefined,
+                roleInAtCloud:
+                  typeof mentor.roleInAtCloud === "string"
+                    ? mentor.roleInAtCloud
+                    : undefined,
+              };
+            })
+          : [];
         return {
           ...rest,
+          mentors,
           id: _id?.toString(),
           programRoles: normalizeProgramRoles(
             program as unknown as ProgramRoleSource,

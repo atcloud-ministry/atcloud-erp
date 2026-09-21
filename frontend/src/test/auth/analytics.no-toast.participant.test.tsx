@@ -29,6 +29,12 @@ const disabledResource = vi.hoisted(() => ({
 }));
 
 vi.mock("../../hooks/useAnalyticsResources", () => ({
+  useUserAnalyticsResource: () => ({
+    data: null,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
   useAnalyticsOverviewResource: (enabled: boolean) => {
     analyticsResourceMocks.overview(enabled);
     return disabledResource;

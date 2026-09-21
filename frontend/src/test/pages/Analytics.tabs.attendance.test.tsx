@@ -33,9 +33,19 @@ const resourceMocks = vi.hoisted(() => ({
   programs: vi.fn(),
   financialSummary: vi.fn(),
   donations: vi.fn(),
+  users: vi.fn(),
 }));
 
 vi.mock("../../hooks/useAnalyticsResources", () => ({
+  useUserAnalyticsResource: (enabled: boolean) => {
+    resourceMocks.users(enabled);
+    return {
+      data: null,
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  },
   useAnalyticsOverviewResource: (enabled: boolean) => {
     resourceMocks.overview(enabled);
     return {

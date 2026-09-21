@@ -14,6 +14,23 @@ vi.mock("../../../../src/models", () => ({
 
 vi.mock("../../../../src/models/AuditLog");
 
+vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
+  },
+}));
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+    },
+  }),
+);
+
+import { socketService } from "../../../../src/services/infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
+
 describe("AdminUnenrollController", () => {
   let mockReq: any;
   let mockRes: Partial<Response>;
@@ -31,6 +48,7 @@ describe("AdminUnenrollController", () => {
       body: {},
       ip: "127.0.0.1",
       get: vi.fn().mockReturnValue("test-agent"),
+      correlationId: "admin-unenroll-1",
     };
 
     mockRes = {
@@ -134,6 +152,23 @@ describe("AdminUnenrollController", () => {
           success: true,
           message: "Successfully unenrolled from program.",
           data: mockProgram,
+        });
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(
+          userId.toString(),
+        );
+        expect(mockProgram.save.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(socketService.disconnectUser).mock.invocationCallOrder[0],
+        );
+        expect(
+          programMembershipMutationSyncTrigger.programAssignmentsChanged,
+        ).toHaveBeenCalledWith(programId.toString(), {
+          actor: {
+            type: "user",
+            id: userId.toString(),
+            role: "Super Admin",
+          },
+          source: "http",
+          correlationId: "admin-unenroll-1",
         });
       });
 

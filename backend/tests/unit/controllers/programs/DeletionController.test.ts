@@ -6,12 +6,32 @@ import { Event, Program } from "../../../../src/models";
 import AuditLog from "../../../../src/models/AuditLog";
 import { EventCascadeService } from "../../../../src/services/EventCascadeService";
 import { RoleUtils } from "../../../../src/utils/roleUtils";
+import { resourceAuthorizationInvalidationService } from "../../../../src/services/authorization/ResourceAuthorizationInvalidationService";
 
 // Mock dependencies
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/models/AuditLog");
 vi.mock("../../../../src/services/EventCascadeService");
 vi.mock("../../../../src/utils/roleUtils");
+vi.mock(
+  "../../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      findEventIdsForPrograms: vi.fn().mockResolvedValue([]),
+      invalidateEventRooms: vi.fn(),
+    },
+  }),
+);
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programAssignmentsChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 interface MockRequest extends Partial<Request> {
   user?: {
@@ -269,6 +289,12 @@ describe("DeletionController", () => {
       });
 
       it("should unlink events without deleting them", async () => {
+        vi.mocked(
+          resourceAuthorizationInvalidationService.findEventIdsForPrograms,
+        ).mockResolvedValue([
+          "507f1f77bcf86cd799439012",
+          "507f1f77bcf86cd799439013",
+        ]);
         vi.mocked(Event.updateMany).mockResolvedValue({
           modifiedCount: 3,
         } as any);
@@ -283,7 +309,34 @@ describe("DeletionController", () => {
           { programLabels: testProgramId },
           { $pull: { programLabels: testProgramId } },
         );
+        expect(
+          resourceAuthorizationInvalidationService.findEventIdsForPrograms,
+        ).toHaveBeenCalledWith([testProgramId]);
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRooms,
+        ).toHaveBeenCalledWith([
+          "507f1f77bcf86cd799439012",
+          "507f1f77bcf86cd799439013",
+        ]);
+        expect(
+          vi.mocked(Event.updateMany).mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          vi.mocked(
+            resourceAuthorizationInvalidationService.invalidateEventRooms,
+          ).mock.invocationCallOrder[0],
+        );
         expect(Program.findByIdAndDelete).toHaveBeenCalledWith(testProgramId);
+        expect(
+          programMembershipMutationSyncTrigger.programAssignmentsChanged,
+        ).toHaveBeenCalledWith(testProgramId, {
+          actor: {
+            type: "user",
+            id: "admin123",
+            role: "Administrator",
+          },
+          source: "http",
+          correlationId: undefined,
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

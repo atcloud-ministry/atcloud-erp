@@ -47,6 +47,19 @@ vi.mock("../../../src/models/Message", () => ({
   ),
 }));
 
+vi.mock("../../../src/models/User", () => ({
+  default: {
+    find: vi.fn((query: { _id?: { $in?: string[] } }) => ({
+      select: vi.fn().mockResolvedValue(
+        (query._id?.$in ?? []).map((_id) => ({
+          _id,
+          role: "Participant",
+        })),
+      ),
+    })),
+  },
+}));
+
 vi.mock("../../../src/services/infrastructure/SocketService");
 
 describe("TargetedSystemMessagesController - event_role_change targetUserId", () => {
@@ -58,6 +71,19 @@ describe("TargetedSystemMessagesController - event_role_change targetUserId", ()
     // Setup: Mock a saved message
     const mockMessage = {
       _id: "msg123",
+      title: "Test Event Role Change",
+      content: "You have been assigned a new role",
+      type: "event_role_change",
+      priority: "high",
+      createdAt: new Date("2026-09-09T12:00:00.000Z"),
+      creator: {
+        id: "system",
+        firstName: "System",
+        lastName: "Administrator",
+        username: "system",
+        gender: "male",
+        authLevel: "Super Admin",
+      },
       targetUserId: "user456",
       userStates: new Map(), // Add the missing userStates Map
       getBellDisplayTitle: vi.fn().mockReturnValue("Test Event Role Change"), // Add missing method
@@ -93,6 +119,19 @@ describe("TargetedSystemMessagesController - event_role_change targetUserId", ()
     // Setup: Mock a saved message
     const mockMessage = {
       _id: "msg123",
+      title: "Test Event Role Change",
+      content: "Multiple users have been updated",
+      type: "event_role_change",
+      priority: "high",
+      createdAt: new Date("2026-09-09T12:00:00.000Z"),
+      creator: {
+        id: "system",
+        firstName: "System",
+        lastName: "Administrator",
+        username: "system",
+        gender: "male",
+        authLevel: "Super Admin",
+      },
       userStates: new Map(), // Add the missing userStates Map
       getBellDisplayTitle: vi.fn().mockReturnValue("Test Event Role Change"), // Add missing method
       save: vi.fn().mockResolvedValue({}),
@@ -126,6 +165,19 @@ describe("TargetedSystemMessagesController - event_role_change targetUserId", ()
     // Setup: Mock a saved message
     const mockMessage = {
       _id: "msg123",
+      title: "Test Auth Level Change",
+      content: "Your authorization level has been updated",
+      type: "auth_level_change",
+      priority: "high",
+      createdAt: new Date("2026-09-09T12:00:00.000Z"),
+      creator: {
+        id: "system",
+        firstName: "System",
+        lastName: "Administrator",
+        username: "system",
+        gender: "male",
+        authLevel: "Super Admin",
+      },
       targetUserId: "user456",
       userStates: new Map(), // Add the missing userStates Map
       getBellDisplayTitle: vi.fn().mockReturnValue("Test Auth Level Change"), // Add missing method

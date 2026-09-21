@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Integration Test: User self-cancellation vs admin removal
  *
@@ -29,6 +30,7 @@ describe("Event self-cancellation vs admin removal", () => {
 
     // Create regular user
     const userRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "regularuser",
       email: "regularuser@example.com",
       password: "UserPass123!",
@@ -39,6 +41,7 @@ describe("Event self-cancellation vs admin removal", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findByIdAndUpdate(userId, { isVerified: true });
@@ -51,6 +54,7 @@ describe("Event self-cancellation vs admin removal", () => {
 
     // Create admin user
     const adminRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminuser",
       email: "adminuser@example.com",
       password: "AdminPass123!",
@@ -61,6 +65,7 @@ describe("Event self-cancellation vs admin removal", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

@@ -84,7 +84,7 @@ vi.mock("../../services/guestApi", () => ({
   default: { getEventGuests: vi.fn(async () => ({ guests: [] })) },
 }));
 
-describe("EventDetail realtime workshop_topic_updated typed branch", () => {
+describe("EventDetail realtime workshop invalidation", () => {
   beforeEach(() => {
     socketTest.reset();
     toasts.info.mockReset();
@@ -96,7 +96,7 @@ describe("EventDetail realtime workshop_topic_updated typed branch", () => {
     localStorage.removeItem("authToken");
   });
 
-  it("updates Group A topic and shows info when actor is different user", async () => {
+  it("uses a generic notification when workshop payload data is null", async () => {
     render(
       <MemoryRouter initialEntries={["/dashboard/event/e1"]}>
         <Routes>
@@ -107,18 +107,17 @@ describe("EventDetail realtime workshop_topic_updated typed branch", () => {
 
     await waitFor(() => expect(true).toBe(true));
 
-    // Emit typed workshop_topic_updated
     socketTest.emit({
       eventId: "e1",
       updateType: "workshop_topic_updated",
-      data: { group: "A", topic: "Advanced Listening", userId: "u2" },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
     await waitFor(() => {
-      // Info notification triggered (actorId !== currentUserId)
       const msg = toasts.info.mock.calls.at(-1)?.[0];
-      expect(String(msg)).toMatch(/Group A topic updated/i);
+      expect(String(msg)).toBe("Event information has changed.");
+      expect(String(msg)).not.toMatch(/Group A|Advanced Listening|u2/i);
     });
   });
 });

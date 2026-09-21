@@ -13,6 +13,16 @@ vi.mock("../../../../src/services/stripeService");
 vi.mock("../../../../src/services/LockService");
 vi.mock("../../../../src/services/AnnualMembershipAccessService");
 vi.mock("../../../../src/services/notifications/TrioNotificationService");
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      programPurchaseChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 /**
  * PurchaseCheckoutController Unit Tests
@@ -83,6 +93,7 @@ describe("PurchaseCheckoutController", () => {
     it("should return 400 if programId is missing", async () => {
       mockReq.user = {
         _id: userId,
+        role: "Participant",
         email: "test@test.com",
         firstName: "Test",
         lastName: "User",
@@ -199,10 +210,12 @@ describe("PurchaseCheckoutController", () => {
     it("should complete enrollment if program is free", async () => {
       mockReq.user = {
         _id: userId,
+        role: "Participant",
         email: "test@test.com",
         firstName: "Test",
         lastName: "User",
       };
+      mockReq.correlationId = "free-checkout-1";
       mockReq.body = { programId: programId.toString() };
 
       const mockProgram = {
@@ -236,6 +249,20 @@ describe("PurchaseCheckoutController", () => {
           status: "completed",
           paymentMethod: { type: "other" },
         }),
+      );
+      expect(
+        programMembershipMutationSyncTrigger.programPurchaseChanged,
+      ).toHaveBeenCalledWith(
+        { purchaseType: "program", programId },
+        {
+          actor: {
+            type: "user",
+            id: userId.toString(),
+            role: "Participant",
+          },
+          source: "http",
+          correlationId: "free-checkout-1",
+        },
       );
       expect(statusMock).toHaveBeenCalledWith(200);
       expect(jsonMock).toHaveBeenCalledWith({

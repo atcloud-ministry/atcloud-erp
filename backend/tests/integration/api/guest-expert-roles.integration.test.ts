@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import app from "../../../src/app";
@@ -28,6 +29,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
     const regAdmin = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Admin",
         lastName: "User",
         email: adminEmail,
@@ -37,6 +39,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -54,6 +57,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
     const regGuest = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Gus",
         lastName: "Expert",
         email: guestEmail,
@@ -63,6 +67,7 @@ describe("Guest Expert event role permissions (signup + assign)", () => {
         gender: "female",
         isAtCloudLeader: false, // not required for signup
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     guestExpertId = regGuest.body.data.user.id as string;

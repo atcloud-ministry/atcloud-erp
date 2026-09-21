@@ -36,7 +36,7 @@ export default function Footer() {
 
         {/* Additional info row */}
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 space-y-2 sm:space-y-0">
+          <div className="flex flex-col sm:flex-row items-center justify-between text-xs text-gray-600 space-y-2 sm:space-y-0">
             <div>All rights reserved. Unauthorized access is prohibited.</div>
             <div className="flex items-center space-x-4">
               <span>Version {appVersion}</span>

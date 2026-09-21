@@ -193,6 +193,25 @@ describe("Dashboard Header", () => {
       expect(setSidebarOpen).toHaveBeenCalledWith(true);
     });
 
+    it("exposes the navigation target and expanded state", () => {
+      const setSidebarOpen = vi.fn();
+      render(
+        <BrowserRouter>
+          <Header
+            user={mockUser}
+            sidebarOpen={false}
+            setSidebarOpen={setSidebarOpen}
+          />
+        </BrowserRouter>,
+      );
+
+      const button = screen.getByRole("button", {
+        name: "Open navigation menu",
+      });
+      expect(button).toHaveAttribute("aria-controls", "dashboard-primary-navigation");
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    });
+
     it("toggles sidebar from open to closed when clicked", () => {
       const setSidebarOpen = vi.fn();
       const { container } = render(

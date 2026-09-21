@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import mongoose from "mongoose";
@@ -69,6 +70,7 @@ describe("Public end-to-end publish→redirect→register flow", () => {
     ]);
 
     const admin = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "flowadmin",
       email: "flowadmin@example.com",
       password: "AdminPass123!",
@@ -79,6 +81,7 @@ describe("Public end-to-end publish→redirect→register flow", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(admin);

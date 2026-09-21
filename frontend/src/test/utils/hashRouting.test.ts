@@ -43,6 +43,42 @@ describe("hash routing helpers", () => {
     ).toBe("/#/p/public-event");
   });
 
+  it("rescues canonical Community and User Management routes", () => {
+    expect(
+      getDirectPathHashRouteReplacement({
+        pathname: "/dashboard/community/alumni/profile-123",
+        search: "?from=email",
+      }),
+    ).toBe(
+      "/#/dashboard/community/alumni/profile-123?from=email",
+    );
+    expect(
+      getDirectPathHashRouteReplacement({
+        pathname: "/dashboard/admin/users",
+      }),
+    ).toBe("/#/dashboard/admin/users");
+  });
+
+  it("rescues direct Chat Room notification links", () => {
+    expect(
+      getDirectPathHashRouteReplacement({
+        pathname: "/dashboard/chat-rooms/507f1f77bcf86cd799439011",
+        search: "?source=push",
+      }),
+    ).toBe(
+      "/#/dashboard/chat-rooms/507f1f77bcf86cd799439011?source=push",
+    );
+  });
+
+  it("maps legacy admin email links to User Management without retaining PII", () => {
+    expect(
+      getDirectPathHashRouteReplacement({
+        pathname: "/admin/users/member@example.com",
+        search: "?source=notification",
+      }),
+    ).toBe("/#/dashboard/admin/users?source=notification");
+  });
+
   it("does not rewrite when a hash route is already present", () => {
     expect(
       getDirectPathHashRouteReplacement({

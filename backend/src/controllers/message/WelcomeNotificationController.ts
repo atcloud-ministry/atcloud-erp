@@ -3,6 +3,7 @@ import Message from "../../models/Message";
 import User from "../../models/User";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { serializeSystemMessageForRecipient } from "../../serializers/systemMessageRealtimeSerializer";
 
 /**
  * Welcome Notification Controller
@@ -91,7 +92,7 @@ export default class WelcomeNotificationController {
 
       // Emit real-time notification
       socketService.emitSystemMessageUpdate(userId, "message_created", {
-        message: welcomeMessage.toJSON(),
+        message: serializeSystemMessageForRecipient(welcomeMessage, userId),
       });
 
       // ✅ REMOVED: Redundant bell_notification_update emission

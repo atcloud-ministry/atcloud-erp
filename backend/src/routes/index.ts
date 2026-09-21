@@ -25,6 +25,20 @@ import promoCodeRoutes from "./promoCodes"; // Promo code system
 import adminPurchaseRoutes from "./admin/purchases"; // Admin payment records
 import donationRoutes from "./donations"; // Donation system
 import refundRequestRoutes from "./refundRequests"; // Refund approval workflow
+import communityRoutes from "./community";
+import adminUserRoutes from "./admin/users";
+import userOptionsRoutes from "./userOptions";
+import runtimeConfigRoutes from "./runtimeConfig";
+import featureControlRoutes from "./admin/featureControls";
+import recoveryControlRoutes from "./recoveryControls";
+import readinessRoutes from "./readiness";
+import adminAlumniImportRoutes from "./admin/alumniImports";
+import adminAlumniInvitationRoutes from "./admin/alumniInvitations";
+import alumniInvitationRoutes from "./alumniInvitations";
+import directoryRoutes from "./directory";
+import alumniHelpRequestRoutes from "./alumniHelpRequests";
+import conversationRoutes from "./conversations";
+import pushRoutes from "./push";
 
 const router = Router();
 
@@ -38,6 +52,10 @@ router.use("/email-notifications", emailNotificationRouter);
 router.use("/notifications", notificationRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/search", searchRoutes);
+router.use("/readiness", readinessRoutes);
+router.use("/runtime-config", runtimeConfigRoutes);
+router.use("/system/feature-controls", featureControlRoutes);
+router.use("/system/recovery", recoveryControlRoutes);
 router.use("/system", systemRoutes);
 router.use("/monitor", monitorRoutes);
 router.use("/guest-migration", guestMigrationRoutes);
@@ -56,6 +74,16 @@ router.use("/promo-codes", promoCodeRoutes);
 router.use("/admin/purchases", adminPurchaseRoutes);
 router.use("/donations", donationRoutes);
 router.use("/refund-requests", refundRequestRoutes);
+router.use("/community", communityRoutes);
+router.use("/admin/users", adminUserRoutes);
+router.use("/admin/alumni-imports", adminAlumniImportRoutes);
+router.use("/admin/alumni-invitations", adminAlumniInvitationRoutes);
+router.use("/alumni-invitations", alumniInvitationRoutes);
+router.use("/directory", directoryRoutes);
+router.use("/alumni-help-requests", alumniHelpRequestRoutes);
+router.use("/conversations", conversationRoutes);
+router.use("/push", pushRoutes);
+router.use("/user-options", userOptionsRoutes);
 
 // Health check endpoint
 router.get("/health", (req, res) => {
@@ -76,6 +104,9 @@ router.get(`/`, (req, res) => {
     endpoints: {
       auth: `/auth`,
       users: `/users`,
+      community: `/community/members`,
+      adminUsers: `/admin/users`,
+      userOptions: `/user-options`,
       events: `/events`,
       notifications: `/notifications`,
       emailNotifications: `/email-notifications`,
@@ -97,11 +128,23 @@ router.get(`/`, (req, res) => {
       users: {
         getProfile: "GET /users/profile",
         updateProfile: "PUT /users/profile",
-        getUserById: "GET /users/:id",
-        getAllUsers: "GET /users (requires VIEW_USER_PROFILES)",
+        getUserById: "GET /users/:id (requires MANAGE_USERS; legacy)",
+        getAllUsers: "GET /users (requires MANAGE_USERS; legacy)",
         updateUserRole: "PUT /users/:id/role (admin)",
         deactivateUser: "PUT /users/:id/deactivate (admin)",
         reactivateUser: "PUT /users/:id/reactivate (admin)",
+      },
+      community: {
+        listMembers: "GET /community/members",
+        getMember: "GET /community/members/:id",
+      },
+      adminUsers: {
+        listUsers: "GET /admin/users (requires MANAGE_USERS)",
+        getUser: "GET /admin/users/:id (requires MANAGE_USERS)",
+      },
+      userOptions: {
+        list:
+          "GET /user-options?context=event-organizer|program-mentor|event-role-assignee",
       },
       events: {
         getAllEvents: "GET /events",

@@ -42,7 +42,7 @@ describe("markAllBellNotificationsAsRead behavior", () => {
 
     // Auth mock
     const mockAuth = (req: any, _res: any, next: any) => {
-      req.user = { id: "user-1" };
+      req.user = { id: "user-1", role: "Participant" };
       next();
     };
 

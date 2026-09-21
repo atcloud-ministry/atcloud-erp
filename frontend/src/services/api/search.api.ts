@@ -1,6 +1,11 @@
 import { BaseApiClient } from "./common";
-import type { User as AppUser } from "../../types";
 import type { EventData } from "../../types/event";
+import {
+  decodeAdminUsersPage,
+  decodeCommunityMember,
+  type AdminUsersPageDTO,
+  type CommunityMemberDTO,
+} from "./userDirectory.contracts";
 
 /**
  * Search API Service
@@ -16,7 +21,7 @@ class SearchApiClient extends BaseApiClient {
   async searchUsers(
     query: string,
     filters?: Record<string, string | number | boolean | null | undefined>
-  ): Promise<{ results: AppUser[]; pagination?: unknown }> {
+  ): Promise<AdminUsersPageDTO> {
     const queryParams = new URLSearchParams({ q: query });
     if (filters) {
       Object.entries(filters).forEach(([key, value]) => {
@@ -26,13 +31,12 @@ class SearchApiClient extends BaseApiClient {
       });
     }
 
-    const response = await this.request<{
-      results: AppUser[];
-      pagination?: unknown;
-    }>(`/search/users?${queryParams.toString()}`);
+    const response = await this.request<unknown>(
+      `/search/users?${queryParams.toString()}`,
+    );
 
-    if (response.data) {
-      return response.data;
+    if (response.data !== undefined) {
+      return decodeAdminUsersPage(response.data);
     }
 
     throw new Error(response.message || "Failed to search users");
@@ -79,18 +83,29 @@ class SearchApiClient extends BaseApiClient {
    * @returns Results grouped by entity type
    */
   async globalSearch(query: string): Promise<{
-    users?: AppUser[];
-    events?: EventData[];
-    messages?: unknown[];
+    users: CommunityMemberDTO[];
+    events: EventData[];
+    totalResults: number;
   }> {
-    const response = await this.request<{
-      users?: AppUser[];
-      events?: EventData[];
-      messages?: unknown[];
-    }>(`/search/global?q=${encodeURIComponent(query)}`);
+    const response = await this.request<unknown>(
+      `/search/global?q=${encodeURIComponent(query)}`,
+    );
 
-    if (response.data) {
-      return response.data;
+    if (response.data && typeof response.data === "object") {
+      const data = response.data as Record<string, unknown>;
+      if (!Array.isArray(data.users) || !Array.isArray(data.events)) {
+        throw new Error("Invalid global search response");
+      }
+      if (typeof data.totalResults !== "number") {
+        throw new Error("Invalid global search response");
+      }
+      return {
+        users: data.users.map((user, index) =>
+          decodeCommunityMember(user, `data.users[${index}]`),
+        ),
+        events: data.events as EventData[],
+        totalResults: data.totalResults,
+      };
     }
 
     throw new Error(response.message || "Failed to perform global search");

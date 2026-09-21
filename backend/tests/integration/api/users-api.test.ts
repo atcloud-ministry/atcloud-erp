@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Users API Integration Tests
  *
@@ -26,6 +27,7 @@ describe("Users API Integration Tests", () => {
 
     // Create regular user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "testuser",
       email: "test@example.com",
       password: "TestPass123!",
@@ -36,6 +38,7 @@ describe("Users API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const userResponse = await request(app)
@@ -58,6 +61,7 @@ describe("Users API Integration Tests", () => {
 
     // Create admin user
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -68,6 +72,7 @@ describe("Users API Integration Tests", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const adminResponse = await request(app)
@@ -98,6 +103,7 @@ describe("Users API Integration Tests", () => {
       // Create additional test users
       const users = [
         {
+          ...TEST_REGISTRATION_PROFILE,
           username: "user1",
           email: "user1@example.com",
           password: "Password123!",
@@ -107,8 +113,10 @@ describe("Users API Integration Tests", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
         {
+          ...TEST_REGISTRATION_PROFILE,
           username: "user2",
           email: "user2@example.com",
           password: "Password123!",
@@ -118,6 +126,7 @@ describe("Users API Integration Tests", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
       ];
 
@@ -158,18 +167,15 @@ describe("Users API Integration Tests", () => {
       });
     });
 
-    it("should allow user list request with user token (community access)", async () => {
+    it("should direct non-admin user-list reads to the Community API", async () => {
       const response = await request(app)
         .get("/api/users")
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(403);
 
       expect(response.body).toMatchObject({
-        success: true,
-        data: {
-          users: expect.any(Array),
-          pagination: expect.any(Object),
-        },
+        success: false,
+        message: expect.stringContaining("manage_users"),
       });
     });
 
@@ -200,30 +206,28 @@ describe("Users API Integration Tests", () => {
       });
     });
 
-    it("should enforce maximum page size of 20", async () => {
+    it("should reject a page size above the contract maximum", async () => {
       const response = await request(app)
         .get("/api/users?page=1&limit=50")
         .set("Authorization", `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(400);
 
-      // Should not exceed 20 returned users
-      expect(response.body.data.users.length).toBeLessThanOrEqual(20);
-      expect(response.body.data.pagination).toMatchObject({
-        currentPage: 1,
+      expect(response.body).toMatchObject({
+        success: false,
+        message: "Validation failed",
       });
     });
 
-    it("should default to page 1 and limit 20 on invalid params", async () => {
+    it("should reject invalid pagination parameters", async () => {
       const response = await request(app)
         .get("/api/users?page=-5&limit=abc")
         .set("Authorization", `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(400);
 
-      expect(response.body.data.pagination).toMatchObject({
-        currentPage: 1,
+      expect(response.body).toMatchObject({
+        success: false,
+        message: "Validation failed",
       });
-      // length should be <= 20 due to default limit
-      expect(response.body.data.users.length).toBeLessThanOrEqual(20);
     });
 
     it("should filter users by role", async () => {
@@ -277,13 +281,11 @@ describe("Users API Integration Tests", () => {
       expect(response.body.data.user.password).toBeUndefined();
     });
 
-    it("should allow users to get their own profile", async () => {
-      const response = await request(app)
+    it("should keep self-service profile reads on the profile endpoint", async () => {
+      await request(app)
         .get(`/api/users/${userId}`)
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
-
-      expect(response.body.data.user.username).toBe("testuser");
+        .expect(403);
     });
 
     it("should reject Participant trying to get another user's profile", async () => {
@@ -301,6 +303,7 @@ describe("Users API Integration Tests", () => {
     it("should allow Administrator to view Super Admin's profile (new rule)", async () => {
       // Create a Super Admin user
       const superAdminReg = await request(app).post("/api/auth/register").send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "sup",
         email: "sup@example.com",
         password: "SupPass123!",
@@ -310,6 +313,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       });
 
       // Verify and promote to Super Admin
@@ -370,6 +374,7 @@ describe("Users API Integration Tests", () => {
       // Create users with varied data for search testing
       const searchUsers = [
         {
+          ...TEST_REGISTRATION_PROFILE,
           username: "developer",
           email: "dev@example.com",
           password: "Password123!",
@@ -379,8 +384,10 @@ describe("Users API Integration Tests", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
         {
+          ...TEST_REGISTRATION_PROFILE,
           username: "designer",
           email: "design@example.com",
           password: "Password123!",
@@ -390,6 +397,7 @@ describe("Users API Integration Tests", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         },
       ];
 
@@ -439,21 +447,31 @@ describe("Users API Integration Tests", () => {
       expect(response.body.data.users).toHaveLength(0);
     });
 
-    it("should allow participants to search users", async () => {
-      const response = await request(app)
+    it("should restrict compatibility user search to account managers", async () => {
+      await request(app)
         .get("/api/search/users?q=John")
+        .set("Authorization", `Bearer ${authToken}`)
+        .expect(403);
+    });
+  });
+
+  describe("GET /api/users/profile", () => {
+    it("returns the owner's hidden birthYear and structured profile", async () => {
+      const response = await request(app)
+        .get("/api/users/profile")
         .set("Authorization", `Bearer ${authToken}`)
         .expect(200);
 
-      // Participants should see limited user information
-      expect(response.body.data.users).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            firstName: "John",
-            lastName: "Developer",
-          }),
-        ])
-      );
+      expect(response.body.data.user).toMatchObject({
+        phone: TEST_REGISTRATION_PROFILE.phone,
+        birthYear: TEST_REGISTRATION_PROFILE.birthYear,
+        residenceCity: TEST_REGISTRATION_PROFILE.residenceCity,
+        residenceRegion: TEST_REGISTRATION_PROFILE.residenceRegion,
+        residenceCountryCode: TEST_REGISTRATION_PROFILE.residenceCountryCode,
+        employmentStatus: TEST_REGISTRATION_PROFILE.employmentStatus,
+        company: TEST_REGISTRATION_PROFILE.company,
+        occupation: TEST_REGISTRATION_PROFILE.occupation,
+      });
     });
   });
 
@@ -480,6 +498,103 @@ describe("Users API Integration Tests", () => {
           phone: "+1234567890",
         },
       });
+    });
+
+    it("should preserve protected account fields during profile updates", async () => {
+      const userBefore = await User.findById(userId).select("+password");
+      expect(userBefore).not.toBeNull();
+      const passwordBefore = userBefore!.password;
+
+      await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({
+          firstName: "Still Participant",
+          role: "Super Admin",
+          isActive: false,
+          isVerified: false,
+          password: "AttackerPass123!",
+          passwordResetToken: "attacker-token",
+        })
+        .expect(200);
+
+      const userAfter = await User.findById(userId).select(
+        "+password +passwordResetToken",
+      );
+      expect(userAfter).toMatchObject({
+        firstName: "Still Participant",
+        role: "Participant",
+        isActive: true,
+        isVerified: true,
+      });
+      expect(userAfter!.password).toBe(passwordBefore);
+      expect(userAfter!.passwordResetToken).toBeUndefined();
+    });
+
+    it("canonicalizes a partial contract edit and clears legacy homeAddress", async () => {
+      await User.updateOne(
+        { _id: userId },
+        { $set: { homeAddress: "Legacy Address" } },
+      );
+
+      const response = await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ residenceCity: " San   José " })
+        .expect(200);
+
+      expect(response.body.data.residenceCity).toBe("San José");
+      const updated = await User.findById(userId);
+      expect(updated?.residenceCity).toBe("San José");
+      expect(updated?.homeAddress).toBeUndefined();
+      expect(updated?.phone).toBe(TEST_REGISTRATION_PROFILE.phone);
+    });
+
+    it("allows an unrelated edit during the legacy completion grace period", async () => {
+      await User.updateOne(
+        { _id: userId },
+        {
+          $unset: {
+            phone: 1,
+            birthYear: 1,
+            residenceCity: 1,
+            residenceRegion: 1,
+            residenceCountryCode: 1,
+            employmentStatus: 1,
+          },
+          $set: { homeAddress: "Legacy Address" },
+        },
+      );
+
+      await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ firstName: "Legacy Updated" })
+        .expect(200);
+
+      const updated = await User.findById(userId);
+      expect(updated?.firstName).toBe("Legacy Updated");
+      expect(updated?.homeAddress).toBe("Legacy Address");
+    });
+
+    it("rejects a contract edit while the persisted legacy profile is incomplete", async () => {
+      await User.updateOne(
+        { _id: userId },
+        { $unset: { birthYear: 1, residenceCity: 1 } },
+      );
+
+      const response = await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ phone: "+14155550120" })
+        .expect(400);
+
+      expect(response.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "birthYear" }),
+          expect.objectContaining({ field: "residenceCity" }),
+        ]),
+      );
     });
 
     it("should validate email format", async () => {
@@ -573,6 +688,7 @@ describe("Users API Integration Tests", () => {
     it("should allow Super Admin to delete user", async () => {
       // Create a Super Admin user
       const superAdminData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "superadmin",
         email: "superadmin@example.com",
         password: "SuperPass123!",
@@ -583,6 +699,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(superAdminData);
@@ -645,6 +762,7 @@ describe("Users API Integration Tests", () => {
     it("should return 404 for non-existent user (Super Admin)", async () => {
       // Create a Super Admin user for this test
       const superAdminData = {
+        ...TEST_REGISTRATION_PROFILE,
         username: "superadmin2",
         email: "superadmin2@example.com",
         password: "SuperPass123!",
@@ -655,6 +773,7 @@ describe("Users API Integration Tests", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       };
 
       await request(app).post("/api/auth/register").send(superAdminData);
@@ -821,6 +940,7 @@ describe("Users API Integration Tests", () => {
     beforeEach(async () => {
       // Create a target user to edit
       const targetUser = await User.create({
+        ...TEST_REGISTRATION_PROFILE,
         username: "targetuser",
         email: "target@example.com",
         password: "TargetPass123!",
@@ -828,17 +948,20 @@ describe("Users API Integration Tests", () => {
         lastName: "User",
         role: "Participant",
         gender: "female",
-        phone: "1234567890",
+        phone: "+12065550124",
+        homeAddress: "Legacy Address",
         isAtCloudLeader: false,
         roleInAtCloud: "",
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
       targetUserId = targetUser._id.toString();
 
       // Create a leader user
       const leaderUser = await User.create({
+        ...TEST_REGISTRATION_PROFILE,
         username: "leader",
         email: "leader@example.com",
         password: "LeaderPass123!",
@@ -850,6 +973,7 @@ describe("Users API Integration Tests", () => {
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
 
       const leaderLogin = await request(app).post("/api/auth/login").send({
@@ -862,6 +986,7 @@ describe("Users API Integration Tests", () => {
     it("should allow Super Admin to edit other users' profiles", async () => {
       // Create Super Admin token
       const superAdminUser = await User.create({
+        ...TEST_REGISTRATION_PROFILE,
         username: "superadmin",
         email: "superadmin@example.com",
         password: "SuperPass123!",
@@ -872,6 +997,7 @@ describe("Users API Integration Tests", () => {
         isVerified: true,
         isActive: true,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       } as any);
 
       const superAdminLogin = await request(app).post("/api/auth/login").send({
@@ -884,7 +1010,7 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${superAdminToken}`)
         .send({
-          phone: "9876543210",
+          phone: "+14155550101",
           isAtCloudLeader: true,
           roleInAtCloud: "Technical Lead",
         })
@@ -892,13 +1018,13 @@ describe("Users API Integration Tests", () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.message).toContain("updated successfully by admin");
-      expect(response.body.data.phone).toBe("9876543210");
+      expect(response.body.data.phone).toBe("+14155550101");
       expect(response.body.data.isAtCloudLeader).toBe(true);
       expect(response.body.data.roleInAtCloud).toBe("Technical Lead");
 
       // Verify in database
       const updatedUser = await User.findById(targetUserId);
-      expect(updatedUser?.phone).toBe("9876543210");
+      expect(updatedUser?.phone).toBe("+14155550101");
       expect(updatedUser?.isAtCloudLeader).toBe(true);
       expect(updatedUser?.roleInAtCloud).toBe("Technical Lead");
     });
@@ -908,14 +1034,14 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${adminToken}`)
         .send({
-          phone: "5555555555",
+          phone: "+14155550102",
           isAtCloudLeader: true,
           roleInAtCloud: "Project Manager",
         })
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.phone).toBe("5555555555");
+      expect(response.body.data.phone).toBe("+14155550102");
       expect(response.body.data.isAtCloudLeader).toBe(true);
       expect(response.body.data.roleInAtCloud).toBe("Project Manager");
     });
@@ -925,7 +1051,7 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${leaderToken}`)
         .send({
-          phone: "9999999999",
+          phone: "+14155550103",
         })
         .expect(403);
 
@@ -934,7 +1060,7 @@ describe("Users API Integration Tests", () => {
 
       // Verify user was not updated
       const unchangedUser = await User.findById(targetUserId);
-      expect(unchangedUser?.phone).toBe("1234567890"); // Original value
+      expect(unchangedUser?.phone).toBe("+12065550124"); // Original value
     });
 
     it("should reject Participant from editing other users' profiles", async () => {
@@ -942,7 +1068,7 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${authToken}`)
         .send({
-          phone: "8888888888",
+          phone: "+14155550104",
         })
         .expect(403);
 
@@ -950,13 +1076,20 @@ describe("Users API Integration Tests", () => {
       expect(response.body.message).toContain("Access denied");
     });
 
-    it("should only allow editing specific fields (avatar, phone, isAtCloudLeader, roleInAtCloud)", async () => {
+    it("should edit all registration-profile fields while ignoring restricted fields", async () => {
       // Attempt to edit fields that should not be editable
       const response = await request(app)
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${adminToken}`)
         .send({
-          phone: "1111111111",
+          phone: " +14155550105 ",
+          birthYear: "1988",
+          residenceCity: " San   José ",
+          residenceRegion: "ca-on",
+          residenceCountryCode: "ca",
+          employmentStatus: "employed",
+          company: " Example   Company ",
+          occupation: " Product   Manager ",
           isAtCloudLeader: true,
           roleInAtCloud: "Designer",
           // These fields should be ignored
@@ -971,8 +1104,18 @@ describe("Users API Integration Tests", () => {
       expect(response.body.success).toBe(true);
 
       // Verify only allowed fields were updated
-      const updatedUser = await User.findById(targetUserId);
-      expect(updatedUser?.phone).toBe("1111111111");
+      const updatedUser = await User.findById(targetUserId).select(
+        "+birthYear",
+      );
+      expect(updatedUser?.phone).toBe("+14155550105");
+      expect(updatedUser?.birthYear).toBe(1988);
+      expect(updatedUser?.residenceCity).toBe("San José");
+      expect(updatedUser?.residenceRegion).toBe("CA-ON");
+      expect(updatedUser?.residenceCountryCode).toBe("CA");
+      expect(updatedUser?.employmentStatus).toBe("employed");
+      expect(updatedUser?.company).toBe("Example Company");
+      expect(updatedUser?.occupation).toBe("Product Manager");
+      expect(updatedUser?.homeAddress).toBeUndefined();
       expect(updatedUser?.isAtCloudLeader).toBe(true);
       expect(updatedUser?.roleInAtCloud).toBe("Designer");
 
@@ -1030,7 +1173,7 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${fakeId}/admin-edit`)
         .set("Authorization", `Bearer ${adminToken}`)
         .send({
-          phone: "7777777777",
+          phone: "+14155550106",
         })
         .expect(404);
 
@@ -1059,19 +1202,76 @@ describe("Users API Integration Tests", () => {
         .put(`/api/users/${targetUserId}/admin-edit`)
         .set("Authorization", `Bearer ${adminToken}`)
         .send({
-          phone: "3333333333",
+          phone: "+14155550107",
           // Not updating isAtCloudLeader or roleInAtCloud
         })
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.phone).toBe("3333333333");
+      expect(response.body.data.phone).toBe("+14155550107");
 
       // Verify other fields remain unchanged
       const updatedUser = await User.findById(targetUserId);
       expect(updatedUser?.isAtCloudLeader).toBe(false); // Original value
       // roleInAtCloud could be undefined or empty string when not set
       expect(updatedUser?.roleInAtCloud || "").toBe(""); // Original value
+    });
+
+    it("returns 400 for a string isAtCloudLeader value", async () => {
+      const response = await request(app)
+        .put(`/api/users/${targetUserId}/admin-edit`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ isAtCloudLeader: "false" })
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+    });
+
+    it("allows an unrelated admin edit for a legacy incomplete profile", async () => {
+      await User.updateOne(
+        { _id: targetUserId },
+        {
+          $unset: {
+            phone: 1,
+            birthYear: 1,
+            residenceCity: 1,
+            residenceRegion: 1,
+            residenceCountryCode: 1,
+            employmentStatus: 1,
+          },
+          $set: { homeAddress: "Legacy Address" },
+        },
+      );
+
+      await request(app)
+        .put(`/api/users/${targetUserId}/admin-edit`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ avatar: "https://example.com/legacy-avatar.jpg" })
+        .expect(200);
+
+      const updated = await User.findById(targetUserId);
+      expect(updated?.avatar).toBe("https://example.com/legacy-avatar.jpg");
+      expect(updated?.homeAddress).toBe("Legacy Address");
+    });
+
+    it("rejects an admin contract edit for an incomplete legacy profile", async () => {
+      await User.updateOne(
+        { _id: targetUserId },
+        { $unset: { birthYear: 1, residenceCity: 1 } },
+      );
+
+      const response = await request(app)
+        .put(`/api/users/${targetUserId}/admin-edit`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ phone: "+14155550121" })
+        .expect(400);
+
+      expect(response.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "birthYear" }),
+          expect.objectContaining({ field: "residenceCity" }),
+        ]),
+      );
     });
   });
 });
