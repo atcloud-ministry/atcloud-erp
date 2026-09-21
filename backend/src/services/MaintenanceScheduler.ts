@@ -8,6 +8,7 @@ const log = createLogger("MaintenanceScheduler");
 import GuestRegistration from "../models/GuestRegistration";
 import AuditLog from "../models/AuditLog";
 import { alumniRetentionCleanupService } from "./alumni/AlumniRetentionCleanupService";
+import { alumniHelpRoomGraceExpiryService } from "./alumni/AlumniHelpRoomGraceExpiryService";
 import { alumniOutcomeDeadlineService } from "./alumni/AlumniOutcomeDeadlineService";
 import { chatUnreadReconciliationService } from "./chat/ChatUnreadReconciliationService";
 import { fileCleanupService } from "./privacy/FileCleanupService";
@@ -211,6 +212,7 @@ class MaintenanceScheduler {
   private scheduleAlumniOutcomeConfirmation(): void {
     const execute = (trigger: WorkerRunTrigger) => {
       void this.confirmDueAlumniOutcomes(trigger);
+      void this.archiveExpiredAlumniHelpRooms(trigger);
     };
     const interval = setInterval(
       () => execute(WORKER_RUN_TRIGGERS.SCHEDULED),
@@ -221,7 +223,7 @@ class MaintenanceScheduler {
       10 * 1000,
     );
     this.intervals.push(interval, startup);
-    log.info("Alumni outcome confirmation scheduled", undefined, {
+    log.info("Alumni outcome confirmation and Help Room grace expiry scheduled", undefined, {
       cadence: "every minute",
     });
   }
@@ -358,6 +360,39 @@ class MaintenanceScheduler {
       log.error(
         "Failed to execute alumni outcome confirmation",
         new Error("Alumni outcome confirmation failed"),
+        undefined,
+        {
+          errorName:
+            typeof candidate?.name === "string" ? candidate.name : "UnknownError",
+          ...(typeof candidate?.code === "string" ||
+          typeof candidate?.code === "number"
+            ? { errorCode: candidate.code }
+            : {}),
+        },
+      );
+    }
+  }
+
+  private async archiveExpiredAlumniHelpRooms(trigger: WorkerRunTrigger) {
+    try {
+      const runContext = workerAuthorizationService.createRunContext(
+        WORKER_SERVICE_KEYS.ALUMNI_HELP_ROOM_GRACE,
+        trigger,
+      );
+      const result = await alumniHelpRoomGraceExpiryService.runBounded(runContext);
+      if (result.candidatesScanned > 0) {
+        log.info("Completed bounded Alumni Help Room grace expiry", undefined, {
+          candidatesScanned: result.candidatesScanned,
+          archived: result.archived,
+          racedOrUnavailable: result.racedOrUnavailable,
+          remainingOverdue: result.remainingOverdue,
+        });
+      }
+    } catch (error) {
+      const candidate = error as { name?: unknown; code?: unknown };
+      log.error(
+        "Failed to execute Alumni Help Room grace expiry",
+        new Error("Alumni Help Room grace expiry failed"),
         undefined,
         {
           errorName:

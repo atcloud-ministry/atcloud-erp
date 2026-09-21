@@ -35,6 +35,11 @@ interface AlumniHelpContextValue {
   ) => void;
   captureHelpCounterGeneration: () => number;
   announceHelpRoomCreated: (requestId: string, conversationId: string) => void;
+  announceHelpRoomGraceStarted: (
+    requestId: string,
+    conversationId: string,
+    writeAccessEndsAt?: string,
+  ) => void;
 }
 
 const AlumniHelpContext = createContext<AlumniHelpContextValue | undefined>(
@@ -55,6 +60,10 @@ export function isAlumniHelpUpdatePayload(
     update,
     "roomCreated",
   );
+  const hasRoomGraceStarted = Object.prototype.hasOwnProperty.call(
+    update,
+    "roomGraceStarted",
+  );
   const roomCreated = update.roomCreated;
   const hasValidRoomCreated =
     !hasRoomCreated ||
@@ -68,8 +77,40 @@ export function isAlumniHelpUpdatePayload(
       /^[a-f\d]{24}$/i.test(
         (roomCreated as Record<string, unknown>).conversationId as string,
       ));
+  const roomGraceStarted = update.roomGraceStarted;
+  const hasValidRoomGraceStarted =
+    !hasRoomGraceStarted ||
+    (roomGraceStarted !== null &&
+      typeof roomGraceStarted === "object" &&
+      !Array.isArray(roomGraceStarted) &&
+      Object.keys(roomGraceStarted).length === 2 &&
+      Object.prototype.hasOwnProperty.call(roomGraceStarted, "conversationId") &&
+      Object.prototype.hasOwnProperty.call(roomGraceStarted, "writeAccessEndsAt") &&
+      typeof (roomGraceStarted as Record<string, unknown>).conversationId ===
+        "string" &&
+      /^[a-f\d]{24}$/i.test(
+        (roomGraceStarted as Record<string, unknown>).conversationId as string,
+      ) &&
+      typeof (roomGraceStarted as Record<string, unknown>).writeAccessEndsAt ===
+        "string" &&
+      !Number.isNaN(
+        Date.parse(
+          (roomGraceStarted as Record<string, unknown>)
+            .writeAccessEndsAt as string,
+        ),
+      ) &&
+      new Date(
+        (roomGraceStarted as Record<string, unknown>)
+          .writeAccessEndsAt as string,
+      ).toISOString() ===
+        (roomGraceStarted as Record<string, unknown>)
+          .writeAccessEndsAt);
   return (
-    Object.keys(update).length === 4 + Number(hasRoomCreated) + Number(hasNotificationCount) &&
+    Object.keys(update).length ===
+      4 +
+        Number(hasRoomCreated) +
+        Number(hasRoomGraceStarted) +
+        Number(hasNotificationCount) &&
     [
       "requestId",
       "requestRevision",
@@ -77,6 +118,7 @@ export function isAlumniHelpUpdatePayload(
       "timestamp",
     ]
       .concat(hasRoomCreated ? ["roomCreated"] : [])
+      .concat(hasRoomGraceStarted ? ["roomGraceStarted"] : [])
       .concat(hasNotificationCount ? ["helpNotificationCount"] : [])
       .every((key) => Object.prototype.hasOwnProperty.call(update, key)) &&
     typeof update.requestId === "string" &&
@@ -91,7 +133,9 @@ export function isAlumniHelpUpdatePayload(
     typeof update.timestamp === "string" &&
     !Number.isNaN(Date.parse(update.timestamp)) &&
     new Date(update.timestamp).toISOString() === update.timestamp &&
-    hasValidRoomCreated
+    hasValidRoomCreated &&
+    hasValidRoomGraceStarted &&
+    !(hasRoomCreated && hasRoomGraceStarted)
   );
 }
 
@@ -162,7 +206,7 @@ export function AlumniHelpProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
-      const key = `${requestId.toLowerCase()}:${conversationId.toLowerCase()}`;
+      const key = `created:${requestId.toLowerCase()}:${conversationId.toLowerCase()}`;
       if (announcedRoomsRef.current.has(key)) return;
       announcedRoomsRef.current.add(key);
       showNotification({
@@ -170,6 +214,45 @@ export function AlumniHelpProvider({ children }: { children: ReactNode }) {
         message:
           "Your private Alumni Help Chat Room is ready. You can open it now.",
         type: "success",
+        actionButton: {
+          text: "Open Chat Room",
+          onClick: () =>
+            navigate(
+              `/dashboard/chat-rooms/${encodeURIComponent(conversationId)}`,
+            ),
+        },
+        closeButtonText: "Later",
+        lockUntilClose: true,
+      });
+    },
+    [navigate, showNotification],
+  );
+
+  const announceHelpRoomGraceStarted = useCallback(
+    (
+      requestId: string,
+      conversationId: string,
+      writeAccessEndsAt?: string,
+    ) => {
+      if (
+        !/^[a-f\d]{24}$/i.test(requestId) ||
+        !/^[a-f\d]{24}$/i.test(conversationId) ||
+        (writeAccessEndsAt !== undefined &&
+          (Number.isNaN(Date.parse(writeAccessEndsAt)) ||
+            new Date(writeAccessEndsAt).toISOString() !== writeAccessEndsAt))
+      ) {
+        return;
+      }
+      const key = `grace:${requestId.toLowerCase()}:${conversationId.toLowerCase()}`;
+      if (announcedRoomsRef.current.has(key)) return;
+      announcedRoomsRef.current.add(key);
+      const message = writeAccessEndsAt
+        ? `This Help Request is closed. You can continue using its private Chat Room until ${new Date(writeAccessEndsAt).toLocaleString()}.`
+        : "This Help Request is closed. You can continue using its private Chat Room for the next 7 days.";
+      showNotification({
+        title: "Help request closed",
+        message,
+        type: "info",
         actionButton: {
           text: "Open Chat Room",
           onClick: () =>
@@ -250,7 +333,19 @@ export function AlumniHelpProvider({ children }: { children: ReactNode }) {
     return socketService.on<unknown>("alumni_help_update", (payload) => {
       if (isAlumniHelpUpdatePayload(payload)) {
         const previousRevision = seenRequestRevisionsRef.current.get(payload.requestId);
-        if (previousRevision !== undefined && payload.requestRevision < previousRevision) return;
+        if (previousRevision !== undefined && payload.requestRevision < previousRevision) {
+          // The request may have received a later update before its durable
+          // closure delivery arrived. The one-time room-grace prompt remains
+          // useful and is independently de-duplicated.
+          if (payload.roomGraceStarted) {
+            announceHelpRoomGraceStarted(
+              payload.requestId,
+              payload.roomGraceStarted.conversationId,
+              payload.roomGraceStarted.writeAccessEndsAt,
+            );
+          }
+          return;
+        }
         seenRequestRevisionsRef.current.set(payload.requestId, payload.requestRevision);
         const eventTime = Date.parse(payload.timestamp);
         if (eventTime >= latestEventTimeRef.current) {
@@ -267,12 +362,19 @@ export function AlumniHelpProvider({ children }: { children: ReactNode }) {
             payload.roomCreated.conversationId,
           );
         }
+        if (payload.roomGraceStarted) {
+          announceHelpRoomGraceStarted(
+            payload.requestId,
+            payload.roomGraceStarted.conversationId,
+            payload.roomGraceStarted.writeAccessEndsAt,
+          );
+        }
       } else {
         setHelpRefreshSequence((sequence) => sequence + 1);
         void refreshHelpActionRequiredCount();
       }
     });
-  }, [announceHelpRoomCreated, canRead, refreshHelpActionRequiredCount, setHelpNotificationCounts]);
+  }, [announceHelpRoomCreated, announceHelpRoomGraceStarted, canRead, refreshHelpActionRequiredCount, setHelpNotificationCounts]);
 
   useEffect(() => {
     if (!canRead) return;
@@ -315,9 +417,11 @@ export function AlumniHelpProvider({ children }: { children: ReactNode }) {
       setHelpNotificationCounts,
       captureHelpCounterGeneration,
       announceHelpRoomCreated,
+      announceHelpRoomGraceStarted,
     }),
     [
       announceHelpRoomCreated,
+      announceHelpRoomGraceStarted,
       countLoading,
       helpActionRequiredCount,
       helpNotificationCount,

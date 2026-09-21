@@ -527,7 +527,7 @@ export class ChatRoomService {
     );
 
     const canSend =
-      (await this.runtimeWritable()) && this.canSend({ conversation, member });
+      (await this.runtimeWritable()) && this.canSend({ conversation, member }, now);
     return Object.freeze({
       room: Object.freeze({
         id: String(conversation._id),
@@ -589,7 +589,11 @@ export class ChatRoomService {
         nextBeforeSequence: !forward && hasMore && first ? first.sequence : null,
         nextAfterSequence: forward && hasMore && last ? last.sequence : null,
       }),
-      roomUnreadCount: member.status === "active" ? member.unreadCount : 0,
+      roomUnreadCount:
+        member.status === "active" &&
+        !this.alumniHelpGraceExpired(access.conversation, now)
+          ? member.unreadCount
+          : 0,
       chatUnreadTotal: await this.countUnreadForUser(actorId, now),
     });
   }
@@ -652,7 +656,7 @@ export class ChatRoomService {
           if (
             !writable ||
             !(await this.runtimeWritable()) ||
-            !this.canSend(transactionAccess)
+            !this.canSend(transactionAccess, occurredAt)
           ) {
             throw chatRoomReadOnly();
           }
@@ -685,7 +689,17 @@ export class ChatRoomService {
               _id: roomId,
               status: "current",
               lastSequence: { $lt: Number.MAX_SAFE_INTEGER },
-              ...retainedFilter(occurredAt),
+              $and: [
+                {
+                  $or: [
+                    { kind: { $ne: "alumni_help" } },
+                    { writeAccessEndsAt: { $exists: false } },
+                    { writeAccessEndsAt: null },
+                    { writeAccessEndsAt: { $gt: occurredAt } },
+                  ],
+                },
+                retainedFilter(occurredAt),
+              ],
             },
             {
               $inc: { lastSequence: 1, revision: 1 },
@@ -702,7 +716,7 @@ export class ChatRoomService {
               timestamps: false,
             },
           );
-          if (!conversation) throw chatMessageSequenceConflict();
+          if (!conversation) throw chatRoomReadOnly();
 
           const message = new ChatMessage({
             _id: messageId,
@@ -963,7 +977,7 @@ export class ChatRoomService {
           if (
             !writable ||
             !(await this.runtimeWritable()) ||
-            !this.canSend(transactionAccess) ||
+            !this.canSend(transactionAccess, occurredAt) ||
             transactionAccess.conversation.kind !== "program"
           ) {
             throw chatRoomReadOnly();
@@ -1215,7 +1229,7 @@ export class ChatRoomService {
     const state = await this.runMemberCasMutation(async (session) => {
       const now = this.requireNow();
       const access = await this.loadAccess(actorId, roomId, now, session);
-      if (!this.canSend(access)) throw chatRoomReadOnly();
+      if (!this.canSend(access, now)) throw chatRoomReadOnly();
       await this.requireCanonicalProgramActorCurrentAccess(
         access,
         actorId,
@@ -1308,7 +1322,7 @@ export class ChatRoomService {
       ) {
         throw chatRoomReadOnly();
       }
-      if (this.canSend(access)) {
+      if (this.canSend(access, now)) {
         await this.requireCanonicalProgramActorCurrentAccess(
           access,
           actorId,
@@ -1871,10 +1885,25 @@ export class ChatRoomService {
     }
   }
 
-  private canSend(access: RoomAccess): boolean {
+  private canSend(access: RoomAccess, now: Date): boolean {
+    if (
+      access.conversation.status !== "current" ||
+      !memberHasCurrentAccess(access.member)
+    ) {
+      return false;
+    }
+    return !this.alumniHelpGraceExpired(access.conversation, now);
+  }
+
+  private alumniHelpGraceExpired(
+    conversation: Pick<IConversation, "kind" | "writeAccessEndsAt">,
+    now: Date,
+  ): boolean {
+    const deadline = conversation.writeAccessEndsAt;
     return (
-      access.conversation.status === "current" &&
-      memberHasCurrentAccess(access.member)
+      conversation.kind === "alumni_help" &&
+      deadline instanceof Date &&
+      deadline.getTime() <= now.getTime()
     );
   }
 
@@ -2110,16 +2139,33 @@ export class ChatRoomService {
     now: Date,
     excludedProgramRoomIds: readonly mongoose.Types.ObjectId[] = [],
   ): PipelineStage[] {
+    const currentAlumniHelpGrace = {
+      $or: [
+        { "conversation.kind": { $ne: "alumni_help" } },
+        { "conversation.writeAccessEndsAt": { $exists: false } },
+        { "conversation.writeAccessEndsAt": null },
+        { "conversation.writeAccessEndsAt": { $gt: now } },
+      ],
+    };
     const viewMatch =
       view === "current"
         ? {
-            "member.status": "active",
-            "conversation.status": "current",
+            $and: [
+              { "member.status": "active" },
+              { "conversation.status": "current" },
+              currentAlumniHelpGrace,
+            ],
           }
         : {
             $or: [
               { "member.status": "history_only" },
               { "conversation.status": "archived" },
+              {
+                $and: [
+                  { "conversation.kind": "alumni_help" },
+                  { "conversation.writeAccessEndsAt": { $lte: now } },
+                ],
+              },
             ],
           };
     return [
@@ -2262,7 +2308,8 @@ export class ChatRoomService {
               otherUser?.avatar,
             )
           : null;
-        const canSend = writable && this.canSend({ conversation: room, member });
+        const canSend =
+          writable && this.canSend({ conversation: room, member }, now);
         const canAnnounce =
           canSend &&
           room.kind === "program" &&
@@ -2270,11 +2317,15 @@ export class ChatRoomService {
             member.role === "class_representative" ||
             (member.role === "mentee" &&
               RoleUtils.isLeaderOrHigher(actorSummary?.role ?? "")));
+        const graceExpired = this.alumniHelpGraceExpired(room, now);
         const viewer: ChatRoomViewerDTO = Object.freeze({
           role: member.role,
           status: member.status,
           lastReadSequence: member.lastReadSequence,
-          unreadCount: member.status === "active" ? member.unreadCount : 0,
+          unreadCount:
+            member.status === "active" && !graceExpired
+              ? member.unreadCount
+              : 0,
           muted: member.muted,
           accessMode: canSend ? "read_write" : "read_only",
           canSend,
@@ -2286,7 +2337,9 @@ export class ChatRoomService {
           kind: room.kind,
           status: room.status,
           section:
-            room.status === "current" && member.status === "active"
+            room.status === "current" &&
+            member.status === "active" &&
+            !graceExpired
               ? "current"
               : "past",
           title:
@@ -2303,6 +2356,9 @@ export class ChatRoomService {
           updatedAt: new Date(member.updatedAt).toISOString(),
           archivedAt: room.archivedAt
             ? new Date(room.archivedAt).toISOString()
+            : null,
+          writeAccessEndsAt: room.writeAccessEndsAt
+            ? new Date(room.writeAccessEndsAt).toISOString()
             : null,
         });
       }),
@@ -2424,6 +2480,23 @@ export class ChatRoomService {
       {
         $match: {
           "conversation.status": "current",
+          $and: [
+            {
+              $or: [
+                { "conversation.kind": { $ne: "alumni_help" } },
+                { "conversation.writeAccessEndsAt": { $exists: false } },
+                { "conversation.writeAccessEndsAt": null },
+                { "conversation.writeAccessEndsAt": { $gt: now } },
+              ],
+            },
+            {
+              $or: [
+                { "conversation.purgeAt": { $exists: false } },
+                { "conversation.purgeAt": null },
+                { "conversation.purgeAt": { $gt: now } },
+              ],
+            },
+          ],
           ...(ineligibleCurrentProgramRoomIds.length > 0
             ? {
                 "conversation._id": {
@@ -2431,11 +2504,6 @@ export class ChatRoomService {
                 },
               }
             : {}),
-          $or: [
-            { "conversation.purgeAt": { $exists: false } },
-            { "conversation.purgeAt": null },
-            { "conversation.purgeAt": { $gt: now } },
-          ],
         },
       },
       { $group: { _id: null, total: { $sum: "$unreadCount" } } },
@@ -2451,7 +2519,13 @@ export class ChatRoomService {
     lastReadSequence = member.lastReadSequence,
     session?: ClientSession,
   ): Promise<number> {
-    if (member.status !== "active" || conversation.status !== "current") return 0;
+    if (
+      member.status !== "active" ||
+      conversation.status !== "current" ||
+      this.alumniHelpGraceExpired(conversation, now)
+    ) {
+      return 0;
+    }
     return ChatMessage.countDocuments({
       $and: [
         { conversationId: conversation._id },

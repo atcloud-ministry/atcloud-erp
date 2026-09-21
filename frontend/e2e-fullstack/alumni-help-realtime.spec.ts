@@ -171,20 +171,26 @@ test("both participants receive every Help lifecycle update away from Community"
     current = await write(request, helperToken, `/${current.id}/outcomes/${current.latestOutcome.id}/confirm`, {
       expectedRevision: current.latestOutcome.revision,
     });
+    expect(current.status).toBe("closed");
     await expectUpdate(requester, current.id, current.revision);
-    await readInUi(requester, "Help marked complete", false);
+    for (const page of [requester, helper]) {
+      const modal = page.getByRole("dialog", { name: "Help request closed" });
+      await expect(modal).toBeVisible({ timeout: 8_000 });
+      await expect(
+        modal.getByRole("button", { name: "Open Chat Room", exact: true }),
+      ).toBeVisible();
+      await modal.getByRole("button", { name: "Later", exact: true }).click();
+    }
+    await readInUi(requester, "Closed", false);
     await expect(requester.getByRole("link", { name: "Alumni Community", exact: true })).toBeVisible();
-
-    // Keep the detail mounted for one final update: status and timeline must
-    // change in place, then the displayed revision is automatically read.
-    current = await write(request, helperToken, `/${current.id}/close`, {
-      expectedRevision: current.revision,
-    });
-    await expect.poll(() => frames.get(requester)!.some((frame) =>
-      frame.includes(current.id) && frame.includes(`"requestRevision":${current.revision},`),
-    ), { timeout: 8_000 }).toBe(true);
-    await expect(requester.getByText("Closed", { exact: true })).toBeVisible();
-    await expect(requester.getByText("Closed the request", { exact: true })).toBeVisible();
+    await expect(
+      requester.getByText("Confirmed result and closed the request", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      requester.getByRole("button", { name: "Close request", exact: true }),
+    ).toHaveCount(0);
   } finally {
     const restored = await request.patch(`${backend}/api/system/feature-controls/alumni-network`, {
       headers: { Authorization: `Bearer ${adminToken}` },

@@ -79,7 +79,7 @@ export default function HelpOutcomePanel({
                 <p className="mt-3 text-sm text-green-800">
                   Confirmed {outcome.confirmationMethod === "automatic_20_day"
                     ? "automatically after 20 days"
-                    : "by the provider"}.
+                    : "by the provider"}. This request is closed.
                 </p>
               )}
               {outcome.status === "denied" && (

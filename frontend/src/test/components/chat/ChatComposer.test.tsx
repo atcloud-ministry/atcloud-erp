@@ -66,6 +66,7 @@ describe("ChatComposer", () => {
   it("keeps composer controls aligned to the input row with comfortable icons", () => {
     render(<ChatComposer onSend={vi.fn()} />);
 
+    const composer = screen.getByLabelText("Message");
     const linkButton = screen.getByRole("button", {
       name: "Add a safe link",
     });
@@ -82,5 +83,28 @@ describe("ChatComposer", () => {
     expect(linkButton.querySelector("svg")).toHaveClass("h-6", "w-6");
     expect(sendButton.querySelector("svg")).toHaveClass("h-6", "w-6");
     expect(counter.parentElement).toHaveClass("col-start-2");
+    expect(composer).toHaveClass("resize-none");
+    expect(composer).not.toHaveClass("resize-y");
+  });
+
+  it("grows with message content and scrolls after the composer height limit", () => {
+    render(<ChatComposer onSend={vi.fn()} />);
+    const composer = screen.getByLabelText("Message");
+
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      get: () => 88,
+    });
+    fireEvent.change(composer, { target: { value: "A message on several lines" } });
+
+    expect(composer).toHaveStyle({ height: "88px", overflowY: "hidden" });
+
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      get: () => 240,
+    });
+    fireEvent.change(composer, { target: { value: "A much longer message" } });
+
+    expect(composer).toHaveStyle({ height: "144px", overflowY: "auto" });
   });
 });

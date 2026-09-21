@@ -570,6 +570,10 @@ class SocketService {
     const normalizedConversationId = roomCreated
       ? normalizeObjectId(roomCreated.conversationId)
       : null;
+    const roomGraceStarted = update.roomGraceStarted;
+    const normalizedGraceConversationId = roomGraceStarted
+      ? normalizeObjectId(roomGraceStarted.conversationId)
+      : null;
     if (
       !normalizedUserId ||
       !normalizedRequestId ||
@@ -579,13 +583,29 @@ class SocketService {
       update.helpActionRequiredCount < 0 ||
       !Number.isSafeInteger(update.helpNotificationCount) ||
       update.helpNotificationCount < 0 ||
+      (roomCreated !== undefined && roomGraceStarted !== undefined) ||
       (roomCreated !== undefined &&
         (!roomCreated ||
           typeof roomCreated !== "object" ||
           Array.isArray(roomCreated) ||
           Object.keys(roomCreated).length !== 1 ||
           !Object.prototype.hasOwnProperty.call(roomCreated, "conversationId") ||
-          !normalizedConversationId))
+          !normalizedConversationId)) ||
+      (roomGraceStarted !== undefined &&
+        (!roomGraceStarted ||
+          typeof roomGraceStarted !== "object" ||
+          Array.isArray(roomGraceStarted) ||
+          Object.keys(roomGraceStarted).length !== 2 ||
+          !Object.prototype.hasOwnProperty.call(
+            roomGraceStarted,
+            "conversationId",
+          ) ||
+          !Object.prototype.hasOwnProperty.call(
+            roomGraceStarted,
+            "writeAccessEndsAt",
+          ) ||
+          !normalizedGraceConversationId ||
+          !isCanonicalIsoInstant(roomGraceStarted.writeAccessEndsAt)))
     ) {
       this.log.warn("Refused invalid alumni_help_update", undefined, {
         hasValidUserId: Boolean(normalizedUserId),
@@ -601,6 +621,14 @@ class SocketService {
       helpNotificationCount: update.helpNotificationCount,
       ...(normalizedConversationId
         ? { roomCreated: { conversationId: normalizedConversationId } }
+        : {}),
+      ...(normalizedGraceConversationId && roomGraceStarted
+        ? {
+            roomGraceStarted: {
+              conversationId: normalizedGraceConversationId,
+              writeAccessEndsAt: roomGraceStarted.writeAccessEndsAt,
+            },
+          }
         : {}),
       timestamp: new Date().toISOString(),
     };

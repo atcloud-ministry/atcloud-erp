@@ -60,6 +60,9 @@ export const LIFECYCLE_ACTION_LABELS: Readonly<
   start: "Marked help in progress",
   complete: "Marked help complete",
   close: "Closed the request",
+  outcome_confirm: "Confirmed result and closed the request",
+  outcome_auto_confirm: "Automatically confirmed result and closed the request",
+  outcome_reconcile: "Reconciled confirmed result and closed the request",
 };
 
 export const ACTION_LABELS: Readonly<

@@ -118,6 +118,7 @@ const CONVERSATION = Object.freeze({
   createdAt: "2026-09-10T12:00:00.000Z",
   updatedAt: MESSAGE.createdAt,
   archivedAt: null,
+  writeAccessEndsAt: null,
 });
 
 const PAGINATION = Object.freeze({

@@ -67,6 +67,14 @@ export interface AlumniHelpWorkflowPayloadV1 {
   readonly presentation: AlumniHelpWorkflowPresentation;
   readonly outcomeSubmissionId?: string;
   readonly outcomeRevision?: number;
+  /**
+   * Included only when this workflow event newly closes the request and starts
+   * the private room's final write-access grace period.
+   */
+  readonly roomGraceStarted?: {
+    readonly conversationId: string;
+    readonly writeAccessEndsAt: string;
+  };
 }
 
 export interface EnqueueAlumniHelpWorkflowNotificationsInput {
@@ -80,6 +88,11 @@ export interface EnqueueAlumniHelpWorkflowNotificationsInput {
   readonly providerId: string;
   readonly outcomeSubmissionId?: string;
   readonly outcomeRevision?: number;
+  /** Use the domain-calculated deadline; the outbox stores canonical ISO text. */
+  readonly roomGraceStarted?: {
+    readonly conversationId: string;
+    readonly writeAccessEndsAt: Date;
+  };
   readonly occurredAt: Date;
   readonly session: ClientSession;
   readonly correlationId?: string;
@@ -133,6 +146,10 @@ interface WorkflowSocketPort {
       roomCreated?: {
         conversationId: string;
       };
+      roomGraceStarted?: {
+        conversationId: string;
+        writeAccessEndsAt: string;
+      };
     },
   ): void;
 }
@@ -183,6 +200,11 @@ const ROOM_CREATION_EVENT_TYPES = new Set<AlumniHelpWorkflowEventType>([
   "accept",
   "confirm_alternative",
 ]);
+const ROOM_GRACE_EVENT_TYPES = new Set<AlumniHelpWorkflowEventType>([
+  "close",
+  "outcome_confirm",
+  "outcome_auto_confirm",
+]);
 const PAYLOAD_KEYS = new Set([
   "recipientUserId",
   "requestId",
@@ -193,6 +215,7 @@ const PAYLOAD_KEYS = new Set([
   "presentation",
   "outcomeSubmissionId",
   "outcomeRevision",
+  "roomGraceStarted",
 ]);
 
 function permanent(code: string): never {
@@ -218,6 +241,38 @@ function requireOccurredAt(value: unknown): string {
     permanent("ALUMNI_HELP_EVENT_INVALID");
   }
   return value;
+}
+
+function parseRoomGraceStarted(
+  value: unknown,
+  occurredAt: string,
+  eventType: AlumniHelpWorkflowEventType,
+): NonNullable<AlumniHelpWorkflowPayloadV1["roomGraceStarted"]> {
+  if (!ROOM_GRACE_EVENT_TYPES.has(eventType)) {
+    permanent("ALUMNI_HELP_EVENT_INVALID");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    permanent("ALUMNI_HELP_EVENT_INVALID");
+  }
+  const source = value as Record<string, unknown>;
+  if (
+    Object.keys(source).length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(source, "conversationId") ||
+    !Object.prototype.hasOwnProperty.call(source, "writeAccessEndsAt")
+  ) {
+    permanent("ALUMNI_HELP_EVENT_INVALID");
+  }
+  const writeAccessEndsAt = requireOccurredAt(source.writeAccessEndsAt);
+  if (Date.parse(writeAccessEndsAt) <= Date.parse(occurredAt)) {
+    permanent("ALUMNI_HELP_EVENT_INVALID");
+  }
+  return Object.freeze({
+    conversationId: canonicalObjectId(
+      source.conversationId,
+      "ALUMNI_HELP_EVENT_INVALID",
+    ),
+    writeAccessEndsAt,
+  });
 }
 
 export function parseAlumniHelpWorkflowPayload(
@@ -262,6 +317,18 @@ export function parseAlumniHelpWorkflowPayload(
   ) {
     permanent("ALUMNI_HELP_EVENT_INVALID");
   }
+  const occurredAt = requireOccurredAt(source.occurredAt);
+  const hasRoomGraceStarted = Object.prototype.hasOwnProperty.call(
+    source,
+    "roomGraceStarted",
+  );
+  const roomGraceStarted = hasRoomGraceStarted
+    ? parseRoomGraceStarted(
+        source.roomGraceStarted,
+        occurredAt,
+        eventType as AlumniHelpWorkflowEventType,
+      )
+    : undefined;
 
   return Object.freeze({
     recipientUserId: canonicalObjectId(
@@ -281,7 +348,7 @@ export function parseAlumniHelpWorkflowPayload(
       "ALUMNI_HELP_EVENT_INVALID",
     ),
     eventType: eventType as AlumniHelpWorkflowEventType,
-    occurredAt: requireOccurredAt(source.occurredAt),
+    occurredAt,
     presentation,
     ...(hasOutcomeId
       ? {
@@ -296,6 +363,7 @@ export function parseAlumniHelpWorkflowPayload(
           ),
         }
       : {}),
+    ...(roomGraceStarted ? { roomGraceStarted } : {}),
   });
 }
 
@@ -388,6 +456,38 @@ export async function enqueueAlumniHelpWorkflowNotifications(
       )
     : undefined;
 
+  const roomGraceInput = input.roomGraceStarted;
+  if (roomGraceInput !== undefined && !ROOM_GRACE_EVENT_TYPES.has(eventType)) {
+    throw new TypeError(
+      "Alumni Help room grace metadata is valid only for a closing event.",
+    );
+  }
+  let roomGraceStarted:
+    | NonNullable<AlumniHelpWorkflowPayloadV1["roomGraceStarted"]>
+    | undefined;
+  if (roomGraceInput !== undefined) {
+    if (
+      !roomGraceInput ||
+      typeof roomGraceInput !== "object" ||
+      Array.isArray(roomGraceInput) ||
+      Object.keys(roomGraceInput).length !== 2 ||
+      !Object.prototype.hasOwnProperty.call(roomGraceInput, "conversationId") ||
+      !Object.prototype.hasOwnProperty.call(roomGraceInput, "writeAccessEndsAt") ||
+      !(roomGraceInput.writeAccessEndsAt instanceof Date) ||
+      Number.isNaN(roomGraceInput.writeAccessEndsAt.getTime()) ||
+      roomGraceInput.writeAccessEndsAt.getTime() <= input.occurredAt.getTime()
+    ) {
+      throw new TypeError("Alumni Help room grace metadata is invalid.");
+    }
+    roomGraceStarted = Object.freeze({
+      conversationId: requireInputObjectId(
+        roomGraceInput.conversationId,
+        "roomGraceStarted.conversationId",
+      ),
+      writeAccessEndsAt: new Date(roomGraceInput.writeAccessEndsAt).toISOString(),
+    });
+  }
+
   const occurredAt = new Date(input.occurredAt).toISOString();
   const records: NotificationOutboxRecord[] = [];
   const externalNotifications: Array<{
@@ -413,6 +513,7 @@ export async function enqueueAlumniHelpWorkflowNotifications(
       ...(outcomeSubmissionId && outcomeRevision
         ? { outcomeSubmissionId, outcomeRevision }
         : {}),
+      ...(roomGraceStarted ? { roomGraceStarted } : {}),
     };
     const workflowRecord = await outbox.enqueueInTransaction({
       topic: ALUMNI_HELP_WORKFLOW_TOPIC,
@@ -784,6 +885,9 @@ export class AlumniHelpWorkflowDeliveryHandler
             },
           }
         : {}),
+      ...(delivery.payload.roomGraceStarted
+        ? { roomGraceStarted: delivery.payload.roomGraceStarted }
+        : {}),
     });
   }
 
@@ -837,6 +941,13 @@ export class AlumniHelpWorkflowDeliveryHandler
       request.id.toLowerCase() !== payload.requestId ||
       !Number.isSafeInteger(request.revision) ||
       request.revision < payload.requestRevision
+    ) {
+      permanent("ALUMNI_HELP_EVENT_STALE");
+    }
+    if (
+      payload.roomGraceStarted &&
+      request.conversationId?.toLowerCase() !==
+        payload.roomGraceStarted.conversationId
     ) {
       permanent("ALUMNI_HELP_EVENT_STALE");
     }

@@ -98,6 +98,35 @@ describe("SocketService payload schema", () => {
     });
   });
 
+  it("emits a validated Alumni Help Room grace signal only to the participant", () => {
+    const userId = "507F1F77BCF86CD799439011";
+    socketService.emitAlumniHelpUpdate(userId, {
+      requestId: "507F1F77BCF86CD799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 1,
+      roomGraceStarted: {
+        conversationId: "507F1F77BCF86CD799439013",
+        writeAccessEndsAt: "2026-09-28T12:00:00.000Z",
+      },
+    });
+
+    expect(mockIO.to).toHaveBeenCalledWith(
+      "user:507f1f77bcf86cd799439011",
+    );
+    expect(mockIO.emit).toHaveBeenCalledWith("alumni_help_update", {
+      requestId: "507f1f77bcf86cd799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 1,
+      roomGraceStarted: {
+        conversationId: "507f1f77bcf86cd799439013",
+        writeAccessEndsAt: "2026-09-28T12:00:00.000Z",
+      },
+      timestamp: expect.any(String),
+    });
+  });
+
   it("emits chat content only to a freshly selected canonical user room", () => {
     const userId = "507F1F77BCF86CD799439011";
     const conversationId = "507F1F77BCF86CD799439012";
@@ -222,6 +251,32 @@ describe("SocketService payload schema", () => {
       helpActionRequiredCount: 1,
       helpNotificationCount: 3,
       roomCreated: { conversationId: "not-an-object-id" },
+    });
+    expect(mockIO.to).not.toHaveBeenCalled();
+    expect(mockIO.emit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed or mixed Alumni Help Room grace signal", () => {
+    const base = {
+      requestId: eventId,
+      requestRevision: 1,
+      helpActionRequiredCount: 1,
+      helpNotificationCount: 3,
+    };
+    socketService.emitAlumniHelpUpdate("507f1f77bcf86cd799439011", {
+      ...base,
+      roomGraceStarted: {
+        conversationId: "507f1f77bcf86cd799439013",
+        writeAccessEndsAt: "not-an-instant",
+      },
+    });
+    socketService.emitAlumniHelpUpdate("507f1f77bcf86cd799439011", {
+      ...base,
+      roomCreated: { conversationId: "507f1f77bcf86cd799439013" },
+      roomGraceStarted: {
+        conversationId: "507f1f77bcf86cd799439014",
+        writeAccessEndsAt: "2026-09-28T12:00:00.000Z",
+      },
     });
     expect(mockIO.to).not.toHaveBeenCalled();
     expect(mockIO.emit).not.toHaveBeenCalled();

@@ -111,6 +111,29 @@ describe("Notification Settings", () => {
     expect(push).toHaveClass("bg-gray-600");
   });
 
+  it("keeps switch geometry isolated from legacy global button padding", async () => {
+    render(<NotificationSettings />);
+
+    const push = await screen.findByRole("switch", {
+      name: "Push notifications",
+    });
+    const thumb = push.querySelector("span");
+    expect(push).toHaveClass(
+      "self-center",
+      "items-center",
+      "!border-0",
+      "!p-0",
+    );
+    expect(thumb).not.toBeNull();
+    expect(thumb).toHaveClass(
+      "block",
+      "h-5",
+      "w-5",
+      "shrink-0",
+      "transition-transform",
+    );
+  });
+
   it("saves the Email fallback preference independently", async () => {
     render(<NotificationSettings />);
     const emailSwitch = await screen.findByRole("switch", {

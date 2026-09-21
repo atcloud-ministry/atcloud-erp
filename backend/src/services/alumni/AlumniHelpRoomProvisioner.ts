@@ -18,6 +18,14 @@ export interface ArchiveAlumniHelpRoomInput {
   readonly session: ClientSession;
 }
 
+export interface StartAlumniHelpRoomGraceInput {
+  readonly conversationId: mongoose.Types.ObjectId;
+  readonly helpRequestId: mongoose.Types.ObjectId;
+  readonly occurredAt: Date;
+  readonly writeAccessEndsAt: Date;
+  readonly session: ClientSession;
+}
+
 function sameInstant(first: Date | null | undefined, second: Date): boolean {
   return first instanceof Date && first.getTime() === second.getTime();
 }
@@ -46,6 +54,7 @@ export class AlumniHelpRoomProvisioner {
           lastSequence: 0,
           lastMessageId: null,
           latestMessagePurgeAt: null,
+          writeAccessEndsAt: null,
           archivedAt: null,
           purgeAt: null,
           revision: 0,
@@ -151,6 +160,84 @@ export class AlumniHelpRoomProvisioner {
     }
 
     return room._id;
+  }
+
+  /**
+   * Keep a closed Help Request's private Room writable until the fixed
+   * deadline. The separate bounded worker archives it at that exact clock.
+   */
+  async startGraceInTransaction(
+    input: StartAlumniHelpRoomGraceInput,
+  ): Promise<void> {
+    if (
+      !(input.occurredAt instanceof Date) ||
+      Number.isNaN(input.occurredAt.getTime()) ||
+      !(input.writeAccessEndsAt instanceof Date) ||
+      Number.isNaN(input.writeAccessEndsAt.getTime()) ||
+      input.writeAccessEndsAt.getTime() <= input.occurredAt.getTime()
+    ) {
+      throw new Error("The Alumni Help Room grace deadline is invalid.");
+    }
+    const room = await Conversation.findOne({
+      _id: input.conversationId,
+      kind: "alumni_help",
+      helpRequestId: input.helpRequestId,
+    })
+      .session(input.session)
+      .lean()
+      .exec();
+    if (!room) throw new Error("The Alumni Help Room is unavailable.");
+    if (room.status !== "current") {
+      throw new Error("The Alumni Help Room is no longer current.");
+    }
+    if (
+      room.writeAccessEndsAt instanceof Date &&
+      !sameInstant(room.writeAccessEndsAt, input.writeAccessEndsAt)
+    ) {
+      throw new Error("The Alumni Help Room grace period is already different.");
+    }
+    if (sameInstant(room.writeAccessEndsAt, input.writeAccessEndsAt)) return;
+
+    // This is intentionally a lean read. Hydrating a document that contains
+    // immutable identity paths under this schema's strict mode can cause
+    // Mongoose to attempt to re-apply defaults during read hydration. We only
+    // need its immutable identity, current revision, and deadline here; the
+    // following CAS supplies the actual state transition.
+    if (
+      !(room.createdAt instanceof Date) ||
+      Number.isNaN(room.createdAt.getTime()) ||
+      input.writeAccessEndsAt.getTime() <= room.createdAt.getTime()
+    ) {
+      throw new Error("The Alumni Help Room grace deadline is invalid.");
+    }
+    if (
+      room.writeAccessEndsAt != null &&
+      (!(room.writeAccessEndsAt instanceof Date) ||
+        Number.isNaN(room.writeAccessEndsAt.getTime()))
+    ) {
+      throw new Error("The Alumni Help Room has an invalid grace deadline.");
+    }
+    const updated = await Conversation.updateOne(
+      {
+        _id: room._id,
+        kind: "alumni_help",
+        helpRequestId: input.helpRequestId,
+        status: "current",
+        revision: room.revision,
+        writeAccessEndsAt: null,
+      },
+      {
+        $set: {
+          writeAccessEndsAt: input.writeAccessEndsAt,
+          updatedAt: input.occurredAt,
+        },
+        $inc: { revision: 1 },
+      },
+      { session: input.session, runValidators: false },
+    );
+    if (updated.modifiedCount !== 1) {
+      throw new Error("The Alumni Help Room changed during grace setup.");
+    }
   }
 
   /** Archive the room and both access histories inside the Help close transaction. */

@@ -39,10 +39,21 @@ export const ALUMNI_HELP_LIFECYCLE_ACTIONS = [
   "start",
   "complete",
   "close",
+  "outcome_confirm",
+  "outcome_auto_confirm",
+  "outcome_reconcile",
 ] as const;
 
 export type AlumniHelpLifecycleAction =
   (typeof ALUMNI_HELP_LIFECYCLE_ACTIONS)[number];
+
+export const ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES = [
+  ...ALUMNI_HELP_VIEWER_ROLES,
+  "system",
+] as const;
+
+export type AlumniHelpLifecycleActorRole =
+  (typeof ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES)[number];
 
 export const ALUMNI_HELP_AVAILABLE_ACTIONS = [
   "request_information",
@@ -138,7 +149,7 @@ export interface AlumniHelpTimelineEntryDTO {
   action: AlumniHelpLifecycleAction;
   fromStatus: AlumniHelpRequestStatus | null;
   toStatus: AlumniHelpRequestStatus;
-  actorRole: AlumniHelpViewerRole;
+  actorRole: AlumniHelpLifecycleActorRole;
   note: string | null;
   helpType: AlumniHelpType | null;
   occurredAt: string;
@@ -492,7 +503,7 @@ function decodeTimelineEntry(
     actorRole: enumAt(
       entry.actorRole,
       `${path}.actorRole`,
-      ALUMNI_HELP_VIEWER_ROLES,
+      ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES,
     ),
     note: nullableStringAt(entry.note, `${path}.note`),
     helpType: nullableEnumAt(

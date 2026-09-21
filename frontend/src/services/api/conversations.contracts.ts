@@ -100,6 +100,7 @@ export interface ConversationDTO {
   lastMessage: ChatMessagePreviewDTO | null;
   viewer: ConversationViewerDTO;
   archivedAt: string | null;
+  writeAccessEndsAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -207,17 +208,19 @@ function exactObjectAt(
   value: unknown,
   path: string,
   expectedKeys: readonly string[],
+  optionalKeys: readonly string[] = [],
 ): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return contractError(path, "object");
   }
   const object = value as JsonObject;
   const keys = Object.keys(object);
+  const acceptedKeys = [...expectedKeys, ...optionalKeys];
   if (
-    keys.length !== expectedKeys.length ||
-    keys.some((key) => !expectedKeys.includes(key))
+    keys.some((key) => !acceptedKeys.includes(key)) ||
+    expectedKeys.some((key) => !keys.includes(key))
   ) {
-    return contractError(path, `exact keys ${expectedKeys.join(", ")}`);
+    return contractError(path, `exact keys ${acceptedKeys.join(", ")}`);
   }
   return object;
 }
@@ -533,7 +536,7 @@ export function decodeConversation(
     "createdAt",
     "archivedAt",
     "updatedAt",
-  ]);
+  ], ["writeAccessEndsAt"]);
   const kind = enumAt(
     conversation.kind,
     `${path}.kind`,
@@ -610,6 +613,13 @@ export function decodeConversation(
       conversation.archivedAt,
       `${path}.archivedAt`,
     ),
+    writeAccessEndsAt:
+      conversation.writeAccessEndsAt === undefined
+        ? null
+        : nullableDateAt(
+            conversation.writeAccessEndsAt,
+            `${path}.writeAccessEndsAt`,
+          ),
     updatedAt: dateAt(conversation.updatedAt, `${path}.updatedAt`),
   };
 }

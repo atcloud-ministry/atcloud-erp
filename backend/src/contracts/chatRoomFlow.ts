@@ -127,6 +127,8 @@ export interface ConversationDTO {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly archivedAt: string | null;
+  /** Alumni Help Rooms remain writable through this fixed post-close deadline. */
+  readonly writeAccessEndsAt: string | null;
 }
 
 export interface ChatPaginationDTO {

@@ -18,6 +18,7 @@ import {
   ALUMNI_HELP_OUTCOMES_BY_TYPE,
   ALUMNI_HELP_OUTCOME_CONFIRMATION_HOURS,
   acceptedHelpRequestPurgeAt,
+  alumniHelpRoomGraceEndsAt,
   type AlumniHelpOutcomeCode,
   type AlumniHelpType,
   type AlumniHelpRequestDataDTO,
@@ -27,7 +28,6 @@ import {
   deriveAlumniAffiliationKey,
   MILLISECONDS_PER_DAY,
 } from "../../../src/contracts/alumniDirectoryData";
-import { conversationPurgeAt } from "../../../src/contracts/chatRooms";
 import AlumniAffiliation from "../../../src/models/AlumniAffiliation";
 import AlumniHelpOutcomeSubmission from "../../../src/models/AlumniHelpOutcomeSubmission";
 import AlumniHelpRequest from "../../../src/models/AlumniHelpRequest";
@@ -302,12 +302,11 @@ describe("M3 Alumni Help service integration", () => {
       requestId, outcomeId: current.request.latestOutcome!.id,
       expectedRevision: 0, decision: "confirm", actor: actor(providerId), idempotencyKey: randomUUID(),
     });
-    await checkPeer(current, requesterId);
-    current = await service.transition({
-      requestId, action: "close", expectedRevision: current.request.revision,
-      actor: actor(requesterId), idempotencyKey: randomUUID(),
+    expect(current.request).toMatchObject({
+      status: "closed",
+      availableActions: [],
     });
-    await checkPeer(current, providerId);
+    await checkPeer(current, requesterId);
   });
 
   it("notifies acceptance, decline and withdrawal even when the recipient has no action required", async () => {
@@ -820,34 +819,35 @@ describe("M3 Alumni Help service integration", () => {
       new Date(latest.dueAt),
     );
     expect(closed.request).toMatchObject({ status: "closed" });
-    const archivedRoom = await Conversation.findById(
+    const graceEndsAt = alumniHelpRoomGraceEndsAt(closedAt);
+    const graceRoom = await Conversation.findById(
       closed.request.conversationId,
     )
       .lean()
       .orFail();
-    const expectedRoomPurgeAt = conversationPurgeAt(closedAt, null);
-    expect(archivedRoom).toMatchObject({
-      status: "archived",
+    expect(graceRoom).toMatchObject({
+      status: "current",
       lastSequence: 0,
-      archivedAt: closedAt,
-      purgeAt: expectedRoomPurgeAt,
+      writeAccessEndsAt: graceEndsAt,
+      archivedAt: null,
+      purgeAt: null,
     });
-    const archivedMembers = await ConversationMember.find({
-      conversationId: archivedRoom._id,
+    const graceMembers = await ConversationMember.find({
+      conversationId: graceRoom._id,
     })
       .sort({ _id: 1 })
       .lean();
-    expect(archivedMembers).toHaveLength(2);
-    for (const archivedMember of archivedMembers) {
-      expect(archivedMember).toMatchObject({
-        status: "history_only",
+    expect(graceMembers).toHaveLength(2);
+    for (const graceMember of graceMembers) {
+      expect(graceMember).toMatchObject({
+        status: "active",
         unreadCount: 0,
-        purgeAt: expectedRoomPurgeAt,
+        purgeAt: null,
         accessWindows: [
           expect.objectContaining({
             visibleFromSequence: 1,
-            visibleThroughSequence: 0,
-            closedAt,
+            visibleThroughSequence: null,
+            closedAt: null,
           }),
         ],
       });
@@ -885,6 +885,10 @@ describe("M3 Alumni Help service integration", () => {
       status: "closed",
       latestOutcomeStatus: "confirmed",
       purgeAt: expectedPurgeAt,
+    });
+    expect(await Conversation.findById(closed.request.conversationId).lean()).toMatchObject({
+      status: "current",
+      writeAccessEndsAt: graceEndsAt,
     });
   });
 
@@ -938,6 +942,28 @@ describe("M3 Alumni Help service integration", () => {
       confirmationMethod: "automatic_20_day",
       decidedBy: null,
       revision: 1,
+    });
+    const automaticallyClosedRequest = await AlumniHelpRequest.findById(
+      created.request.id,
+    ).lean();
+    expect(automaticallyClosedRequest).toMatchObject({
+      status: "closed",
+      latestOutcomeStatus: "confirmed",
+      lifecycleTimeline: expect.arrayContaining([
+        expect.objectContaining({
+          action: "outcome_auto_confirm",
+          actorRole: "system",
+          actorId: null,
+          toStatus: "closed",
+        }),
+      ]),
+    });
+    expect(
+      await Conversation.findById(automaticallyClosedRequest?.conversationId)
+        .lean(),
+    ).toMatchObject({
+      status: "current",
+      writeAccessEndsAt: alumniHelpRoomGraceEndsAt(new Date(nowValue)),
     });
     for (const participantId of [requesterId, providerId]) {
       const detail = await service.get(participantId.toString(), created.request.id);

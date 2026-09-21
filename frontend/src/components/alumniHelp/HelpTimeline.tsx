@@ -5,6 +5,12 @@ import {
   formatHelpDate,
 } from "./presentation";
 
+const ACTOR_LABELS = {
+  requester: "Requester",
+  provider: "Provider",
+  system: "System",
+} as const;
+
 export default function HelpTimeline({
   entries,
 }: {
@@ -26,7 +32,7 @@ export default function HelpTimeline({
               {LIFECYCLE_ACTION_LABELS[entry.action]}
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
-              {entry.actorRole === "requester" ? "Requester" : "Provider"} ·{" "}
+              {ACTOR_LABELS[entry.actorRole]} ·{" "}
               <time dateTime={entry.occurredAt}>
                 {formatHelpDate(entry.occurredAt)}
               </time>

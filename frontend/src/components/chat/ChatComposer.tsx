@@ -1,6 +1,7 @@
 import { LinkIcon, PaperAirplaneIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +19,7 @@ export interface ChatComposerValue {
 }
 
 const MAX_REQUEST_BYTES = 16 * 1024;
+const MAX_COMPOSER_HEIGHT_PX = 144;
 
 export default function ChatComposer({
   disabled = false,
@@ -84,6 +86,25 @@ export default function ChatComposer({
   useEffect(() => {
     if (showLink) linkUrlRef.current?.focus();
   }, [showLink]);
+
+  // Keep the composer compact for one line, then grow with the message until
+  // its existing 9rem visual limit. Past that limit, the field scrolls rather
+  // than pushing the message history or the action buttons out of position.
+  useLayoutEffect(() => {
+    const textarea = messageRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const naturalHeight = textarea.scrollHeight;
+    if (naturalHeight <= 0) {
+      textarea.style.removeProperty("height");
+      textarea.style.removeProperty("overflow-y");
+      return;
+    }
+    const height = Math.min(naturalHeight, MAX_COMPOSER_HEIGHT_PX);
+    textarea.style.height = `${height}px`;
+    textarea.style.overflowY =
+      naturalHeight > MAX_COMPOSER_HEIGHT_PX ? "auto" : "hidden";
+  }, [content]);
 
   const removeLink = () => {
     setShowLink(false);
@@ -212,7 +233,7 @@ export default function ChatComposer({
           aria-describedby="chat-message-help chat-message-error"
           aria-disabled={disabled || sending}
           aria-invalid={messageHasError}
-          className="block min-h-11 max-h-36 w-full resize-y rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          className="block min-h-11 max-h-36 w-full resize-none rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
           id="chat-message-composer"
           onChange={(event) => setContent(event.target.value)}
           onKeyDown={handleKeyDown}

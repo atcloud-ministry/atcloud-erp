@@ -75,6 +75,16 @@ function outcomeResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function roomGraceResult(overrides: Record<string, unknown> = {}) {
+  return {
+    candidatesScanned: 0,
+    archived: 0,
+    racedOrUnavailable: 0,
+    remainingOverdue: 0,
+    ...overrides,
+  };
+}
+
 function setup(options: {
   readonly initialExistingUserIds?: readonly string[];
   readonly finalExistingUserIds?: readonly string[];
@@ -82,14 +92,17 @@ function setup(options: {
   readonly retention?: Record<string, unknown>;
   readonly membership?: Record<string, unknown>;
   readonly outcome?: Record<string, unknown>;
+  readonly roomGrace?: Record<string, unknown>;
   readonly outboxHasMore?: boolean;
 } = {}) {
   const retentionContext = Object.freeze({ kind: "retention-context" });
   const outcomeContext = Object.freeze({ kind: "outcome-context" });
+  const roomGraceContext = Object.freeze({ kind: "room-grace-context" });
   const membershipContext = Object.freeze({ kind: "membership-context" });
   const contexts = {
     createRetention: vi.fn(() => retentionContext),
     createOutcome: vi.fn(() => outcomeContext),
+    createRoomGrace: vi.fn(() => roomGraceContext),
     createMembership: vi.fn(() => membershipContext),
   };
   const accountDeletion = {
@@ -113,6 +126,9 @@ function setup(options: {
     }),
   };
   const outcome = { runBounded: vi.fn().mockResolvedValue(outcomeResult(options.outcome)) };
+  const roomGrace = {
+    runBounded: vi.fn().mockResolvedValue(roomGraceResult(options.roomGrace)),
+  };
   const outbox = {
     reconcile: vi.fn().mockResolvedValue({
       recoveredExpiredLeases: 2,
@@ -144,6 +160,7 @@ function setup(options: {
     retention: retention as any,
     membership: membership as any,
     outcome: outcome as any,
+    roomGrace: roomGrace as any,
     outbox,
     auditRetention,
     ttlRetention,
@@ -158,12 +175,14 @@ function setup(options: {
     retention,
     membership,
     outcome,
+    roomGrace,
     outbox,
     auditRetention,
     ttlRetention,
     membershipCheckpoints,
     retentionContext,
     outcomeContext,
+    roomGraceContext,
     membershipContext,
   };
 }
@@ -185,6 +204,7 @@ describe("RestoreRecoveryService", () => {
       accountDeletion: 100,
       retentionPerKind: 500,
       outcome: 500,
+      roomGrace: 500,
       membership: 100,
       outbox: 100,
       ttl: 500,
@@ -237,6 +257,11 @@ describe("RestoreRecoveryService", () => {
     expect(fixture.outcome.runBounded).toHaveBeenCalledWith(
       fixture.outcomeContext,
     );
+    expect(fixture.contexts.createRoomGrace).toHaveBeenCalledOnce();
+    expect(fixture.roomGrace.runBounded).toHaveBeenCalledOnce();
+    expect(fixture.roomGrace.runBounded).toHaveBeenCalledWith(
+      fixture.roomGraceContext,
+    );
     expect(fixture.outbox.reconcile).toHaveBeenCalledOnce();
     expect(fixture.outbox.reconcile).toHaveBeenCalledWith({
       idempotencyKey: IDEMPOTENCY_KEY,
@@ -282,6 +307,7 @@ describe("RestoreRecoveryService", () => {
     expect(fixture.auditRetention.purgeOldAuditLogsBounded).not.toHaveBeenCalled();
     expect(fixture.membership.runBoundedFromCheckpoint).not.toHaveBeenCalled();
     expect(fixture.outcome.runBounded).not.toHaveBeenCalled();
+    expect(fixture.roomGrace.runBounded).not.toHaveBeenCalled();
     expect(fixture.outbox.reconcile).not.toHaveBeenCalled();
     expect(report).toMatchObject({
       status: "incomplete",
@@ -313,6 +339,7 @@ describe("RestoreRecoveryService", () => {
     expect(fixture.accountDeletion.findExistingUserIds).not.toHaveBeenCalled();
     expect(fixture.accountDeletion.deleteAccount).not.toHaveBeenCalled();
     expect(fixture.retention.runBounded).not.toHaveBeenCalled();
+    expect(fixture.roomGrace.runBounded).not.toHaveBeenCalled();
     expect(fixture.outbox.reconcile).not.toHaveBeenCalled();
   });
 
@@ -323,6 +350,7 @@ describe("RestoreRecoveryService", () => {
       },
       membership: { hasMore: true },
       outcome: { remainingOverdue: 1 },
+      roomGrace: { remainingOverdue: 1 },
       outboxHasMore: true,
     });
 
@@ -334,6 +362,7 @@ describe("RestoreRecoveryService", () => {
     expect(fixture.retention.runBounded).toHaveBeenCalledOnce();
     expect(fixture.membership.runBoundedFromCheckpoint).toHaveBeenCalledOnce();
     expect(fixture.outcome.runBounded).toHaveBeenCalledOnce();
+    expect(fixture.roomGrace.runBounded).toHaveBeenCalledOnce();
     expect(fixture.outbox.reconcile).toHaveBeenCalledOnce();
     expect(report).toMatchObject({
       status: "incomplete",
@@ -341,6 +370,7 @@ describe("RestoreRecoveryService", () => {
         { code: "RESTORE_RETENTION_RECOVERY_INCOMPLETE" },
         { code: "RESTORE_MEMBERSHIP_RECOVERY_INCOMPLETE" },
         { code: "RESTORE_OUTCOME_RECOVERY_INCOMPLETE" },
+        { code: "RESTORE_ALUMNI_HELP_ROOM_GRACE_RECOVERY_INCOMPLETE" },
         { code: "RESTORE_OUTBOX_RECOVERY_INCOMPLETE" },
       ],
     });
@@ -451,6 +481,7 @@ describe("RestoreRecoveryService", () => {
     ).rejects.toBeInstanceOf(RestoreRecoveryConcurrentRunError);
 
     expect(fixture.outcome.runBounded).not.toHaveBeenCalled();
+    expect(fixture.roomGrace.runBounded).not.toHaveBeenCalled();
     expect(fixture.outbox.reconcile).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,14 @@
 import { Types, type Model } from "mongoose";
+import {
+  ALUMNI_HELP_TRANSITIONS,
+  acceptedHelpRequestPurgeAt,
+  alumniHelpRoomGraceEndsAt,
+} from "../../contracts/alumniHelpFlow";
 import AlumniHelpOutcomeSubmission, {
   type IAlumniHelpOutcomeSubmission,
 } from "../../models/AlumniHelpOutcomeSubmission";
 import AlumniHelpRequest, {
+  type AlumniHelpLifecycleEvent,
   type IAlumniHelpRequest,
 } from "../../models/AlumniHelpRequest";
 import { AuditLogService } from "../AuditLogService";
@@ -19,6 +25,10 @@ import {
 } from "../reliability/MongoTransactionService";
 import { featureControlService } from "../runtime/FeatureControlService";
 import { enqueueAlumniHelpWorkflowNotifications } from "./AlumniHelpWorkflowDeliveryHandler";
+import {
+  AlumniHelpRoomProvisioner,
+  alumniHelpRoomProvisioner,
+} from "./AlumniHelpRoomProvisioner";
 import { helpUpdateMarkers } from "./AlumniHelpNotificationCountService";
 
 const DEFAULT_LIMIT = 100;
@@ -52,6 +62,10 @@ export interface AlumniOutcomeDeadlineDependencies {
   readonly authorization?: OutcomeAuthorizer;
   readonly outcomeModel?: Model<IAlumniHelpOutcomeSubmission>;
   readonly requestModel?: Model<IAlumniHelpRequest>;
+  readonly roomProvisioner?: Pick<
+    AlumniHelpRoomProvisioner,
+    "startGraceInTransaction"
+  >;
   readonly runtimeWritable?: () => Promise<boolean>;
 }
 
@@ -83,6 +97,10 @@ export class AlumniOutcomeDeadlineService {
   private readonly authorization: OutcomeAuthorizer;
   private readonly outcomeModel: Model<IAlumniHelpOutcomeSubmission>;
   private readonly requestModel: Model<IAlumniHelpRequest>;
+  private readonly roomProvisioner: Pick<
+    AlumniHelpRoomProvisioner,
+    "startGraceInTransaction"
+  >;
   private readonly runtimeWritable: () => Promise<boolean>;
   private inFlight: Promise<AlumniOutcomeDeadlineResult> | null = null;
 
@@ -95,6 +113,8 @@ export class AlumniOutcomeDeadlineService {
     this.authorization = dependencies.authorization ?? workerAuthorizationService;
     this.outcomeModel = dependencies.outcomeModel ?? AlumniHelpOutcomeSubmission;
     this.requestModel = dependencies.requestModel ?? AlumniHelpRequest;
+    this.roomProvisioner =
+      dependencies.roomProvisioner ?? alumniHelpRoomProvisioner;
     this.runtimeWritable = dependencies.runtimeWritable ?? defaultRuntimeWritable;
   }
 
@@ -204,24 +224,86 @@ export class AlumniOutcomeDeadlineService {
       );
       if (outcomeUpdate.modifiedCount !== 1) return false;
 
+      const requestRevision = request.revision;
+      const fromStatus = request.status;
+      const closesRequest = request.status !== "closed";
+      let closureEvent: AlumniHelpLifecycleEvent | null = null;
+      if (closesRequest) {
+        const closeTransition = ALUMNI_HELP_TRANSITIONS.outcome_auto_confirm;
+        if (!(closeTransition.from as readonly string[]).includes(fromStatus)) {
+          throw new Error("Alumni Help request cannot close after auto-confirmation.");
+        }
+        request.status = closeTransition.to;
+        request.closedAt = now;
+        request.purgeAt = acceptedHelpRequestPurgeAt(
+          now,
+          request.latestOutcomeDueAt,
+        );
+        closureEvent = {
+          _id: new Types.ObjectId(),
+          sequence: request.lifecycleTimeline.length + 1,
+          action: "outcome_auto_confirm",
+          fromStatus,
+          toStatus: closeTransition.to,
+          actorRole: "system",
+          actorId: null,
+          note: null,
+          helpType: null,
+          occurredAt: now,
+        };
+        request.lifecycleTimeline.push(closureEvent);
+      }
+      request.latestOutcomeStatus = "confirmed";
+      request.revision = requestRevision + 1;
+      await request.validate();
+      const roomGraceEndsAt = closesRequest
+        ? alumniHelpRoomGraceEndsAt(now)
+        : null;
+
       const requestUpdate = await this.requestModel.updateOne(
         {
           _id: request._id,
-          revision: request.revision,
+          revision: requestRevision,
           latestOutcomeSubmissionId: outcome._id,
           latestOutcomeStatus: "pending",
         },
         {
           $set: {
-            latestOutcomeStatus: "confirmed",
-            revision: request.revision + 1,
+            ...(closesRequest
+              ? {
+                  status: request.status,
+                  activeUniqueness: request.activeUniqueness,
+                  closedAt: request.closedAt,
+                  purgeAt: request.purgeAt,
+                }
+              : {}),
+            latestOutcomeStatus: request.latestOutcomeStatus,
+            revision: request.revision,
           },
-          $max: helpUpdateMarkers(request.revision + 1, null),
+          ...(closureEvent ? { $push: { lifecycleTimeline: closureEvent } } : {}),
+          $max: helpUpdateMarkers(request.revision, null),
         },
         { session, runValidators: false },
       );
       if (requestUpdate.modifiedCount !== 1) {
         throw new Error("Alumni Help request outcome summary changed concurrently.");
+      }
+      if (closesRequest && roomGraceEndsAt) {
+        if (!request.purgeAt || !request.conversationId) {
+          throw new Error("Alumni Help request is missing close metadata.");
+        }
+        await this.outcomeModel.updateMany(
+          { helpRequestId: request._id },
+          { $set: { purgeAt: request.purgeAt } },
+          { session, runValidators: false },
+        );
+        await this.roomProvisioner.startGraceInTransaction({
+          conversationId: request.conversationId,
+          helpRequestId: request._id,
+          occurredAt: now,
+          writeAccessEndsAt: roomGraceEndsAt,
+          session,
+        });
       }
 
       await AuditLogService.recordRequiredInTransaction(
@@ -239,7 +321,9 @@ export class AlumniOutcomeDeadlineService {
             outcomeRevisionNumber: outcome.revisionNumber,
             dueAt: outcome.dueAt.toISOString(),
             resultingOutcomeRevision: outcome.revision + 1,
-            resultingRequestRevision: request.revision + 1,
+            resultingRequestRevision: request.revision,
+            resultingRequestStatus: request.status,
+            requestClosedByConfirmation: closesRequest,
             workerRunId: runContext.runId,
           },
         },
@@ -247,8 +331,8 @@ export class AlumniOutcomeDeadlineService {
       );
       await enqueueAlumniHelpWorkflowNotifications({
         requestId: request._id.toString(),
-        requestRevision: request.revision + 1,
-        timelineEventId: new Types.ObjectId().toString(),
+        requestRevision: request.revision,
+        timelineEventId: (closureEvent?._id ?? new Types.ObjectId()).toString(),
         eventType: "outcome_auto_confirm",
         actorUserId: null,
         requesterId: request.requesterId.toString(),
@@ -257,6 +341,14 @@ export class AlumniOutcomeDeadlineService {
         outcomeRevision: outcome.revisionNumber,
         occurredAt: now,
         session,
+        ...(roomGraceEndsAt && request.conversationId
+          ? {
+              roomGraceStarted: {
+                conversationId: request.conversationId.toString(),
+                writeAccessEndsAt: roomGraceEndsAt,
+              },
+            }
+          : {}),
       });
       return true;
     });

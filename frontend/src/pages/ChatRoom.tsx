@@ -77,6 +77,15 @@ function previewContent(value: string | null): string | null {
     : `${codePoints.slice(0, LAST_MESSAGE_PREVIEW_CODE_POINTS).join("")}…`;
 }
 
+function formatGraceDeadline(value: string): string {
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime())) return "the end of the grace period";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(deadline);
+}
+
 function mergeCanonicalMessages(
   current: readonly ChatMessageDTO[],
   incoming: readonly ChatMessageDTO[],
@@ -202,6 +211,43 @@ export default function ChatRoom() {
   useEffect(() => {
     pendingMessagesRef.current = pendingMessages;
   }, [pendingMessages]);
+
+  // A closed Alumni Help Room stays writable for a fixed week. Refresh at the
+  // deadline even if the archival worker has not yet made its next pass, so a
+  // visible page never offers a stale send control after that exact moment.
+  useEffect(() => {
+    if (
+      conversation?.kind !== "alumni_help" ||
+      !conversation.viewer.canSend ||
+      !conversation.writeAccessEndsAt
+    ) {
+      return;
+    }
+    const deadline = Date.parse(conversation.writeAccessEndsAt);
+    if (!Number.isFinite(deadline)) return;
+    const refresh = () => setReloadSequence((value) => value + 1);
+    const delay = deadline - Date.now();
+    if (delay <= 0) {
+      refresh();
+      return;
+    }
+    const timer = window.setTimeout(refresh, delay);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && Date.now() >= deadline) {
+        refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [
+    conversation?.id,
+    conversation?.kind,
+    conversation?.viewer.canSend,
+    conversation?.writeAccessEndsAt,
+  ]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = scrollRef.current;
@@ -1319,6 +1365,14 @@ export default function ChatRoom() {
                   : "Read-only"
               }`}
             </p>
+            {conversation.kind === "alumni_help" &&
+              conversation.viewer.canSend &&
+              conversation.writeAccessEndsAt && (
+                <p className="mt-1 text-xs font-medium text-blue-700">
+                  Help request closed · This Room remains available until {" "}
+                  {formatGraceDeadline(conversation.writeAccessEndsAt)}.
+                </p>
+              )}
           </div>
           <button
             aria-label={

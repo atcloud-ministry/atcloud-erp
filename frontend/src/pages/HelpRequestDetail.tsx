@@ -49,6 +49,7 @@ export default function HelpRequestDetail() {
     captureHelpCounterGeneration,
     helpRefreshSequence,
     announceHelpRoomCreated,
+    announceHelpRoomGraceStarted,
   } = useAlumniHelp();
   const [loadedRequest, setLoadedRequest] = useState<{
     requestId: string;
@@ -173,6 +174,7 @@ export default function HelpRequestDetail() {
   ) => {
     if (currentRequestIdRef.current !== requestId) return;
     const previousConversationId = loadedRequest?.value.conversationId ?? null;
+    const previousStatus = loadedRequest?.value.status ?? null;
     if (
       latestRequestRef.current?.requestId !== requestId ||
       result.request.revision >= latestRequestRef.current.revision
@@ -189,6 +191,16 @@ export default function HelpRequestDetail() {
       result.request.conversationId !== previousConversationId
     ) {
       announceHelpRoomCreated(requestId, result.request.conversationId);
+    }
+    if (
+      result.request.status === "closed" &&
+      previousStatus !== "closed" &&
+      result.request.conversationId
+    ) {
+      // The initiating participant should not need to wait for the durable
+      // outbox/socket delivery before learning that the Room stays writable.
+      // The matching realtime delivery is de-duplicated by the provider.
+      announceHelpRoomGraceStarted(requestId, result.request.conversationId);
     }
     setSuccessMessage(message);
     setMutationError(null);
