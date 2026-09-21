@@ -20,7 +20,6 @@ import {
 } from "./PushSubscriptionService";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
-const WEB_PUSH_TOPIC_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const WEB_PUSH_TRANSPORT_TIMEOUT_MS = 10_000;
 const INACTIVITY_MS =
   PUSH_SUBSCRIPTION_INACTIVITY_DAYS * 24 * 60 * 60 * 1_000;
@@ -127,7 +126,8 @@ function isTransientStatus(code: number | null): boolean {
 }
 
 function webPushTopic(tag: string): string {
-  if (WEB_PUSH_TOPIC_PATTERN.test(tag)) return tag;
+  // Application tags can be alphabet-safe yet invalid Base64URL (for example,
+  // a 29-character chat tag). Derive a stable 32-character topic instead.
   const digest = createHash("sha256").update(tag, "utf8").digest("base64url");
   return `atc-${digest.slice(0, 28)}`;
 }

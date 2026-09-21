@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { WebPushDeliveryService } from "../../../../src/services/push/WebPushDeliveryService";
 
@@ -14,6 +15,10 @@ const PAYLOAD = Object.freeze({
   deepLink: "/#/dashboard/notifications",
   badgeCount: 2,
 });
+
+function expectedTopic(tag: string): string {
+  return `atc-${createHash("sha256").update(tag, "utf8").digest("base64url").slice(0, 28)}`;
+}
 
 function target() {
   return Object.freeze({
@@ -56,7 +61,7 @@ describe("WebPushDeliveryService recipient sender", () => {
     expect(serialized).not.toContain("private-endpoint");
     expect(serialized).not.toContain("private-p256dh");
     expect(sendNotification.mock.calls[0]?.[2]).toMatchObject({
-      topic: PAYLOAD.tag,
+      topic: expectedTopic(PAYLOAD.tag),
       timeout: 10_000,
     });
     expect(subscriptions.recordSuccess).toHaveBeenCalledTimes(1);
@@ -214,7 +219,7 @@ describe("WebPushDeliveryService recipient sender", () => {
     );
   });
 
-  it("uses stable, resource-scoped topics and hashes unsafe tags to at most 32 characters", async () => {
+  it("uses stable, resource-scoped hashed topics for all tags, including chat and help", async () => {
     const sendNotification = vi.fn().mockResolvedValue({ statusCode: 201 });
     const subscriptions = {
       getPreferences: vi.fn().mockResolvedValue({
@@ -235,6 +240,7 @@ describe("WebPushDeliveryService recipient sender", () => {
     const chatTag = "chat-507f1f77bcf86cd799439011";
     const helpTag = "help-507f1f77bcf86cd799439013";
     const unsafeTag = `chat room ${"x".repeat(48)}`;
+    expect(chatTag).toHaveLength(29);
 
     for (const [index, tag] of [chatTag, helpTag, unsafeTag, unsafeTag].entries()) {
       await service.deliverUserNotification({
@@ -247,10 +253,18 @@ describe("WebPushDeliveryService recipient sender", () => {
     const topics = sendNotification.mock.calls.map(
       (call) => (call[2] as { topic?: string }).topic,
     );
-    expect(topics.slice(0, 2)).toEqual([chatTag, helpTag]);
+    expect(topics.slice(0, 2)).toEqual([
+      expectedTopic(chatTag),
+      expectedTopic(helpTag),
+    ]);
+    expect(topics[0]).not.toBe(chatTag);
+    expect(topics[1]).not.toBe(helpTag);
     expect(topics[0]).not.toBe(topics[1]);
     expect(topics[2]).toBe(topics[3]);
-    expect(topics[2]).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+    expect(topics[2]).toBe(expectedTopic(unsafeTag));
+    for (const topic of topics) {
+      expect(topic).toMatch(/^atc-[A-Za-z0-9_-]{28}$/);
+    }
   });
 
   it("skips a subscription already marked for the same event", async () => {
