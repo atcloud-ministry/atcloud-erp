@@ -156,6 +156,23 @@ describe("Conversation model", () => {
 
     room.purgeAt = new Date("2027-10-15T12:30:00.000Z");
     await expect(room.validate()).rejects.toThrow("approved retention");
+
+    const helpRoom = new Conversation({
+      kind: "alumni_help",
+      helpRequestId: new mongoose.Types.ObjectId(),
+      createdAt: CREATED_AT,
+      writeAccessEndsAt: new Date("2026-09-07T12:30:00.000Z"),
+    });
+    await expect(helpRoom.validate()).resolves.toBeUndefined();
+    const programRoomWithDeadline = new Conversation({
+      kind: "program",
+      programId: new mongoose.Types.ObjectId(),
+      createdAt: CREATED_AT,
+      writeAccessEndsAt: new Date("2026-09-07T12:30:00.000Z"),
+    });
+    await expect(programRoomWithDeadline.validate()).rejects.toThrow(
+      "write-access deadline",
+    );
   });
 
   it("declares resource uniqueness, room listing, and retention indexes", () => {
@@ -186,6 +203,12 @@ describe("Conversation model", () => {
           { kind: 1, status: 1, _id: 1 },
           expect.objectContaining({
             name: "idx_program_conversation_membership_repair",
+          }),
+        ],
+        [
+          { kind: 1, status: 1, writeAccessEndsAt: 1, _id: 1 },
+          expect.objectContaining({
+            name: "idx_alumni_help_conversation_grace_expiry",
           }),
         ],
       ]),

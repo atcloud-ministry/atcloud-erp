@@ -94,6 +94,13 @@ function report(
       paused: false,
       hasMore: false,
     },
+    roomGrace: {
+      candidatesScanned: 0,
+      archived: 0,
+      racedOrUnavailable: 0,
+      remainingOverdue: 0,
+      hasMore: false,
+    },
     outbox: {
       recoveredExpiredLeases: 0,
       deadLetteredExhausted: 0,

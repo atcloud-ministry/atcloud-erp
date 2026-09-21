@@ -16,6 +16,9 @@ const alumniRetentionMocks = vi.hoisted(() => ({
 const alumniOutcomeMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
+const alumniHelpRoomGraceMocks = vi.hoisted(() => ({
+  runBounded: vi.fn(),
+}));
 const chatUnreadMocks = vi.hoisted(() => ({
   runBounded: vi.fn(),
 }));
@@ -42,6 +45,9 @@ vi.mock(
 );
 vi.mock("../../../src/services/alumni/AlumniOutcomeDeadlineService", () => ({
   alumniOutcomeDeadlineService: alumniOutcomeMocks,
+}));
+vi.mock("../../../src/services/alumni/AlumniHelpRoomGraceExpiryService", () => ({
+  alumniHelpRoomGraceExpiryService: alumniHelpRoomGraceMocks,
 }));
 vi.mock("../../../src/services/chat/ChatUnreadReconciliationService", () => ({
   chatUnreadReconciliationService: chatUnreadMocks,
@@ -90,6 +96,12 @@ describe("MaintenanceScheduler", () => {
       racedOrUnavailable: 0,
       remainingOverdue: 0,
       paused: false,
+    });
+    alumniHelpRoomGraceMocks.runBounded.mockResolvedValue({
+      candidatesScanned: 0,
+      archived: 0,
+      racedOrUnavailable: 0,
+      remainingOverdue: 0,
     });
     chatUnreadMocks.runBounded.mockResolvedValue({
       candidatesScanned: 0,
@@ -212,6 +224,7 @@ describe("MaintenanceScheduler", () => {
 
       await vi.advanceTimersByTimeAsync(10 * 1000);
       expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(1);
+      expect(alumniHelpRoomGraceMocks.runBounded).toHaveBeenCalledTimes(1);
       expect(alumniOutcomeMocks.runBounded).toHaveBeenLastCalledWith(
         expect.objectContaining({
           trigger: "startup",
@@ -221,9 +234,19 @@ describe("MaintenanceScheduler", () => {
           }),
         }),
       );
+      expect(alumniHelpRoomGraceMocks.runBounded).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          trigger: "startup",
+          principal: expect.objectContaining({
+            serviceKey: "alumni-help-room-grace",
+            capabilities: ["alumni.help.room_grace.archive"],
+          }),
+        }),
+      );
 
       await vi.advanceTimersByTimeAsync(50 * 1000);
       expect(alumniOutcomeMocks.runBounded).toHaveBeenCalledTimes(2);
+      expect(alumniHelpRoomGraceMocks.runBounded).toHaveBeenCalledTimes(2);
       expect(alumniOutcomeMocks.runBounded).toHaveBeenLastCalledWith(
         expect.objectContaining({ trigger: "scheduled" }),
       );

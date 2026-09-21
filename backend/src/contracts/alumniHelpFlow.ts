@@ -59,6 +59,9 @@ export const ALUMNI_HELP_LIFECYCLE_ACTIONS = [
   "start",
   "complete",
   "close",
+  "outcome_confirm",
+  "outcome_auto_confirm",
+  "outcome_reconcile",
 ] as const;
 export type AlumniHelpLifecycleAction =
   (typeof ALUMNI_HELP_LIFECYCLE_ACTIONS)[number];
@@ -95,6 +98,27 @@ export const ALUMNI_HELP_PARTICIPANT_ROLES = [
 ] as const;
 export type AlumniHelpParticipantRole =
   (typeof ALUMNI_HELP_PARTICIPANT_ROLES)[number];
+
+/**
+ * Timeline entries can also record a fixed-deadline outcome confirmation.
+ * Keep this separate from participant roles: `system` is never a viewer or
+ * an actor authorized to make a participant transition.
+ */
+export const ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES = [
+  ...ALUMNI_HELP_PARTICIPANT_ROLES,
+  "system",
+] as const;
+export type AlumniHelpLifecycleActorRole =
+  (typeof ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES)[number];
+
+export const ALUMNI_HELP_LIFECYCLE_TRANSITION_ACTIONS = [
+  ...ALUMNI_HELP_TRANSITION_ACTIONS,
+  "outcome_confirm",
+  "outcome_auto_confirm",
+  "outcome_reconcile",
+] as const;
+export type AlumniHelpLifecycleTransitionAction =
+  (typeof ALUMNI_HELP_LIFECYCLE_TRANSITION_ACTIONS)[number];
 
 export const ALUMNI_HELP_OUTCOME_CODES = [
   "not_fulfilled",
@@ -137,6 +161,7 @@ export const ALUMNI_HELP_FIELD_LIMITS = Object.freeze({
 });
 
 export const ALUMNI_HELP_OUTCOME_CONFIRMATION_HOURS = 480;
+export const ALUMNI_HELP_ROOM_GRACE_DAYS = 7;
 export const ALUMNI_HELP_NEVER_ACCEPTED_RETENTION_MONTHS = 2;
 export const ALUMNI_HELP_ACCEPTED_RETENTION_MONTHS = 12;
 export const ALUMNI_HELP_OUTCOME_RETENTION_SAFETY_DAYS = 30;
@@ -215,10 +240,25 @@ export const ALUMNI_HELP_TRANSITIONS = Object.freeze({
     from: Object.freeze(["accepted", "in_progress", "completed"] as const),
     to: "closed",
   }),
+  outcome_confirm: Object.freeze({
+    actor: "provider",
+    from: Object.freeze(["accepted", "in_progress", "completed"] as const),
+    to: "closed",
+  }),
+  outcome_auto_confirm: Object.freeze({
+    actor: "system",
+    from: Object.freeze(["accepted", "in_progress", "completed"] as const),
+    to: "closed",
+  }),
+  outcome_reconcile: Object.freeze({
+    actor: "system",
+    from: Object.freeze(["accepted", "in_progress", "completed"] as const),
+    to: "closed",
+  }),
 } as const satisfies Record<
-  HelpTransitionAction,
+  AlumniHelpLifecycleTransitionAction,
   {
-    readonly actor: AlumniHelpParticipantRole | "either";
+    readonly actor: AlumniHelpLifecycleActorRole | "either";
     readonly from: readonly AlumniHelpRequestStatus[];
     readonly to: AlumniHelpRequestStatus;
   }
@@ -285,7 +325,7 @@ export interface AlumniHelpLifecycleEventDTO {
   readonly action: AlumniHelpLifecycleAction;
   readonly fromStatus: AlumniHelpRequestStatus | null;
   readonly toStatus: AlumniHelpRequestStatus;
-  readonly actorRole: AlumniHelpParticipantRole;
+  readonly actorRole: AlumniHelpLifecycleActorRole;
   readonly note: string | null;
   readonly helpType: AlumniHelpType | null;
   readonly occurredAt: string;
@@ -713,6 +753,15 @@ export function addFixedHours(value: Date, hours: number): Date {
 
 export function helpOutcomeDueAt(submittedAt: Date): Date {
   return addFixedHours(submittedAt, ALUMNI_HELP_OUTCOME_CONFIRMATION_HOURS);
+}
+
+/**
+ * A closed Help Request remains a two-way conversation for one final week.
+ * The Room archive worker uses this fixed deadline; chat send authorization
+ * also enforces it, so a delayed worker run cannot extend the grace period.
+ */
+export function alumniHelpRoomGraceEndsAt(closedAt: Date): Date {
+  return addFixedDays(closedAt, ALUMNI_HELP_ROOM_GRACE_DAYS);
 }
 
 export function neverAcceptedHelpRequestPurgeAt(endedAt: Date): Date {

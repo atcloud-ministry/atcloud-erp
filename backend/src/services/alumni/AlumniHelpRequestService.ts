@@ -10,6 +10,7 @@ import {
   ALUMNI_HELP_TRANSITIONS,
   ALUMNI_HELP_TYPES,
   acceptedHelpRequestPurgeAt,
+  alumniHelpRoomGraceEndsAt,
   buildAlumniHelpTermsDTO,
   helpOutcomeDueAt,
   isAlumniHelpOutcomeCodeForType,
@@ -838,6 +839,8 @@ export class AlumniHelpRequestService {
           request.lifecycleTimeline.push(event);
           request.revision = input.expectedRevision + 1;
           await request.validate();
+          const roomGraceEndsAt =
+            input.action === "close" ? alumniHelpRoomGraceEndsAt(now) : null;
 
           const updated = await AlumniHelpRequest.updateOne(
             {
@@ -868,17 +871,18 @@ export class AlumniHelpRequestService {
             { session, runValidators: false },
           );
           if (updated.modifiedCount !== 1) throw requestRevisionConflict();
-          if (input.action === "close" && request.purgeAt) {
+          if (input.action === "close" && request.purgeAt && roomGraceEndsAt) {
             await AlumniHelpOutcomeSubmission.updateMany(
               { helpRequestId: request._id },
               { $set: { purgeAt: request.purgeAt } },
               { session, runValidators: false },
             );
             if (!request.conversationId) throw requestStateConflict();
-            await this.roomProvisioner.archiveInTransaction({
+            await this.roomProvisioner.startGraceInTransaction({
               conversationId: request.conversationId,
               helpRequestId: request._id,
-              archivedAt: now,
+              occurredAt: now,
+              writeAccessEndsAt: roomGraceEndsAt,
               session,
             });
           }
@@ -910,6 +914,14 @@ export class AlumniHelpRequestService {
             occurredAt: now,
             session,
             correlationId: input.correlationId,
+            ...(roomGraceEndsAt && request.conversationId
+              ? {
+                  roomGraceStarted: {
+                    conversationId: request.conversationId.toString(),
+                    writeAccessEndsAt: roomGraceEndsAt,
+                  },
+                }
+              : {}),
           });
           return {
             httpStatus: 200,
@@ -1155,9 +1167,41 @@ export class AlumniHelpRequestService {
         }
 
         const requestRevision = request.revision;
+        const fromStatus = request.status;
+        const closesRequest =
+          input.decision === "confirm" && request.status !== "closed";
+        let closureEvent: AlumniHelpLifecycleEvent | null = null;
+        if (closesRequest) {
+          const closeTransition = ALUMNI_HELP_TRANSITIONS.outcome_confirm;
+          if (!(closeTransition.from as readonly string[]).includes(fromStatus)) {
+            throw requestStateConflict();
+          }
+          request.status = closeTransition.to;
+          request.closedAt = now;
+          request.purgeAt = acceptedHelpRequestPurgeAt(
+            now,
+            request.latestOutcomeDueAt,
+          );
+          closureEvent = {
+            _id: new mongoose.Types.ObjectId(),
+            sequence: request.lifecycleTimeline.length + 1,
+            action: "outcome_confirm",
+            fromStatus,
+            toStatus: closeTransition.to,
+            actorRole: "provider",
+            actorId,
+            note: null,
+            helpType: null,
+            occurredAt: now,
+          };
+          request.lifecycleTimeline.push(closureEvent);
+        }
         request.latestOutcomeStatus = outcome.status;
         request.revision = requestRevision + 1;
         await request.validate();
+        const roomGraceEndsAt = closesRequest
+          ? alumniHelpRoomGraceEndsAt(now)
+          : null;
         const requestUpdated = await AlumniHelpRequest.updateOne(
           {
             _id: request._id,
@@ -1167,17 +1211,43 @@ export class AlumniHelpRequestService {
           },
           {
             $set: {
+              ...(closesRequest
+                ? {
+                    status: request.status,
+                    activeUniqueness: request.activeUniqueness,
+                    closedAt: request.closedAt,
+                    purgeAt: request.purgeAt,
+                  }
+                : {}),
               latestOutcomeStatus: outcome.status,
               revision: request.revision,
             },
+            ...(closureEvent ? { $push: { lifecycleTimeline: closureEvent } } : {}),
             $max: helpUpdateMarkers(request.revision, "provider"),
           },
           { session, runValidators: false },
         );
         if (requestUpdated.modifiedCount !== 1) throw requestRevisionConflict();
+        if (closesRequest && roomGraceEndsAt) {
+          if (!request.purgeAt || !request.conversationId) {
+            throw requestStateConflict();
+          }
+          await AlumniHelpOutcomeSubmission.updateMany(
+            { helpRequestId: request._id },
+            { $set: { purgeAt: request.purgeAt } },
+            { session, runValidators: false },
+          );
+          await this.roomProvisioner.startGraceInTransaction({
+            conversationId: request.conversationId,
+            helpRequestId: request._id,
+            occurredAt: now,
+            writeAccessEndsAt: roomGraceEndsAt,
+            session,
+          });
+        }
         const eventType: AlumniHelpWorkflowEventType =
           input.decision === "confirm" ? "outcome_confirm" : "outcome_deny";
-        const timelineEventId = new mongoose.Types.ObjectId();
+        const timelineEventId = closureEvent?._id ?? new mongoose.Types.ObjectId();
         await AuditLogService.recordRequiredInTransaction(
           {
             action: `alumni_help.${eventType}`,
@@ -1194,6 +1264,8 @@ export class AlumniHelpRequestService {
               fromRevision: input.expectedRevision,
               toRevision: outcome.revision,
               resultingRequestRevision: request.revision,
+              resultingRequestStatus: request.status,
+              requestClosedByConfirmation: closesRequest,
             },
           },
           session,
@@ -1211,6 +1283,14 @@ export class AlumniHelpRequestService {
           occurredAt: now,
           session,
           correlationId: input.correlationId,
+          ...(roomGraceEndsAt && request.conversationId
+            ? {
+                roomGraceStarted: {
+                  conversationId: request.conversationId.toString(),
+                  writeAccessEndsAt: roomGraceEndsAt,
+                },
+              }
+            : {}),
         });
         return {
           httpStatus: 200,

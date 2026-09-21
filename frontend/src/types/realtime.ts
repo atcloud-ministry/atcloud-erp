@@ -64,6 +64,14 @@ export interface AlumniHelpUpdate {
   roomCreated?: {
     conversationId: string;
   };
+  /**
+   * Present only when a Help Request has just closed and the participants'
+   * existing private room entered its seven-day write grace period.
+   */
+  roomGraceStarted?: {
+    conversationId: string;
+    writeAccessEndsAt: string;
+  };
   timestamp: string;
 }
 

@@ -28,6 +28,7 @@ const TIMELINE_EVENT_ID = "64f100000000000000000004";
 const OUTCOME_ID = "64f100000000000000000005";
 const CONVERSATION_ID = "64f100000000000000000006";
 const DELIVERY_ID = "550e8400-e29b-41d4-a716-446655440000";
+const GRACE_ENDS_AT = "2026-09-19T12:00:00.000Z";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -235,6 +236,31 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
     });
   });
 
+  it("emits the private Room grace metadata only from a closing delivery", async () => {
+    const { handler, socket } = setup();
+    await handler.deliver(
+      event({
+        eventType: "close",
+        roomGraceStarted: {
+          conversationId: CONVERSATION_ID,
+          writeAccessEndsAt: GRACE_ENDS_AT,
+        },
+      }),
+      context(),
+    );
+
+    expect(socket.emitAlumniHelpUpdate).toHaveBeenCalledWith(PROVIDER_ID, {
+      requestId: REQUEST_ID,
+      requestRevision: 4,
+      helpActionRequiredCount: 3,
+      helpNotificationCount: 5,
+      roomGraceStarted: {
+        conversationId: CONVERSATION_ID,
+        writeAccessEndsAt: GRACE_ENDS_AT,
+      },
+    });
+  });
+
   it.each([
     { openingNote: "must never enter an outbox payload" },
     { eventType: "outcome_submit" },
@@ -242,6 +268,20 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
       eventType: "create",
       outcomeSubmissionId: OUTCOME_ID,
       outcomeRevision: 1,
+    },
+    {
+      eventType: "create",
+      roomGraceStarted: {
+        conversationId: CONVERSATION_ID,
+        writeAccessEndsAt: GRACE_ENDS_AT,
+      },
+    },
+    {
+      eventType: "close",
+      roomGraceStarted: {
+        conversationId: CONVERSATION_ID,
+        writeAccessEndsAt: "2026-09-12T12:00:00.000Z",
+      },
     },
     { occurredAt: "2026-09-12" },
   ])("permanently rejects payload drift %#", (drift) => {
@@ -357,6 +397,68 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
       recipientUserId: PROVIDER_ID,
       presentation: "counter_only",
     });
+  });
+
+  it("serializes a grace-period signal for both participants after closing", async () => {
+    const enqueueInTransaction = vi
+      .fn()
+      .mockResolvedValue({ eventId: DELIVERY_ID } as NotificationOutboxRecord);
+    await enqueueAlumniHelpWorkflowNotifications(
+      {
+        requestId: REQUEST_ID,
+        requestRevision: 4,
+        timelineEventId: TIMELINE_EVENT_ID,
+        eventType: "close",
+        actorUserId: PROVIDER_ID,
+        requesterId: REQUESTER_ID,
+        providerId: PROVIDER_ID,
+        roomGraceStarted: {
+          conversationId: CONVERSATION_ID,
+          writeAccessEndsAt: new Date(GRACE_ENDS_AT),
+        },
+        occurredAt: new Date("2026-09-12T12:00:00.000Z"),
+        session: {} as ClientSession,
+      },
+      { enqueueInTransaction },
+    );
+
+    expect(enqueueInTransaction.mock.calls[0][0].payload).toMatchObject({
+      recipientUserId: REQUESTER_ID,
+      roomGraceStarted: {
+        conversationId: CONVERSATION_ID,
+        writeAccessEndsAt: GRACE_ENDS_AT,
+      },
+    });
+    expect(enqueueInTransaction.mock.calls[1][0].payload).toMatchObject({
+      recipientUserId: PROVIDER_ID,
+      roomGraceStarted: {
+        conversationId: CONVERSATION_ID,
+        writeAccessEndsAt: GRACE_ENDS_AT,
+      },
+    });
+  });
+
+  it("rejects room grace metadata for an event that did not close a request", async () => {
+    await expect(
+      enqueueAlumniHelpWorkflowNotifications(
+        {
+          requestId: REQUEST_ID,
+          requestRevision: 2,
+          timelineEventId: TIMELINE_EVENT_ID,
+          eventType: "create",
+          actorUserId: REQUESTER_ID,
+          requesterId: REQUESTER_ID,
+          providerId: PROVIDER_ID,
+          roomGraceStarted: {
+            conversationId: CONVERSATION_ID,
+            writeAccessEndsAt: new Date(GRACE_ENDS_AT),
+          },
+          occurredAt: new Date("2026-09-12T12:00:00.000Z"),
+          session: {} as ClientSession,
+        },
+        { enqueueInTransaction: vi.fn() },
+      ),
+    ).rejects.toThrow("room grace metadata is valid only for a closing event");
   });
 });
 

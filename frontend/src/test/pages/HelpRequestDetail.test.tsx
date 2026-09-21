@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   markRead: vi.fn(),
   helpRefreshSequence: 0,
   announceHelpRoomCreated: vi.fn(),
+  announceHelpRoomGraceStarted: vi.fn(),
   writable: true,
   socketHandler: null as ((payload: unknown) => void) | null,
 }));
@@ -42,6 +43,7 @@ vi.mock("../../contexts/AlumniHelpContext", () => ({
     captureHelpCounterGeneration: mocks.captureGeneration,
     helpRefreshSequence: mocks.helpRefreshSequence,
     announceHelpRoomCreated: mocks.announceHelpRoomCreated,
+    announceHelpRoomGraceStarted: mocks.announceHelpRoomGraceStarted,
   }),
 }));
 
@@ -318,6 +320,41 @@ describe("HelpRequestDetail", () => {
       IDS.request,
       IDS.conversation,
     );
+  });
+
+  it("announces the seven-day Help Room grace period immediately after closing", async () => {
+    const user = userEvent.setup();
+    const open = makeRequest({
+      status: "completed",
+      agreedHelpType: "career_advice",
+      conversationId: IDS.conversation,
+      revision: 3,
+      availableActions: ["close"],
+      acceptedAt: "2026-09-13T12:00:00.000Z",
+      completedAt: "2026-09-14T12:00:00.000Z",
+    });
+    const closed = makeRequest({
+      ...open,
+      status: "closed",
+      revision: 4,
+      availableActions: [],
+      closedAt: "2026-09-15T12:00:00.000Z",
+    });
+    mocks.get.mockResolvedValue({ request: open, helpActionRequiredCount: 0 });
+    mocks.transition.mockResolvedValue({
+      request: closed,
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 0,
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Close request" }));
+    await waitFor(() => expect(mocks.transition).toHaveBeenCalledOnce());
+    expect(mocks.announceHelpRoomGraceStarted).toHaveBeenCalledWith(
+      IDS.request,
+      IDS.conversation,
+    );
+    expect(screen.queryByRole("heading", { name: "Available actions" })).not.toBeInTheDocument();
   });
 
   it("renders all three referral outcomes and submits the selected result", async () => {

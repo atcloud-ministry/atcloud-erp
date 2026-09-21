@@ -1106,26 +1106,17 @@ describe("ChatRoom page", () => {
     );
   });
 
-  it("moves an open Help Room to read-only when its Help Request closes", async () => {
-    const archivedRoom = {
+  it("keeps a newly closed Help Room writable through its seven-day grace period", async () => {
+    const graceRoom = {
       ...room,
-      status: "archived" as const,
-      section: "past" as const,
-      archivedAt: "2026-09-13T12:05:00.000Z",
-      viewer: {
-        ...room.viewer,
-        status: "history_only" as const,
-        unreadCount: 0,
-        canSend: false,
-        accessMode: "read_only" as const,
-      },
+      writeAccessEndsAt: "2026-09-20T12:05:00.000Z",
     };
     renderPage();
     await screen.findByLabelText("Message");
     await waitFor(() => expect(mocks.handlers.has("alumni_help_update")).toBe(true));
     mocks.get.mockResolvedValueOnce({
-      conversation: archivedRoom,
-      chatUnreadTotal: 0,
+      conversation: graceRoom,
+      chatUnreadTotal: 1,
     });
 
     act(() => {
@@ -1133,13 +1124,17 @@ describe("ChatRoom page", () => {
         requestId: IDS.request,
         requestRevision: 5,
         helpActionRequiredCount: 0,
+        roomGraceStarted: {
+          conversationId: IDS.room,
+          writeAccessEndsAt: "2026-09-20T12:05:00.000Z",
+        },
         timestamp: "2026-09-13T12:05:00.000Z",
       });
     });
 
-    expect(await screen.findByText(/This Room is read-only/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
-    await waitFor(() => expect(mocks.leave).toHaveBeenCalledWith(IDS.room));
+    expect(await screen.findByText(/Help request closed/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(mocks.leave).not.toHaveBeenCalled();
   });
 
   it("refreshes an open Program Room to retained Past access after unenrollment", async () => {

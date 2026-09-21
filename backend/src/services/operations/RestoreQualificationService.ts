@@ -135,7 +135,7 @@ const RESTORE_COLLECTIONS: readonly RestoreCollectionDefinition[] = Object.freez
     key: "conversations",
     collectionName: Conversation.collection.name,
     model: Conversation as unknown as RestoreIndexModel,
-    projection: Object.freeze({ _id: 1, kind: 1, status: 1, helpRequestId: 1, programId: 1, lastSequence: 1, lastMessageId: 1, latestMessagePurgeAt: 1, archivedAt: 1, purgeAt: 1, revision: 1 }),
+    projection: Object.freeze({ _id: 1, kind: 1, status: 1, helpRequestId: 1, programId: 1, lastSequence: 1, lastMessageId: 1, latestMessagePurgeAt: 1, writeAccessEndsAt: 1, archivedAt: 1, purgeAt: 1, revision: 1 }),
   },
   {
     key: "conversation_members",
@@ -487,6 +487,12 @@ function conversationMetadataIsValid(record: PlainRecord): boolean {
       : objectIdText(record.lastMessageId) !== null &&
         isDate(record.latestMessagePurgeAt);
   if (!messageSummaryValid) return false;
+  if (
+    (kind !== "alumni_help" && record.writeAccessEndsAt != null) ||
+    (record.writeAccessEndsAt != null && !isDate(record.writeAccessEndsAt))
+  ) {
+    return false;
+  }
   if (status === "current") {
     return record.archivedAt == null && record.purgeAt == null;
   }
@@ -605,11 +611,18 @@ function helpRequestLifecycleIsValid(record: PlainRecord): boolean {
       return false;
     }
     const actorId = objectIdText(event.actorId);
-    const expectedActor = event.actorRole === "requester" ? requesterId : providerId;
+    const expectedActor =
+      event.actorRole === "requester"
+        ? requesterId
+        : event.actorRole === "provider"
+          ? providerId
+          : null;
     if (
-      !actorId ||
-      actorId !== expectedActor ||
-      (event.actorRole !== "requester" && event.actorRole !== "provider")
+      event.actorRole === "system"
+        ? event.actorId !== null
+        : !actorId ||
+          actorId !== expectedActor ||
+          (event.actorRole !== "requester" && event.actorRole !== "provider")
     ) {
       return false;
     }
@@ -629,7 +642,7 @@ function helpRequestLifecycleIsValid(record: PlainRecord): boolean {
           {
             readonly from: readonly string[];
             readonly to: string;
-            readonly actor: "requester" | "provider" | "either";
+            readonly actor: "requester" | "provider" | "system" | "either";
           }
         >
       >)[event.action];
@@ -962,6 +975,7 @@ export class RestoreQualificationService {
             lastSequence: 1,
             lastMessageId: 1,
             latestMessagePurgeAt: 1,
+            writeAccessEndsAt: 1,
             archivedAt: 1,
             purgeAt: 1,
           },

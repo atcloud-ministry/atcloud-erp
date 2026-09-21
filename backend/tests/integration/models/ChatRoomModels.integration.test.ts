@@ -77,6 +77,10 @@ describe("M4 chat room model indexes and persistence", () => {
           name: "idx_program_conversation_membership_repair",
           key: { kind: 1, status: 1, _id: 1 },
         }),
+        expect.objectContaining({
+          name: "idx_alumni_help_conversation_grace_expiry",
+          key: { kind: 1, status: 1, writeAccessEndsAt: 1, _id: 1 },
+        }),
       ]),
     );
     expect(memberIndexes).toEqual(

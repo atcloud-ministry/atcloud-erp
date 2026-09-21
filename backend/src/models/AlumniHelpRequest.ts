@@ -8,8 +8,8 @@ import mongoose, { type Document, type Model, Schema } from "mongoose";
 import {
   ALUMNI_HELP_FIELD_LIMITS,
   ALUMNI_HELP_LIFECYCLE_ACTIONS,
+  ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES,
   ALUMNI_HELP_OUTCOME_STATUSES,
-  ALUMNI_HELP_PARTICIPANT_ROLES,
   ALUMNI_HELP_REQUEST_STATUSES,
   ALUMNI_HELP_TRANSITIONS,
   ALUMNI_HELP_TYPES,
@@ -17,8 +17,8 @@ import {
   isActiveAlumniHelpRequestStatus,
   neverAcceptedHelpRequestPurgeAt,
   type AlumniHelpLifecycleAction,
+  type AlumniHelpLifecycleActorRole,
   type AlumniHelpOutcomeStatus,
-  type AlumniHelpParticipantRole,
   type AlumniHelpRequestStatus,
   type AlumniHelpType,
 } from "../contracts/alumniHelpFlow";
@@ -44,8 +44,8 @@ export interface AlumniHelpLifecycleEvent {
   action: AlumniHelpLifecycleAction;
   fromStatus?: AlumniHelpRequestStatus | null;
   toStatus: AlumniHelpRequestStatus;
-  actorRole: AlumniHelpParticipantRole;
-  actorId: mongoose.Types.ObjectId;
+  actorRole: AlumniHelpLifecycleActorRole;
+  actorId: mongoose.Types.ObjectId | null;
   note?: string | null;
   helpType?: AlumniHelpType | null;
   occurredAt: Date;
@@ -157,14 +157,14 @@ const lifecycleEventSchema = new Schema<AlumniHelpLifecycleEvent>(
     },
     actorRole: {
       type: String,
-      enum: ALUMNI_HELP_PARTICIPANT_ROLES,
+      enum: ALUMNI_HELP_LIFECYCLE_ACTOR_ROLES,
       required: true,
       immutable: true,
     },
     actorId: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
       immutable: true,
     },
     note: {
@@ -462,11 +462,17 @@ alumniHelpRequestSchema.pre("validate", function enforceRequestInvariants(next) 
       break;
     }
     const expectedActorId =
-      event.actorRole === "requester" ? this.requesterId : this.providerId;
+      event.actorRole === "requester"
+        ? this.requesterId
+        : event.actorRole === "provider"
+          ? this.providerId
+          : null;
     if (
-      !(event.actorId instanceof mongoose.Types.ObjectId) ||
-      !(expectedActorId instanceof mongoose.Types.ObjectId) ||
-      !event.actorId.equals(expectedActorId)
+      event.actorRole === "system"
+        ? event.actorId !== null
+        : !(event.actorId instanceof mongoose.Types.ObjectId) ||
+          !(expectedActorId instanceof mongoose.Types.ObjectId) ||
+          !event.actorId.equals(expectedActorId)
     ) {
       this.invalidate(
         "lifecycleTimeline",

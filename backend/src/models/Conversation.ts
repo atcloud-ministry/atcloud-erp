@@ -29,6 +29,8 @@ export interface IConversation extends Document {
   lastSequence: number;
   lastMessageId?: mongoose.Types.ObjectId | null;
   latestMessagePurgeAt?: Date | null;
+  /** Fixed send deadline for a closed Alumni Help Room's final grace period. */
+  writeAccessEndsAt?: Date | null;
   archivedAt?: Date | null;
   purgeAt?: Date | null;
   revision: number;
@@ -76,6 +78,7 @@ const conversationSchema = new Schema<IConversation>(
       default: null,
     },
     latestMessagePurgeAt: { type: Date, default: null },
+    writeAccessEndsAt: { type: Date, default: null },
     archivedAt: { type: Date, default: null },
     purgeAt: { type: Date, default: null },
     revision: {
@@ -118,6 +121,28 @@ conversationSchema.pre("validate", function enforceConversationInvariants(next) 
     this.invalidate(
       "lastMessageId",
       "Message retention summary fields must match lastSequence.",
+    );
+  }
+
+  if (
+    this.kind !== "alumni_help" &&
+    this.writeAccessEndsAt != null
+  ) {
+    this.invalidate(
+      "writeAccessEndsAt",
+      "Only Alumni Help conversations may have a write-access deadline.",
+    );
+  }
+  if (
+    this.writeAccessEndsAt != null &&
+    (!(this.writeAccessEndsAt instanceof Date) ||
+      Number.isNaN(this.writeAccessEndsAt.getTime()) ||
+      (this.createdAt instanceof Date &&
+        this.writeAccessEndsAt.getTime() <= this.createdAt.getTime()))
+  ) {
+    this.invalidate(
+      "writeAccessEndsAt",
+      "Conversation write-access deadline must follow Room creation.",
     );
   }
 
@@ -170,6 +195,10 @@ conversationSchema.index(
 conversationSchema.index(
   { kind: 1, status: 1, _id: 1 },
   { name: "idx_program_conversation_membership_repair" },
+);
+conversationSchema.index(
+  { kind: 1, status: 1, writeAccessEndsAt: 1, _id: 1 },
+  { name: "idx_alumni_help_conversation_grace_expiry" },
 );
 conversationSchema.index(
   { purgeAt: 1 },

@@ -16,6 +16,11 @@ import {
   type AlumniOutcomeRunContext,
 } from "../alumni/AlumniOutcomeDeadlineService";
 import {
+  AlumniHelpRoomGraceExpiryService,
+  type AlumniHelpRoomGraceExpiryResult,
+  type AlumniHelpRoomGraceExpiryRunContext,
+} from "../alumni/AlumniHelpRoomGraceExpiryService";
+import {
   AlumniRetentionCleanupService,
   type AlumniRetentionCleanupResult,
   type AlumniRetentionRunContext,
@@ -58,6 +63,7 @@ const REPORT_SCHEMA_VERSION = 1 as const;
 const ACCOUNT_DELETION_BATCH_LIMIT = 100;
 const RETENTION_BATCH_LIMIT = 500;
 const OUTCOME_BATCH_LIMIT = 500;
+const ROOM_GRACE_BATCH_LIMIT = 500;
 const MEMBERSHIP_BATCH_LIMIT = 100;
 const OUTBOX_BATCH_LIMIT = 100;
 const TTL_BATCH_LIMIT = 500;
@@ -73,6 +79,7 @@ export const RESTORE_RECOVERY_LIMITS = Object.freeze({
   accountDeletion: ACCOUNT_DELETION_BATCH_LIMIT,
   retentionPerKind: RETENTION_BATCH_LIMIT,
   outcome: OUTCOME_BATCH_LIMIT,
+  roomGrace: ROOM_GRACE_BATCH_LIMIT,
   membership: MEMBERSHIP_BATCH_LIMIT,
   outbox: OUTBOX_BATCH_LIMIT,
   ttl: TTL_BATCH_LIMIT,
@@ -138,6 +145,7 @@ export interface RestoreOutboxReconciliationPort {
 export interface RestoreRecoveryWorkerContexts {
   createRetention(): AlumniRetentionRunContext;
   createOutcome(): AlumniOutcomeRunContext;
+  createRoomGrace(): AlumniHelpRoomGraceExpiryRunContext;
   createMembership(): ProgramMembershipReconciliationRunContext;
 }
 
@@ -193,6 +201,7 @@ export interface RestoreRecoveryServiceDependencies {
   readonly accountDeletion?: AccountDeletionRecoveryPort;
   readonly retention?: Pick<AlumniRetentionCleanupService, "runBounded">;
   readonly outcome?: Pick<AlumniOutcomeDeadlineService, "runBounded">;
+  readonly roomGrace?: Pick<AlumniHelpRoomGraceExpiryService, "runBounded">;
   readonly membership?: Pick<
     ProgramMembershipReconciliationService,
     "runBoundedFromCheckpoint"
@@ -216,6 +225,7 @@ export interface RestoreRecoveryIssue {
     | "RESTORE_RETENTION_RECOVERY_INCOMPLETE"
     | "RESTORE_MEMBERSHIP_RECOVERY_INCOMPLETE"
     | "RESTORE_OUTCOME_RECOVERY_INCOMPLETE"
+    | "RESTORE_ALUMNI_HELP_ROOM_GRACE_RECOVERY_INCOMPLETE"
     | "RESTORE_OUTBOX_RECOVERY_INCOMPLETE";
 }
 
@@ -238,6 +248,9 @@ export interface RestoreRecoveryReport {
   readonly outcome: AlumniOutcomeDeadlineResult & {
     readonly hasMore: boolean;
   };
+  readonly roomGrace: AlumniHelpRoomGraceExpiryResult & {
+    readonly hasMore: boolean;
+  };
   readonly outbox: RestoreOutboxReconciliationResult;
   readonly issues: readonly RestoreRecoveryIssue[];
 }
@@ -249,6 +262,7 @@ interface RestoreRecoveryReportInput {
   readonly retention: RestoreRecoveryReport["retention"];
   readonly membership: ProgramMembershipReconciliationResult;
   readonly outcome: RestoreRecoveryReport["outcome"];
+  readonly roomGrace: RestoreRecoveryReport["roomGrace"];
   readonly outbox: RestoreOutboxReconciliationResult;
   readonly issues: readonly RestoreRecoveryIssue[];
 }
@@ -468,6 +482,11 @@ function defaultWorkerContexts(): RestoreRecoveryWorkerContexts {
         WORKER_SERVICE_KEYS.ALUMNI_OUTCOME,
         WORKER_RUN_TRIGGERS.RECOVERY,
       ),
+    createRoomGrace: () =>
+      workerAuthorizationService.createRunContext(
+        WORKER_SERVICE_KEYS.ALUMNI_HELP_ROOM_GRACE,
+        WORKER_RUN_TRIGGERS.RECOVERY,
+      ),
     createMembership: () =>
       workerAuthorizationService.createRunContext(
         WORKER_SERVICE_KEYS.PROGRAM_MEMBERSHIP_RECONCILER,
@@ -507,6 +526,13 @@ const EMPTY_OUTCOME_RESULT: AlumniOutcomeDeadlineResult = Object.freeze({
   racedOrUnavailable: 0,
   remainingOverdue: 0,
   paused: false,
+});
+
+const EMPTY_ROOM_GRACE_RESULT: AlumniHelpRoomGraceExpiryResult = Object.freeze({
+  candidatesScanned: 0,
+  archived: 0,
+  racedOrUnavailable: 0,
+  remainingOverdue: 0,
 });
 
 const EMPTY_OUTBOX_RESULT: RestoreOutboxReconciliationResult = Object.freeze({
@@ -936,6 +962,10 @@ export class RestoreRecoveryService {
   private readonly accountDeletion: AccountDeletionRecoveryPort;
   private readonly retention: Pick<AlumniRetentionCleanupService, "runBounded">;
   private readonly outcome: Pick<AlumniOutcomeDeadlineService, "runBounded">;
+  private readonly roomGrace: Pick<
+    AlumniHelpRoomGraceExpiryService,
+    "runBounded"
+  >;
   private readonly membership: Pick<
     ProgramMembershipReconciliationService,
     "runBoundedFromCheckpoint"
@@ -968,6 +998,11 @@ export class RestoreRecoveryService {
       new AlumniOutcomeDeadlineService({
         maxCandidates: OUTCOME_BATCH_LIMIT,
         runtimeWritable: async () => true,
+      });
+    this.roomGrace =
+      dependencies.roomGrace ??
+      new AlumniHelpRoomGraceExpiryService({
+        maxCandidates: ROOM_GRACE_BATCH_LIMIT,
       });
     this.membership =
       dependencies.membership ??
@@ -1020,6 +1055,7 @@ export class RestoreRecoveryService {
         },
         membership: EMPTY_MEMBERSHIP_RESULT,
         outcome: { ...EMPTY_OUTCOME_RESULT, hasMore: false },
+        roomGrace: { ...EMPTY_ROOM_GRACE_RESULT, hasMore: false },
         outbox: EMPTY_OUTBOX_RESULT,
         issues: [issue("RESTORE_ACCOUNT_DELETION_RECONCILIATION_REQUIRED")],
       });
@@ -1043,6 +1079,15 @@ export class RestoreRecoveryService {
         outcomeResult.paused ||
         outcomeResult.racedOrUnavailable > 0 ||
         outcomeResult.remainingOverdue > 0,
+    });
+    const roomGraceResult = await this.roomGrace.runBounded(
+      this.contexts.createRoomGrace(),
+    );
+    const roomGrace = Object.freeze({
+      ...roomGraceResult,
+      hasMore:
+        roomGraceResult.racedOrUnavailable > 0 ||
+        roomGraceResult.remainingOverdue > 0,
     });
     const outbox = await this.outbox.reconcile({
       idempotencyKey,
@@ -1070,6 +1115,9 @@ export class RestoreRecoveryService {
     if (outcome.hasMore) {
       issues.push(issue("RESTORE_OUTCOME_RECOVERY_INCOMPLETE"));
     }
+    if (roomGrace.hasMore) {
+      issues.push(issue("RESTORE_ALUMNI_HELP_ROOM_GRACE_RECOVERY_INCOMPLETE"));
+    }
     if (outbox.hasMore) {
       issues.push(issue("RESTORE_OUTBOX_RECOVERY_INCOMPLETE"));
     }
@@ -1080,6 +1128,7 @@ export class RestoreRecoveryService {
       retention,
       membership,
       outcome,
+      roomGrace,
       outbox,
       issues,
     });
@@ -1173,6 +1222,7 @@ export class RestoreRecoveryService {
       retention: input.retention,
       membership: input.membership,
       outcome: input.outcome,
+      roomGrace: input.roomGrace,
       outbox: input.outbox,
       issues: Object.freeze([...input.issues]),
     });

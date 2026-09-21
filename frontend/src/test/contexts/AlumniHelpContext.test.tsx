@@ -186,6 +186,15 @@ describe("AlumniHelpProvider", () => {
         roomCreated: { conversationId: "64b000000000000000000003" },
       }),
     ).toBe(true);
+    expect(
+      isAlumniHelpUpdatePayload({
+        ...valid,
+        roomGraceStarted: {
+          conversationId: "64b000000000000000000003",
+          writeAccessEndsAt: "2026-09-20T12:00:00.000Z",
+        },
+      }),
+    ).toBe(true);
     expect(isAlumniHelpUpdatePayload({ ...valid, message: "private text" })).toBe(
       false,
     );
@@ -193,6 +202,25 @@ describe("AlumniHelpProvider", () => {
       isAlumniHelpUpdatePayload({
         ...valid,
         roomCreated: { conversationId: "not-an-object-id" },
+      }),
+    ).toBe(false);
+    expect(
+      isAlumniHelpUpdatePayload({
+        ...valid,
+        roomGraceStarted: {
+          conversationId: "64b000000000000000000003",
+          writeAccessEndsAt: "not-an-instant",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isAlumniHelpUpdatePayload({
+        ...valid,
+        roomCreated: { conversationId: "64b000000000000000000003" },
+        roomGraceStarted: {
+          conversationId: "64b000000000000000000004",
+          writeAccessEndsAt: "2026-09-20T12:00:00.000Z",
+        },
       }),
     ).toBe(false);
     expect(
@@ -237,6 +265,54 @@ describe("AlumniHelpProvider", () => {
         requestRevision: 1,
         helpActionRequiredCount: 0,
         roomCreated: { conversationId: "64b000000000000000000003" },
+        timestamp: "2026-09-13T12:00:01.000Z",
+      });
+    });
+    expect(mocks.showNotification).toHaveBeenCalledOnce();
+  });
+
+  it("shows one direct-to-Room prompt when a request closes", async () => {
+    renderProvider();
+    await screen.findByLabelText("Alumni Help action count");
+
+    act(() => {
+      mocks.socketHandlers.get("alumni_help_update")?.({
+        requestId: "64b000000000000000000002",
+        requestRevision: 4,
+        helpActionRequiredCount: 0,
+        helpNotificationCount: 1,
+        roomGraceStarted: {
+          conversationId: "64b000000000000000000003",
+          writeAccessEndsAt: "2026-09-20T12:00:00.000Z",
+        },
+        timestamp: "2026-09-13T12:00:00.000Z",
+      });
+    });
+
+    expect(mocks.showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Help request closed",
+        message: expect.stringContaining("private Chat Room"),
+        actionButton: expect.objectContaining({ text: "Open Chat Room" }),
+        lockUntilClose: true,
+      }),
+    );
+    const options = mocks.showNotification.mock.calls[0][0];
+    act(() => options.actionButton.onClick());
+    expect(screen.getByLabelText("Current location")).toHaveTextContent(
+      "/dashboard/chat-rooms/64b000000000000000000003",
+    );
+
+    act(() => {
+      mocks.socketHandlers.get("alumni_help_update")?.({
+        requestId: "64b000000000000000000002",
+        requestRevision: 4,
+        helpActionRequiredCount: 0,
+        helpNotificationCount: 1,
+        roomGraceStarted: {
+          conversationId: "64b000000000000000000003",
+          writeAccessEndsAt: "2026-09-20T12:00:00.000Z",
+        },
         timestamp: "2026-09-13T12:00:01.000Z",
       });
     });

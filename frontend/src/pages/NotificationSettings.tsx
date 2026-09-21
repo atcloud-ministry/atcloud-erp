@@ -41,13 +41,13 @@ function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 flex-shrink-0 rounded-full ring-1 ring-inset ring-black/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`relative inline-flex h-7 w-12 flex-shrink-0 self-center items-center !rounded-full !border-0 !p-0 ring-1 ring-inset ring-black/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
         checked ? "bg-blue-700" : "bg-gray-600"
       }`}
     >
       <span
         aria-hidden="true"
-        className={`mt-1 inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+        className={`block h-5 w-5 shrink-0 rounded-full bg-white shadow transition-transform ${
           checked ? "translate-x-6" : "translate-x-1"
         }`}
       />
