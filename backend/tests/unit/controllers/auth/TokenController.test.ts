@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Request, Response } from "express";
 import TokenController from "../../../../src/controllers/auth/TokenController";
 import { User } from "../../../../src/models";
@@ -56,6 +56,10 @@ describe("TokenController", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Cookie maxAge is the absolute session expiry minus the current clock.
+    // Keep both reads on one instant instead of depending on sub-ms execution.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-21T00:00:00.000Z"));
 
     jsonMock = vi.fn();
     statusMock = vi.fn().mockReturnValue({ json: jsonMock });
@@ -87,6 +91,10 @@ describe("TokenController", () => {
       lifetimeMs: 604800000,
     });
     vi.mocked(RefreshSessionService.revokeAllForUser).mockResolvedValue(0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("refreshToken", () => {

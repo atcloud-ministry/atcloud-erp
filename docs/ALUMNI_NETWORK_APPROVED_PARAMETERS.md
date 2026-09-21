@@ -140,6 +140,8 @@ Flex 保留最近 8 个 daily snapshots。Primary database 已删除的数据随
 | Uploaded assets | Release qualification 验证 Render `/uploads` persistence 和 backup |
 | Core monthly planning cost | Render Static Site `$0` + backend `$7` + Atlas Flex `$8–$30` = `$15–$37`，另计其他实际服务 |
 
+新增付费资源、套餐升级，以及增加定时 CI 或自动部署等持续用量，须经 Travis 事先批准。
+
 RPO 表示恢复后最多丢失的已确认生产数据时间；RTO 从检测或确认数据事故开始，到完成完整性验证并
 重新开放生产读写为止。
 

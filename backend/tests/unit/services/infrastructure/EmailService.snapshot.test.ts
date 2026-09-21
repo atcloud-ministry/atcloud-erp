@@ -104,21 +104,23 @@ describe("EmailService - Email Template Snapshots", () => {
     });
 
     it("should match snapshot for password reset success email", async () => {
-      // Mock Date to get consistent timestamps in snapshot
-      const mockDate = new Date("2024-01-15T12:00:00Z");
-      vi.setSystemTime(mockDate);
+      // This snapshot locks the template, not the host's locale/timezone.
+      const formatDate = vi
+        .spyOn(Date.prototype, "toLocaleString")
+        .mockReturnValue("1/15/2024, 4:00:00 AM");
+      try {
+        capturedEmail = null;
+        await EmailService.sendPasswordResetSuccessEmail(
+          "test@example.com",
+          "John Doe"
+        );
 
-      capturedEmail = null;
-      await EmailService.sendPasswordResetSuccessEmail(
-        "test@example.com",
-        "John Doe"
-      );
-
-      expect(capturedEmail).not.toBeNull();
-      expect(capturedEmail!.html).toMatchSnapshot();
-
-      // Restore Date immediately
-      vi.useRealTimers();
+        expect(formatDate).toHaveBeenCalled();
+        expect(capturedEmail).not.toBeNull();
+        expect(capturedEmail!.html).toMatchSnapshot();
+      } finally {
+        formatDate.mockRestore();
+      }
     });
   });
 

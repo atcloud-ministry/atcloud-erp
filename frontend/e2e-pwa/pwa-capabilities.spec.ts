@@ -74,7 +74,7 @@ async function mockApi(page: Page): Promise<void> {
     }
     if (path === "/api/alumni-help-requests/action-required-count") {
       return route.fulfill({
-        json: success({ helpActionRequiredCount: 0 }),
+        json: success({ helpActionRequiredCount: 0, helpNotificationCount: 0 }),
       });
     }
     if (path === "/api/pwa-private-probe") {
@@ -319,7 +319,12 @@ test("recovers a protected room deep link after login and accepts the Help deep 
     .getByPlaceholder("Enter your username or email")
     .fill(authenticatedUser.email);
   await page.getByPlaceholder("Enter your password").fill("Str0ngP@ss!");
+  const loginResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/auth/login") &&
+    response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Login" }).click();
+  expect((await loginResponse).status()).toBe(200);
 
   await expect(page).toHaveURL(
     new RegExp(`/#/dashboard/chat-rooms/${ROOM_ID}$`),

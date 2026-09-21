@@ -36,6 +36,9 @@ export default defineConfig({
     },
   ],
   webServer: {
+    // The suite intercepts this isolated API origin. Do not depend on an untracked
+    // .env.production or the HTTP localhost fallback blocked by production CSP.
+    env: { VITE_API_URL: "https://pwa-api.invalid/api" },
     command:
       "npm run build && npm run preview -- --host 127.0.0.1 --port 4174",
     url: previewOrigin,
