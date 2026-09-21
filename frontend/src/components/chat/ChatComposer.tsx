@@ -191,62 +191,60 @@ export default function ChatComposer({
           </button>
         </fieldset>
       )}
-      <div className="flex items-end gap-2">
+      <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-x-3">
         <button
           aria-controls="chat-safe-link-fields"
           aria-expanded={showLink}
           aria-label={showLink ? "Hide safe link fields" : "Add a safe link"}
           aria-pressed={showLink}
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
+          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center !rounded-full !border-0 !bg-transparent !p-0 text-gray-600 hover:!border-transparent hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
           disabled={disabled || sending}
           onClick={() => setShowLink((value) => !value)}
           ref={linkButtonRef}
           type="button"
         >
-          <LinkIcon aria-hidden="true" className="h-5 w-5" />
+          <LinkIcon aria-hidden="true" className="h-6 w-6 stroke-2" />
         </button>
-        <div className="min-w-0 flex-1">
-          <label className="sr-only" htmlFor="chat-message-composer">
-            Message
-          </label>
-          <textarea
-            aria-describedby="chat-message-help chat-message-error"
-            aria-disabled={disabled || sending}
-            aria-invalid={messageHasError}
-            className="block min-h-11 max-h-36 w-full resize-y rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-            id="chat-message-composer"
-            onChange={(event) => setContent(event.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Write a message…"
-            ref={messageRef}
-            readOnly={disabled || sending}
-            rows={1}
-            value={content}
-          />
-          <div className="mt-1 flex justify-between gap-2 px-1 text-xs">
-            <span aria-live="polite" className={error ? "text-red-700" : "text-gray-600"} id="chat-message-error" role={error ? "alert" : undefined}>
-              {error ?? ""}
-            </span>
-            <span
-              className={
-                contentLength > CHAT_MESSAGE_MAX_CODE_POINTS
-                  ? "text-red-700"
-                  : "text-gray-600"
-              }
-              id="chat-message-help"
-            >
-              {contentLength.toLocaleString()} / 4,000
-            </span>
-          </div>
-        </div>
+        <label className="sr-only" htmlFor="chat-message-composer">
+          Message
+        </label>
+        <textarea
+          aria-describedby="chat-message-help chat-message-error"
+          aria-disabled={disabled || sending}
+          aria-invalid={messageHasError}
+          className="block min-h-11 max-h-36 w-full resize-y rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          id="chat-message-composer"
+          onChange={(event) => setContent(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Write a message…"
+          ref={messageRef}
+          readOnly={disabled || sending}
+          rows={1}
+          value={content}
+        />
         <button
           aria-label="Send message"
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center !rounded-full !border-0 !bg-blue-600 !p-0 text-white hover:!border-transparent hover:!bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSubmit}
           type="submit"
         >
-          <PaperAirplaneIcon aria-hidden="true" className="h-5 w-5" />
+          <PaperAirplaneIcon aria-hidden="true" className="h-6 w-6 stroke-2" />
         </button>
+        <div className="col-start-2 mt-1 flex justify-between gap-2 px-1 text-xs">
+          <span aria-live="polite" className={error ? "text-red-700" : "text-gray-600"} id="chat-message-error" role={error ? "alert" : undefined}>
+            {error ?? ""}
+          </span>
+          <span
+            className={
+              contentLength > CHAT_MESSAGE_MAX_CODE_POINTS
+                ? "text-red-700"
+                : "text-gray-600"
+            }
+            id="chat-message-help"
+          >
+            {contentLength.toLocaleString()} / 4,000
+          </span>
+        </div>
       </div>
       <p className="sr-only">Press Enter to send. Press Shift and Enter for a new line.</p>
       <span aria-live="polite" className="sr-only">

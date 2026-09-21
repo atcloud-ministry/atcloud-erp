@@ -219,6 +219,10 @@ export class NotificationOutboxWorker {
   private activeDeliveryAbortController: AbortController | null = null;
   private nextReconciliationAtMs = 0;
   private idlePollIntervalMs: number;
+  // A producer can commit an outbox record while the worker is sleeping on an
+  // exponential idle delay. Keep the request until the active pass completes
+  // so that a wake cannot be lost between a claim and its next schedule.
+  private wakeRequested = false;
   private started = false;
   private stopping = false;
 
@@ -306,8 +310,36 @@ export class NotificationOutboxWorker {
     this.stopping = false;
     this.stopPromise = null;
     this.idlePollIntervalMs = this.config.pollIntervalMs;
+    this.wakeRequested = false;
     this.nextReconciliationAtMs = 0;
     this.schedule(0);
+  }
+
+  /**
+   * Request an immediate post-commit outbox pass without bypassing durable
+   * claim, authorization, or lease fencing. This is intentionally a wake-up,
+   * not an in-process delivery shortcut: records remain recoverable if the
+   * process stops before the requested pass can run.
+   */
+  wake(): void {
+    if (!this.started || this.stopping) return;
+
+    this.wakeRequested = true;
+    this.idlePollIntervalMs = this.config.pollIntervalMs;
+
+    // A scheduled idle poll has not started yet, so replace it with a
+    // zero-delay pass. If a pass is already running, its completion handler
+    // consumes wakeRequested and schedules the immediate follow-up instead.
+    if (this.timer) {
+      this.timers.clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.currentRun) {
+      // The newly scheduled pass consumes this request. Keep the flag only
+      // when an active pass must schedule its own immediate follow-up.
+      this.wakeRequested = false;
+      this.schedule(0);
+    }
   }
 
   stop(): Promise<void> {
@@ -332,6 +364,7 @@ export class NotificationOutboxWorker {
   private async performStop(): Promise<void> {
     this.started = false;
     this.stopping = true;
+    this.wakeRequested = false;
     if (this.timer) this.timers.clearTimeout(this.timer);
     this.timer = null;
     this.activeDeliveryAbortController?.abort(
@@ -365,6 +398,8 @@ export class NotificationOutboxWorker {
       this.timer = null;
       void this.runOnce().then(
         (result) => {
+          const wakeRequested = this.wakeRequested;
+          this.wakeRequested = false;
           this.idlePollIntervalMs =
             result.claimed > 0
               ? this.config.pollIntervalMs
@@ -372,9 +407,11 @@ export class NotificationOutboxWorker {
                   this.config.maxIdlePollIntervalMs,
                   this.idlePollIntervalMs * 2,
                 );
-          this.schedule(this.nextScheduledDelay());
+          this.schedule(wakeRequested ? 0 : this.nextScheduledDelay());
         },
         (error: unknown) => {
+          const wakeRequested = this.wakeRequested;
+          this.wakeRequested = false;
           if (!(error instanceof NotificationOutboxWorkerStoppingError)) {
             this.log.error(
               "Notification outbox worker run failed",
@@ -387,7 +424,7 @@ export class NotificationOutboxWorker {
             this.config.maxIdlePollIntervalMs,
             this.idlePollIntervalMs * 2,
           );
-          this.schedule(this.nextScheduledDelay());
+          this.schedule(wakeRequested ? 0 : this.nextScheduledDelay());
         },
       );
     }, delayMs);

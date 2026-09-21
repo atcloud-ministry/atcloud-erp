@@ -643,6 +643,41 @@ describe("NotificationOutboxWorker", () => {
     }
   });
 
+  it("wakes a sleeping worker immediately after durable work is committed", async () => {
+    vi.useFakeTimers();
+    try {
+      const event = claim();
+      outbox.claimNext
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(event)
+        .mockResolvedValueOnce(null);
+      outbox.finalizeDelivered.mockResolvedValue(completed(event, "delivered"));
+      const instance = worker(undefined, {
+        pollIntervalMs: 1_000,
+        maxIdlePollIntervalMs: 4_000,
+      });
+
+      instance.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(outbox.claimNext).toHaveBeenCalledOnce();
+
+      // The idle pass has scheduled a 2-second backoff. Simulate a producer
+      // committing an outbox record while that timer is still pending.
+      await vi.advanceTimersByTimeAsync(100);
+      instance.wake();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(handler.deliver).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(outbox.claimNext).toHaveBeenCalledTimes(3);
+      await instance.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects heartbeat intervals greater than one third of the lease", () => {
     outbox.leaseDurationMs = 300;
     expect(() => worker(undefined, { heartbeatIntervalMs: 101 })).toThrow(

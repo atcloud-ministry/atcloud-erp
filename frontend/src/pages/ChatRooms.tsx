@@ -11,6 +11,7 @@ import {
   CHAT_ROOM_DEFAULT_PAGE_SIZE,
   CONVERSATION_SECTIONS,
   conversationsService,
+  decodeChatMessageEvent,
   type ConversationListDTO,
   type ConversationSection,
 } from "../services/api";
@@ -145,9 +146,18 @@ export default function ChatRooms() {
         setReloadSequence((value) => value + 1);
       }, 500);
     };
-    // A recipient-scoped unread snapshot accompanies new messages. Listening
-    // to that single source coalesces bursts instead of fetching the list once
-    // for both message and counter events.
+    // A recipient-scoped unread snapshot normally accompanies each message.
+    // Listen to the message as well so a Room created or updated while its
+    // counter snapshot is delayed still appears without a browser refresh.
+    // Both sources share the same debounce and therefore result in one fetch.
+    const stopMessage = socketService.on<unknown>("chat_message", (payload) => {
+      try {
+        decodeChatMessageEvent(payload);
+        scheduleRefresh();
+      } catch {
+        // The unread snapshot/reconnect path remains authoritative.
+      }
+    });
     const stopUnread = socketService.on("chat_unread_update", scheduleRefresh);
     const stopHelp = socketService.on<unknown>(
       "alumni_help_update",
@@ -157,6 +167,7 @@ export default function ChatRooms() {
     );
     const stopReconnect = socketService.on("connect", refreshNow);
     return () => {
+      stopMessage();
       stopUnread();
       stopHelp();
       stopReconnect();

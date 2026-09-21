@@ -55,6 +55,14 @@ export interface AlumniHelpUpdate {
   requestId: string;
   requestRevision: number;
   helpActionRequiredCount: number;
+  /**
+   * Present only on the delivery that establishes a private Alumni Help room.
+   * It contains no participant or message data, and is scoped to the two
+   * already-authorized participants by the server.
+   */
+  roomCreated?: {
+    conversationId: string;
+  };
   timestamp: string;
 }
 

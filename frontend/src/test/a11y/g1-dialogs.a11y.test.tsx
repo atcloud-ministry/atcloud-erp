@@ -155,6 +155,56 @@ describe("G1 accessible dialogs", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  it("isolates notification controls from the global button defaults", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <NotificationModal
+        actionButton={{ text: "Open Chat Room", onClick: onAction }}
+        closeButtonText="Later"
+        isOpen
+        message="Your private Alumni Help Chat Room is ready."
+        onClose={onClose}
+        title="Chat Room created"
+        type="success"
+      />,
+    );
+
+    const closeControl = screen.getByRole("button", {
+      name: "Close notification",
+    });
+    const action = screen.getByRole("button", { name: "Open Chat Room" });
+    const later = screen.getByRole("button", { name: "Later" });
+
+    expect(closeControl).toHaveClass(
+      "!rounded-lg",
+      "!border-0",
+      "!bg-transparent",
+      "!p-0",
+    );
+    expect(closeControl.querySelector("svg")).toHaveClass("w-5", "h-5");
+    expect(action).toHaveClass(
+      "!rounded-lg",
+      "!border-0",
+      "!px-4",
+      "!py-2",
+      "!bg-green-700",
+      "hover:!bg-green-800",
+    );
+    expect(later).toHaveClass(
+      "!rounded-lg",
+      "!border-0",
+      "!bg-gray-100",
+      "!px-4",
+      "!py-2",
+    );
+
+    await user.click(action);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("applies the same focus and Escape contract to tuition confirmation", async () => {
     const user = userEvent.setup();
     render(<PricingHarness />);

@@ -62,6 +62,7 @@ import { ChatRoomError } from "../../../src/services/chat/ChatRoomErrors";
 import { chatRoomService } from "../../../src/services/chat/ChatRoomService";
 import { AUTHORIZATION_ACTIONS } from "../../../src/services/authorization/types";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { reliabilityFoundationService } from "../../../src/services/reliability/ReliabilityFoundationService";
 import { featureControlService } from "../../../src/services/runtime/FeatureControlService";
 import { PERMISSIONS } from "../../../src/utils/roleUtils";
 
@@ -282,6 +283,9 @@ describe("conversation HTTP contracts", () => {
     const emitUnread = vi
       .spyOn(socketService, "emitChatUnreadUpdate")
       .mockReturnValue(true);
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
     const app = buildApp();
     const correlationId = "chat-http-contract";
 
@@ -318,6 +322,7 @@ describe("conversation HTTP contracts", () => {
       chatUnreadTotal: 1,
       lastReadSequence: 7,
     });
+    expect(wake).toHaveBeenCalledOnce();
     expect(middlewareMocks.authorizationAction.mock.calls.map(([action]) => action))
       .toEqual([
         AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
@@ -335,6 +340,9 @@ describe("conversation HTTP contracts", () => {
         roomUnreadCount: 0,
         chatUnreadTotal: 2,
       });
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
     const correlationId = "program-announcement-contract";
 
     const response = await member(
@@ -362,6 +370,7 @@ describe("conversation HTTP contracts", () => {
     expect(middlewareMocks.authorizationAction).toHaveBeenLastCalledWith(
       AUTHORIZATION_ACTIONS.CONVERSATION_SEND_OR_REPLAY,
     );
+    expect(wake).toHaveBeenCalledOnce();
 
     await member(
       request(buildApp()).post(

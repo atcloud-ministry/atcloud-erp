@@ -48,7 +48,7 @@ function isSimpleAction(action: AlumniHelpAvailableAction): action is SimpleActi
 export default function HelpRequestDetail() {
   const { requestId = "" } = useParams<{ requestId: string }>();
   const { config, status: runtimeStatus } = useRuntimeConfig();
-  const { setHelpActionRequiredCount } = useAlumniHelp();
+  const { setHelpActionRequiredCount, announceHelpRoomCreated } = useAlumniHelp();
   const [loadedRequest, setLoadedRequest] = useState<{
     requestId: string;
     value: AlumniHelpRequestDetailDTO;
@@ -110,8 +110,15 @@ export default function HelpRequestDetail() {
     loadedRequest?.requestId === requestId ? loadedRequest.value : null;
 
   const applyResult = (result: AlumniHelpRequestMutationDTO, message: string) => {
+    const previousConversationId = loadedRequest?.value.conversationId ?? null;
     setLoadedRequest({ requestId, value: result.request });
     setHelpActionRequiredCount(result.helpActionRequiredCount);
+    if (
+      result.request.conversationId &&
+      result.request.conversationId !== previousConversationId
+    ) {
+      announceHelpRoomCreated(requestId, result.request.conversationId);
+    }
     setSuccessMessage(message);
     setMutationError(null);
   };

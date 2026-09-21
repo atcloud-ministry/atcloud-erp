@@ -89,6 +89,7 @@ interface WorkflowRequestState {
   readonly id: string;
   readonly requesterId: string;
   readonly providerId: string;
+  readonly conversationId: string | null;
   readonly revision: number;
 }
 
@@ -128,6 +129,9 @@ interface WorkflowSocketPort {
       requestId: string;
       requestRevision: number;
       helpActionRequiredCount: number;
+      roomCreated?: {
+        conversationId: string;
+      };
     },
   ): void;
 }
@@ -173,6 +177,10 @@ const OUTCOME_EVENT_TYPES = new Set<AlumniHelpWorkflowEventType>([
   "outcome_confirm",
   "outcome_deny",
   "outcome_auto_confirm",
+]);
+const ROOM_CREATION_EVENT_TYPES = new Set<AlumniHelpWorkflowEventType>([
+  "accept",
+  "confirm_alternative",
 ]);
 const PAYLOAD_KEYS = new Set([
   "recipientUserId",
@@ -532,7 +540,7 @@ async function loadRequestFromMongo(
   const document = await AlumniHelpRequest.findOne(
     buildRetainedWorkflowRequestFilter(requestId),
   )
-    .select({ requesterId: 1, providerId: 1, revision: 1 })
+    .select({ requesterId: 1, providerId: 1, conversationId: 1, revision: 1 })
     .setOptions({ signal })
     .lean()
     .exec();
@@ -541,6 +549,7 @@ async function loadRequestFromMongo(
     id: String(document._id),
     requesterId: String(document.requesterId),
     providerId: String(document.providerId),
+    conversationId: document.conversationId ? String(document.conversationId) : null,
     revision: document.revision,
   });
 }
@@ -748,6 +757,14 @@ export class AlumniHelpWorkflowDeliveryHandler
       requestId: delivery.request.id,
       requestRevision: delivery.request.revision,
       helpActionRequiredCount,
+      ...(ROOM_CREATION_EVENT_TYPES.has(delivery.payload.eventType) &&
+      delivery.request.conversationId
+        ? {
+            roomCreated: {
+              conversationId: delivery.request.conversationId,
+            },
+          }
+        : {}),
     });
   }
 

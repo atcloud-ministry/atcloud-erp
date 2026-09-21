@@ -566,13 +566,24 @@ class SocketService {
     if (!this.io) return;
     const normalizedUserId = normalizeObjectId(userId);
     const normalizedRequestId = normalizeObjectId(update.requestId);
+    const roomCreated = update.roomCreated;
+    const normalizedConversationId = roomCreated
+      ? normalizeObjectId(roomCreated.conversationId)
+      : null;
     if (
       !normalizedUserId ||
       !normalizedRequestId ||
       !Number.isSafeInteger(update.requestRevision) ||
       update.requestRevision < 0 ||
       !Number.isSafeInteger(update.helpActionRequiredCount) ||
-      update.helpActionRequiredCount < 0
+      update.helpActionRequiredCount < 0 ||
+      (roomCreated !== undefined &&
+        (!roomCreated ||
+          typeof roomCreated !== "object" ||
+          Array.isArray(roomCreated) ||
+          Object.keys(roomCreated).length !== 1 ||
+          !Object.prototype.hasOwnProperty.call(roomCreated, "conversationId") ||
+          !normalizedConversationId))
     ) {
       this.log.warn("Refused invalid alumni_help_update", undefined, {
         hasValidUserId: Boolean(normalizedUserId),
@@ -585,6 +596,9 @@ class SocketService {
       requestId: normalizedRequestId,
       requestRevision: update.requestRevision,
       helpActionRequiredCount: update.helpActionRequiredCount,
+      ...(normalizedConversationId
+        ? { roomCreated: { conversationId: normalizedConversationId } }
+        : {}),
       timestamp: new Date().toISOString(),
     };
     this.log.debug("Emitting alumni_help_update", undefined, {

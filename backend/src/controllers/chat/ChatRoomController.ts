@@ -14,6 +14,7 @@ import {
   type ChatRoomService,
 } from "../../services/chat/ChatRoomService";
 import { socketService } from "../../services/infrastructure/SocketService";
+import { reliabilityFoundationService } from "../../services/reliability/ReliabilityFoundationService";
 import { sendChatRoomHttpError } from "./ChatRoomHttpErrorResponder";
 
 const UUID_PATTERN =
@@ -59,6 +60,19 @@ export class ChatRoomController {
     private readonly service: ChatRoomService = chatRoomService,
     private readonly unreadEmitter: ChatUnreadEmitter = socketService,
   ) {}
+
+  /**
+   * send/publish resolve after their transaction has durably enqueued the
+   * message delivery. Wake is best-effort; polling still guarantees recovery.
+   */
+  private wakeCommittedOutbox(): void {
+    try {
+      reliabilityFoundationService.wakeNotificationOutbox();
+    } catch {
+      // Do not turn a committed chat message into an HTTP failure solely
+      // because the in-process scheduler cannot be signalled.
+    }
+  }
 
   list = async (req: Request, res: Response): Promise<void> => {
     noStore(res);
@@ -138,6 +152,7 @@ export class ChatRoomController {
         idempotencyKey: idempotencyKey(req),
         correlationId: req.correlationId,
       });
+      this.wakeCommittedOutbox();
       res.status(201).json({ success: true, data });
     } catch (error) {
       sendChatRoomHttpError(res, error);
@@ -156,6 +171,7 @@ export class ChatRoomController {
         idempotencyKey: idempotencyKey(req),
         correlationId: req.correlationId,
       });
+      this.wakeCommittedOutbox();
       res.status(201).json({ success: true, data });
     } catch (error) {
       sendChatRoomHttpError(res, error);

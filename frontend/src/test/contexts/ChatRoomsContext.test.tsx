@@ -111,6 +111,44 @@ describe("ChatRoomsProvider", () => {
     expect(screen.getByTestId("room")).toHaveTextContent("7");
   });
 
+  it("reconciles the badge from a persisted message when its counter snapshot is delayed", async () => {
+    mocks.getUnreadCount
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(9);
+    render(
+      <ChatRoomsProvider>
+        <Consumer />
+      </ChatRoomsProvider>,
+    );
+    await screen.findByText("4");
+
+    act(() => {
+      mocks.handlers.get("chat_message")?.({
+        message: {
+          id: "64b000000000000000000010",
+          conversationId: "64b000000000000000000002",
+          sequence: 4,
+          kind: "text",
+          sender: {
+            id: "64b000000000000000000003",
+            displayName: "Amy Chen",
+            avatar: null,
+          },
+          content: "A new message",
+          safeLink: null,
+          clientMessageId: "00000000-0000-4000-8000-000000000001",
+          createdAt: "2026-09-20T12:00:00.000Z",
+        },
+        timestamp: "2026-09-20T12:00:00.000Z",
+      });
+    });
+
+    await waitFor(() =>
+      expect(mocks.getUnreadCount).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByTestId("total")).toHaveTextContent("9");
+  });
+
   it("ignores a delayed lower read cursor but accepts a newer tab's cursor", async () => {
     render(
       <ChatRoomsProvider>

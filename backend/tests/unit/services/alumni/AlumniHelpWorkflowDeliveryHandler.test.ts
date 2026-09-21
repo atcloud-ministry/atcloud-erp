@@ -26,6 +26,7 @@ const REQUESTER_ID = "64f100000000000000000002";
 const PROVIDER_ID = "64f100000000000000000003";
 const TIMELINE_EVENT_ID = "64f100000000000000000004";
 const OUTCOME_ID = "64f100000000000000000005";
+const CONVERSATION_ID = "64f100000000000000000006";
 const DELIVERY_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 function payload(overrides: Record<string, unknown> = {}) {
@@ -89,6 +90,7 @@ function setup(options: {
     id: REQUEST_ID,
     requesterId: REQUESTER_ID,
     providerId: PROVIDER_ID,
+    conversationId: CONVERSATION_ID,
     revision: 4,
   });
   const loadRecipient = vi.fn().mockResolvedValue({
@@ -197,6 +199,32 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
     expect(socket.emitSystemMessageUpdate).not.toHaveBeenCalled();
     expect(socket.emitUnreadCountUpdate).toHaveBeenCalledOnce();
     expect(socket.emitAlumniHelpUpdate).toHaveBeenCalledOnce();
+  });
+
+  it.each(["accept", "confirm_alternative"] as const)(
+    "emits the newly created room only for %s",
+    async (eventType) => {
+      const { handler, socket } = setup();
+      await handler.deliver(event({ eventType }), context());
+
+      expect(socket.emitAlumniHelpUpdate).toHaveBeenCalledWith(PROVIDER_ID, {
+        requestId: REQUEST_ID,
+        requestRevision: 4,
+        helpActionRequiredCount: 3,
+        roomCreated: { conversationId: CONVERSATION_ID },
+      });
+    },
+  );
+
+  it("does not attach a room to later workflow updates", async () => {
+    const { handler, socket } = setup();
+    await handler.deliver(event({ eventType: "start" }), context());
+
+    expect(socket.emitAlumniHelpUpdate).toHaveBeenCalledWith(PROVIDER_ID, {
+      requestId: REQUEST_ID,
+      requestRevision: 4,
+      helpActionRequiredCount: 3,
+    });
   });
 
   it.each([

@@ -11,6 +11,7 @@ import {
 import { useSocket } from "../hooks/useSocket";
 import {
   conversationsService,
+  decodeChatMessageEvent,
   decodeChatUnreadUpdate,
 } from "../services/api";
 import { socketService } from "../services/socketService";
@@ -236,6 +237,20 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
         }
       },
     );
+    // A persisted message is emitted immediately before its recipient-scoped
+    // unread snapshot.  The snapshot updates the badge without a request, but
+    // retain the message event as a narrowly scoped recovery path: if a
+    // counter event is delayed or lost during a reconnect, the badge still
+    // catches up without asking the member to refresh the page.
+    const stopMessage = socketService.on<unknown>("chat_message", (payload) => {
+      try {
+        decodeChatMessageEvent(payload);
+        scheduleAuthoritativeUnreadRefresh();
+      } catch {
+        // Ignore malformed socket traffic. A reconnect remains the fallback
+        // for an event that cannot be safely decoded.
+      }
+    });
     const stopReconnect = socketService.on("connect", () => {
       void refreshChatUnreadTotal();
     });
@@ -249,6 +264,7 @@ export function ChatRoomsProvider({ children }: { children: ReactNode }) {
     );
     return () => {
       stopUnread();
+      stopMessage();
       stopReconnect();
       stopHelp();
     };

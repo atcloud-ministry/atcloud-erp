@@ -62,4 +62,25 @@ describe("ChatComposer", () => {
     expect(screen.getByRole("button", { name: "Add a safe link" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
+
+  it("keeps composer controls aligned to the input row with comfortable icons", () => {
+    render(<ChatComposer onSend={vi.fn()} />);
+
+    const linkButton = screen.getByRole("button", {
+      name: "Add a safe link",
+    });
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+    const counter = screen.getByText("0 / 4,000");
+
+    expect(linkButton).toHaveClass("min-h-11", "min-w-11", "!p-0");
+    expect(sendButton).toHaveClass(
+      "min-h-11",
+      "min-w-11",
+      "!bg-blue-600",
+      "!p-0",
+    );
+    expect(linkButton.querySelector("svg")).toHaveClass("h-6", "w-6");
+    expect(sendButton.querySelector("svg")).toHaveClass("h-6", "w-6");
+    expect(counter.parentElement).toHaveClass("col-start-2");
+  });
 });

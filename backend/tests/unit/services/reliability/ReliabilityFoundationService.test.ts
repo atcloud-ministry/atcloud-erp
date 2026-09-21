@@ -126,6 +126,7 @@ describe("ReliabilityFoundationService", () => {
     };
     const worker: ReliabilityFoundationWorker = {
       start: vi.fn(),
+      wake: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
     };
     const workerFactory = vi.fn(() => worker);
@@ -313,6 +314,7 @@ describe("ReliabilityFoundationService", () => {
     const drain = deferred();
     const worker: ReliabilityFoundationWorker = {
       start: vi.fn(),
+      wake: vi.fn(),
       stop: vi
         .fn()
         .mockImplementationOnce(() => drain.promise)
@@ -381,6 +383,36 @@ describe("ReliabilityFoundationService", () => {
     await service.stop();
     await service.stop();
     expect(service.getStatusSnapshot().started).toBe(false);
+  });
+
+  it("wakes only an initialized, started durable worker", async () => {
+    const worker: ReliabilityFoundationWorker = {
+      start: vi.fn(),
+      wake: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new ReliabilityFoundationService(
+      dependencies({
+        isOutboxEnabled: () => true,
+        registryFactory: registeredDeliveryRegistry,
+        workerFactory: () => worker,
+      }),
+    );
+
+    expect(service.wakeNotificationOutbox()).toBe(false);
+    expect(worker.wake).not.toHaveBeenCalled();
+
+    await service.initialize();
+    expect(service.wakeNotificationOutbox()).toBe(false);
+    expect(worker.wake).not.toHaveBeenCalled();
+
+    service.start();
+    expect(service.wakeNotificationOutbox()).toBe(true);
+    expect(worker.wake).toHaveBeenCalledOnce();
+
+    await service.stop();
+    expect(service.wakeNotificationOutbox()).toBe(false);
+    expect(worker.wake).toHaveBeenCalledOnce();
   });
 
   it("returns frozen fixed-dimension status and metrics snapshots", async () => {

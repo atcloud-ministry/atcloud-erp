@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   submitOutcome: vi.fn(),
   decideOutcome: vi.fn(),
   setCount: vi.fn(),
+  announceHelpRoomCreated: vi.fn(),
   writable: true,
   socketHandler: null as ((payload: unknown) => void) | null,
 }));
@@ -32,7 +33,10 @@ vi.mock("../../services/api", async (importOriginal) => ({
 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
-  useAlumniHelp: () => ({ setHelpActionRequiredCount: mocks.setCount }),
+  useAlumniHelp: () => ({
+    setHelpActionRequiredCount: mocks.setCount,
+    announceHelpRoomCreated: mocks.announceHelpRoomCreated,
+  }),
 }));
 
 vi.mock("../../contexts/RuntimeConfigContext", () => ({
@@ -218,6 +222,32 @@ describe("HelpRequestDetail", () => {
       "warm_introduction",
       undefined,
     ]);
+  });
+
+  it("announces the newly created Chat Room immediately after accepting", async () => {
+    const user = userEvent.setup();
+    const accepted = makeRequest({
+      status: "accepted",
+      agreedHelpType: "career_advice",
+      conversationId: IDS.conversation,
+      revision: 1,
+      availableActions: ["start", "complete"],
+      acceptedAt: "2026-09-13T12:00:00.000Z",
+    });
+    mocks.transition.mockResolvedValue({
+      request: accepted,
+      helpActionRequiredCount: 0,
+    });
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Taylor Reed" });
+    await user.click(screen.getByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(mocks.transition).toHaveBeenCalledOnce());
+    expect(mocks.announceHelpRoomCreated).toHaveBeenCalledWith(
+      IDS.request,
+      IDS.conversation,
+    );
   });
 
   it("renders all three referral outcomes and submits the selected result", async () => {

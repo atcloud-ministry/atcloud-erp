@@ -215,7 +215,7 @@ describe("ChatRooms page", () => {
     expect(screen.getByText("Program · Past · Read-only")).toBeInTheDocument();
   });
 
-  it("uses live absolute room counts and coalesces unread-event refreshes", async () => {
+  it("uses live absolute room counts and coalesces message, unread, and Help refreshes", async () => {
     mocks.roomCounts = { [room.id]: 145 };
     renderPage();
     const link = await screen.findByRole("link", {
@@ -223,8 +223,22 @@ describe("ChatRooms page", () => {
     });
     expect(link).toHaveTextContent("99+");
 
-    expect(mocks.handlers.has("chat_message")).toBe(false);
+    expect(mocks.handlers.has("chat_message")).toBe(true);
     act(() => {
+      mocks.handlers.get("chat_message")?.({
+        message: {
+          id: "64b000000000000000000010",
+          conversationId: room.id,
+          sequence: 2,
+          kind: "text",
+          sender: room.counterpart,
+          content: "A new message",
+          safeLink: null,
+          clientMessageId: "00000000-0000-4000-8000-000000000001",
+          createdAt: "2026-09-13T12:05:00.000Z",
+        },
+        timestamp: "2026-09-13T12:05:00.000Z",
+      });
       mocks.handlers.get("chat_unread_update")?.();
       mocks.handlers.get("chat_unread_update")?.();
       mocks.handlers.get("chat_unread_update")?.();

@@ -79,6 +79,7 @@ interface IndexInitializer {
 
 export interface ReliabilityFoundationWorker {
   start(): void;
+  wake(): void;
   stop(): Promise<void>;
 }
 
@@ -240,6 +241,24 @@ export class ReliabilityFoundationService {
         cause,
       );
     }
+  }
+
+  /**
+   * Prompt the in-process durable worker after a producer's transaction has
+   * committed. A false result means there is no started worker to wake; the
+   * normal durable polling path remains the fallback.
+   */
+  wakeNotificationOutbox(): boolean {
+    if (
+      !this.started ||
+      this.stopping ||
+      !this.workerStarted ||
+      !this.worker
+    ) {
+      return false;
+    }
+    this.worker.wake();
+    return true;
   }
 
   stop(): Promise<void> {

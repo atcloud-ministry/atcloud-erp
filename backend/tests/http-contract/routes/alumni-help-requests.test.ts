@@ -42,6 +42,7 @@ import { createRuntimeConfigDTO } from "../../../src/contracts/runtimeConfig";
 import alumniHelpRequestRoutes from "../../../src/routes/alumniHelpRequests";
 import { AlumniFlowError } from "../../../src/services/alumni/AlumniFlowErrors";
 import { alumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
+import { reliabilityFoundationService } from "../../../src/services/reliability/ReliabilityFoundationService";
 import { featureControlService } from "../../../src/services/runtime/FeatureControlService";
 import { PERMISSIONS } from "../../../src/utils/roleUtils";
 
@@ -352,6 +353,9 @@ describe("alumni help request HTTP contracts", () => {
     const create = vi
       .spyOn(alumniHelpRequestService, "create")
       .mockResolvedValue(REQUEST_DATA);
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
     const app = buildApp();
 
     const response = await member(
@@ -384,12 +388,49 @@ describe("alumni help request HTTP contracts", () => {
     });
     expect(response.body).toEqual({ success: true, data: REQUEST_DATA });
     expect(response.headers["cache-control"]).toBe("no-store");
+    expect(wake).toHaveBeenCalledOnce();
+  });
+
+  it("does not wake the worker before a Help create has committed", async () => {
+    let resolveCreate: ((value: typeof REQUEST_DATA) => void) | undefined;
+    const committedCreate = new Promise<typeof REQUEST_DATA>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const create = vi
+      .spyOn(alumniHelpRequestService, "create")
+      .mockReturnValue(committedCreate);
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
+    const app = buildApp();
+    const response = mutation(
+      request(app).post("/api/alumni-help-requests"),
+    )
+      .send({
+        alumniProfileId: PROFILE_ID,
+        requestedHelpType: "career_advice",
+        consentVersion: ALUMNI_HELP_TERMS.consent.version,
+        consentAccepted: true,
+        disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+        disclaimerAccepted: true,
+      })
+      .then((value) => value);
+
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(wake).not.toHaveBeenCalled();
+
+    resolveCreate?.(REQUEST_DATA);
+    await expect(response).resolves.toMatchObject({ status: 201 });
+    expect(wake).toHaveBeenCalledOnce();
   });
 
   it("maps every lifecycle route to its exact action-specific service input", async () => {
     const transition = vi
       .spyOn(alumniHelpRequestService, "transition")
       .mockResolvedValue(REQUEST_DATA);
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
     const app = buildApp();
     const cases = [
       {
@@ -489,6 +530,7 @@ describe("alumni help request HTTP contracts", () => {
         correlationId: "alumni-help-http",
       });
     });
+    expect(wake).toHaveBeenCalledTimes(cases.length);
   });
 
   it("strictly routes outcome submission, confirmation, and denial", async () => {
@@ -498,6 +540,9 @@ describe("alumni help request HTTP contracts", () => {
     const decide = vi
       .spyOn(alumniHelpRequestService, "decideOutcome")
       .mockResolvedValue(REQUEST_DATA);
+    const wake = vi
+      .spyOn(reliabilityFoundationService, "wakeNotificationOutbox")
+      .mockReturnValue(false);
     const app = buildApp();
 
     await mutation(
@@ -546,6 +591,7 @@ describe("alumni help request HTTP contracts", () => {
       idempotencyKey: IDEMPOTENCY_KEY,
       correlationId: "alumni-help-http",
     });
+    expect(wake).toHaveBeenCalledTimes(3);
 
     await mutation(
       request(app).post(`/api/alumni-help-requests/${REQUEST_ID}/outcomes`),

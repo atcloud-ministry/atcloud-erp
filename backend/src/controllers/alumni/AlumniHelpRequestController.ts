@@ -11,6 +11,7 @@ import {
   alumniHelpRequestService,
   type AlumniHelpRequestService,
 } from "../../services/alumni/AlumniHelpRequestService";
+import { reliabilityFoundationService } from "../../services/reliability/ReliabilityFoundationService";
 import { sendAlumniHttpError } from "./AlumniHttpErrorResponder";
 import {
   getAlumniIdempotencyKey,
@@ -22,6 +23,20 @@ export class AlumniHelpRequestController {
   constructor(
     private readonly service: AlumniHelpRequestService = alumniHelpRequestService,
   ) {}
+
+  /**
+   * The service resolves only after its transaction and durable outbox enqueue
+   * have committed. Waking the worker here reduces idle-poll latency without
+   * making Socket delivery part of the HTTP transaction or response contract.
+   */
+  private wakeCommittedOutbox(): void {
+    try {
+      reliabilityFoundationService.wakeNotificationOutbox();
+    } catch {
+      // The outbox record is durable; normal polling recovers a transient
+      // in-process wake failure without changing a successful mutation.
+    }
+  }
 
   terms = async (_req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
@@ -71,6 +86,7 @@ export class AlumniHelpRequestController {
         idempotencyKey: getAlumniIdempotencyKey(req, "help"),
         correlationId: req.correlationId,
       });
+      this.wakeCommittedOutbox();
       res.status(201).json({ success: true, data });
     } catch (error) {
       sendAlumniHttpError(res, error);
@@ -91,6 +107,7 @@ export class AlumniHelpRequestController {
           idempotencyKey: getAlumniIdempotencyKey(req, "help"),
           correlationId: req.correlationId,
         });
+        this.wakeCommittedOutbox();
         res.status(200).json({ success: true, data });
       } catch (error) {
         sendAlumniHttpError(res, error);
@@ -108,6 +125,7 @@ export class AlumniHelpRequestController {
         idempotencyKey: getAlumniIdempotencyKey(req, "help"),
         correlationId: req.correlationId,
       });
+      this.wakeCommittedOutbox();
       res.status(201).json({ success: true, data });
     } catch (error) {
       sendAlumniHttpError(res, error);
@@ -129,6 +147,7 @@ export class AlumniHelpRequestController {
           idempotencyKey: getAlumniIdempotencyKey(req, "help"),
           correlationId: req.correlationId,
         });
+        this.wakeCommittedOutbox();
         res.status(200).json({ success: true, data });
       } catch (error) {
         sendAlumniHttpError(res, error);

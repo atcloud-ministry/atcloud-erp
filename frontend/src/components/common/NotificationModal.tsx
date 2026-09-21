@@ -52,7 +52,7 @@ export default function NotificationModal({
           bgColor: "bg-green-50",
           titleColor: "text-green-900",
           textColor: "text-green-700",
-          buttonColor: "bg-green-700 hover:bg-green-800",
+          buttonColor: "!bg-green-700 hover:!bg-green-800",
         };
       case "error":
         return {
@@ -62,7 +62,7 @@ export default function NotificationModal({
           bgColor: "bg-red-50",
           titleColor: "text-red-900",
           textColor: "text-red-700",
-          buttonColor: "bg-red-600 hover:bg-red-700",
+          buttonColor: "!bg-red-600 hover:!bg-red-700",
         };
       case "warning":
         return {
@@ -72,7 +72,7 @@ export default function NotificationModal({
           bgColor: "bg-yellow-50",
           titleColor: "text-yellow-900",
           textColor: "text-yellow-800",
-          buttonColor: "bg-yellow-700 hover:bg-yellow-800",
+          buttonColor: "!bg-yellow-700 hover:!bg-yellow-800",
         };
       case "info":
       default:
@@ -83,7 +83,7 @@ export default function NotificationModal({
           bgColor: "bg-blue-50",
           titleColor: "text-blue-900",
           textColor: "text-blue-700",
-          buttonColor: "bg-blue-600 hover:bg-blue-700",
+          buttonColor: "!bg-blue-600 hover:!bg-blue-700",
         };
     }
   };
@@ -124,7 +124,7 @@ export default function NotificationModal({
               <button
                 aria-label="Close notification"
                 onClick={onClose}
-                className="flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center ml-4 text-gray-600 hover:text-gray-900 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                className="ml-4 flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center !rounded-lg !border-0 !bg-transparent !p-0 text-gray-600 transition-colors hover:!border-transparent hover:bg-black/5 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                 type="button"
               >
                 <Icon name="x-mark" className="w-5 h-5" />
@@ -143,9 +143,9 @@ export default function NotificationModal({
                     button.onClick();
                     onClose();
                   }}
-                  className={`min-h-11 w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
+                  className={`min-h-11 w-full !rounded-lg !border-0 !px-4 !py-2 text-sm font-medium transition-colors hover:!border-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
                     button.variant === "secondary"
-                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      ? "!bg-gray-100 text-gray-700 hover:!bg-gray-200"
                       : `text-white ${styles.buttonColor}`
                   }`}
                   type="button"
@@ -160,9 +160,9 @@ export default function NotificationModal({
                   actionButton.onClick();
                   onClose();
                 }}
-                className={`min-h-11 w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
+                className={`min-h-11 w-full !rounded-lg !border-0 !px-4 !py-2 text-sm font-medium transition-colors hover:!border-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
                   actionButton.variant === "secondary"
-                    ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "!bg-gray-100 text-gray-700 hover:!bg-gray-200"
                     : `text-white ${styles.buttonColor}`
                 }`}
                 type="button"
@@ -173,7 +173,7 @@ export default function NotificationModal({
             <button
               data-dialog-initial-focus
               onClick={onClose}
-              className="min-h-11 w-full px-4 py-2 text-sm font-medium text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto"
+              className="min-h-11 w-full !rounded-lg !border-0 !bg-gray-100 !px-4 !py-2 text-sm font-medium text-gray-800 transition-colors hover:!border-transparent hover:!bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto"
               type="button"
             >
               {closeButtonText ??

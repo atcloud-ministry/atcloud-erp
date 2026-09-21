@@ -73,6 +73,27 @@ describe("SocketService payload schema", () => {
     });
   });
 
+  it("emits a validated room-created Alumni Help signal only to the participant", () => {
+    const userId = "507F1F77BCF86CD799439011";
+    socketService.emitAlumniHelpUpdate(userId, {
+      requestId: "507F1F77BCF86CD799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 2,
+      roomCreated: { conversationId: "507F1F77BCF86CD799439013" },
+    });
+
+    expect(mockIO.to).toHaveBeenCalledWith(
+      "user:507f1f77bcf86cd799439011",
+    );
+    expect(mockIO.emit).toHaveBeenCalledWith("alumni_help_update", {
+      requestId: "507f1f77bcf86cd799439012",
+      requestRevision: 4,
+      helpActionRequiredCount: 2,
+      roomCreated: { conversationId: "507f1f77bcf86cd799439013" },
+      timestamp: expect.any(String),
+    });
+  });
+
   it("emits chat content only to a freshly selected canonical user room", () => {
     const userId = "507F1F77BCF86CD799439011";
     const conversationId = "507F1F77BCF86CD799439012";
@@ -184,6 +205,17 @@ describe("SocketService payload schema", () => {
       requestId: eventId,
       requestRevision: 1,
       helpActionRequiredCount: 1,
+    });
+    expect(mockIO.to).not.toHaveBeenCalled();
+    expect(mockIO.emit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed room-created Alumni Help signal", () => {
+    socketService.emitAlumniHelpUpdate("507f1f77bcf86cd799439011", {
+      requestId: eventId,
+      requestRevision: 1,
+      helpActionRequiredCount: 1,
+      roomCreated: { conversationId: "not-an-object-id" },
     });
     expect(mockIO.to).not.toHaveBeenCalled();
     expect(mockIO.emit).not.toHaveBeenCalled();
