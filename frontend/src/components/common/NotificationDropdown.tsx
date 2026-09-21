@@ -409,7 +409,7 @@ export default function NotificationDropdown() {
             <h2 className="text-lg font-medium text-gray-900" id={headingId}>
               Notifications
             </h2>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               {totalUnreadCount > 0 && (
                 <button
                   onClick={async () => {
@@ -417,7 +417,7 @@ export default function NotificationDropdown() {
                     setIsOpen(false);
                     window.requestAnimationFrame(() => bellRef.current?.focus());
                   }}
-                  className="min-h-11 text-sm text-blue-700 hover:text-blue-900 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                  className="whitespace-nowrap !rounded-none !border-0 !bg-transparent !p-0 text-sm font-medium text-blue-600 hover:!border-transparent hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                   type="button"
                 >
                   Mark all read
@@ -425,7 +425,7 @@ export default function NotificationDropdown() {
               )}
               <button
                 aria-label="Close notifications"
-                className="flex min-h-11 min-w-11 items-center justify-center rounded text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="flex min-h-11 min-w-11 items-center justify-center !border-0 !bg-transparent !p-0 text-gray-500 hover:!border-transparent hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                 onClick={() => {
                   setIsOpen(false);
                   window.requestAnimationFrame(() => bellRef.current?.focus());
@@ -456,7 +456,7 @@ export default function NotificationDropdown() {
                   >
                     <div className="flex items-start justify-between">
                       <button
-                        className="min-w-0 flex-1 pr-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                        className="min-w-0 flex-1 !rounded-none !border-0 !bg-transparent !p-0 pr-2 text-left !font-normal hover:!border-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                         onClick={() => handleNotificationClick(notification)}
                         type="button"
                       >
@@ -466,14 +466,14 @@ export default function NotificationDropdown() {
                         )}
                       </button>
                       <div className="flex-shrink-0 flex flex-col items-end space-y-1">
-                        <span className="text-xs text-gray-600">
+                        <span className="text-xs text-gray-400">
                           {formatTime(notification.createdAt)}
                         </span>
                         <div className="flex items-center space-x-1">
                           {!notification.isRead && (
                             <span
                               aria-hidden="true"
-                              className="w-2 h-2 bg-blue-600 rounded-full"
+                              className="w-2 h-2 bg-blue-500 rounded-full"
                             />
                           )}
                           {/* Remove button - only show for READ notifications */}
@@ -485,7 +485,7 @@ export default function NotificationDropdown() {
                               onClick={(e) =>
                                 handleDeleteNotification(e, notification.id)
                               }
-                              className="flex min-h-11 min-w-11 items-center justify-center rounded text-gray-600 transition-colors hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                              className="flex min-h-11 min-w-11 items-center justify-center !border-0 !bg-transparent !p-0 text-gray-400 transition-colors hover:!border-transparent hover:text-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                               type="button"
                             >
                               <Icon name="x-mark" className="w-4 h-4" />

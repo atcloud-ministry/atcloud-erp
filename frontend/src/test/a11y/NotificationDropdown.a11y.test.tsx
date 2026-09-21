@@ -83,4 +83,31 @@ describe("NotificationDropdown accessibility", () => {
 
     expect(mocks.markSystemMessageAsRead).toHaveBeenCalledWith("notice-1");
   });
+
+  it("keeps compact visuals without shrinking touch targets", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <NotificationDropdown />
+      </MemoryRouter>,
+    );
+    const bell = screen.getByRole("button", {
+      name: "Notifications, 1 unread",
+    });
+    expect(bell).toHaveClass("min-h-11", "min-w-11");
+
+    await user.click(bell);
+
+    expect(screen.getByRole("button", { name: "Mark all read" })).toHaveClass(
+      "!bg-transparent",
+      "!p-0",
+      "whitespace-nowrap",
+    );
+    expect(
+      screen.getByRole("button", { name: "Close notifications" }),
+    ).toHaveClass("!bg-transparent", "!p-0", "min-h-11", "min-w-11");
+    expect(
+      screen.getByRole("button", { name: /Ministry update.*Unread/i }),
+    ).toHaveClass("!bg-transparent", "!p-0");
+  });
 });
