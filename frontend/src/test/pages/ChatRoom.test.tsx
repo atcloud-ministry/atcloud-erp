@@ -278,6 +278,29 @@ describe("ChatRoom page", () => {
     await waitFor(() => expect(mocks.join).toHaveBeenCalledWith(IDS.room));
   });
 
+  it("uses a full-height mobile panel while preserving the desktop room card", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Amy Chen" });
+
+    expect(screen.getByTestId("chat-room-page")).toHaveClass(
+      "flex-1",
+      "min-h-0",
+      "lg:block",
+      "lg:flex-none",
+    );
+    expect(screen.getByTestId("chat-room-panel")).toHaveClass(
+      "flex-1",
+      "min-h-0",
+      "lg:h-[calc(100dvh-10rem)]",
+      "lg:min-h-[32rem]",
+      "lg:max-h-[58rem]",
+    );
+    expect(screen.getByRole("link", { name: "Privacy & Data Use" }).parentElement).toHaveClass(
+      "hidden",
+      "lg:block",
+    );
+  });
+
   it("identifies a Program Room and its Past read-only access in detail", async () => {
     mocks.get.mockResolvedValueOnce({
       conversation: {

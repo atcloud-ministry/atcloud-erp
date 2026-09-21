@@ -82,7 +82,19 @@ describe("DashboardLayout layout regression", () => {
         <Routes>
           <Route path="/dashboard" element={<Layout />}>
             <Route index element={<Dummy />} />
-            <Route path="programs" element={<div>Programs</div>} />
+            <Route
+              path="programs"
+              element={
+                <>
+                  <div>Programs</div>
+                  <Link to="/dashboard/chat-rooms/room-1">Open Chat Room</Link>
+                </>
+              }
+            />
+            <Route
+              path="chat-rooms/:conversationId"
+              element={<div>Chat Room detail</div>}
+            />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -108,5 +120,18 @@ describe("DashboardLayout layout regression", () => {
 
     // footer exists
     expect(screen.getByTestId("footer")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "Open Chat Room" }));
+    const chatRoomMain = screen.getByRole("main", { hidden: true });
+    expect(chatRoomMain).toHaveClass(
+      "h-[100dvh]",
+      "overflow-hidden",
+      "lg:h-auto",
+      "lg:overflow-y-auto",
+    );
+    expect(screen.getByTestId("dashboard-footer")).toHaveClass(
+      "hidden",
+      "lg:block",
+    );
   });
 });

@@ -1336,15 +1336,21 @@ export default function ChatRoom() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div
+      className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col lg:block lg:w-auto lg:flex-none"
+      data-testid="chat-room-page"
+    >
       <Link
-        className="mb-3 inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:mb-4"
+        className="mb-3 inline-flex min-h-11 items-center gap-2 rounded-md px-4 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:mb-4 lg:px-2"
         to="/dashboard/chat-rooms"
       >
         <ArrowLeftIcon aria-hidden="true" className="h-4 w-4" />
         Chat Rooms
       </Link>
-      <section className="flex h-[calc(100dvh-10rem)] min-h-[32rem] max-h-[58rem] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <section
+        className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-gray-200 bg-white lg:h-[calc(100dvh-10rem)] lg:min-h-[32rem] lg:max-h-[58rem] lg:flex-none lg:rounded-xl lg:border lg:shadow-sm"
+        data-testid="chat-room-panel"
+      >
         <header className="flex items-center gap-3 border-b border-gray-200 px-3 py-3 sm:px-5">
           {conversation.counterpart && (
             <ChatAvatar
@@ -1460,7 +1466,7 @@ export default function ChatRoom() {
           </div>
         )}
       </section>
-      <p className="mt-3 text-sm text-gray-600">
+      <p className="mt-3 hidden text-sm text-gray-600 lg:block">
         Learn how Room messages, access history, and notifications are handled in{" "}
         <Link className="font-medium text-blue-700 underline hover:text-blue-900" to="/privacy">
           Privacy &amp; Data Use
