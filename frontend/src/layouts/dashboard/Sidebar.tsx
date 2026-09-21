@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ConfirmLogoutModal from "../../components/common/ConfirmLogoutModal";
 import {
   CalendarDaysIcon,
@@ -37,8 +37,6 @@ interface NavigationItem {
   icon: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
   activePathPrefix?: string;
-  sectionLabel?: string;
-  sectionEnd?: boolean;
   badgeCount?: number;
 }
 
@@ -270,9 +268,9 @@ export default function Sidebar({
       },
     ];
 
-    if (communityNavigationEnabled) {
+    const addAlumniCommunityNavigation = () => {
       baseItems.push({
-        name: "Community",
+        name: "Alumni Community",
         href: "/dashboard/community",
         activePathPrefix: "/dashboard/community",
         icon: UsersIcon,
@@ -284,7 +282,7 @@ export default function Sidebar({
         icon: ChatBubbleOvalLeftEllipsisIcon,
         badgeCount: chatUnreadTotal,
       });
-    }
+    };
 
     // Add Published Events for Super Admin, Administrator, and Leader
     if (
@@ -312,6 +310,11 @@ export default function Sidebar({
           href: "/dashboard/configure-roles-templates",
           icon: DocumentDuplicateIcon,
         },
+      );
+      if (communityNavigationEnabled) {
+        addAlumniCommunityNavigation();
+      }
+      baseItems.push(
         {
           name: "Promo Codes",
           href: "/dashboard/admin/promo-codes",
@@ -330,8 +333,6 @@ export default function Sidebar({
             href: "/dashboard/admin/users",
             activePathPrefix: "/dashboard/admin/users",
             icon: UsersIcon,
-            sectionLabel: "Administration",
-            sectionEnd: true,
           });
         }
       } else {
@@ -354,7 +355,9 @@ export default function Sidebar({
           icon: DocumentDuplicateIcon,
         },
       );
-      if (!communityNavigationEnabled) {
+      if (communityNavigationEnabled) {
+        addAlumniCommunityNavigation();
+      } else {
         baseItems.push({
           name: "Community",
           href: "/dashboard/management",
@@ -368,7 +371,9 @@ export default function Sidebar({
         href: "/dashboard/new-event",
         icon: PlusIcon,
       });
-      if (!communityNavigationEnabled) {
+      if (communityNavigationEnabled) {
+        addAlumniCommunityNavigation();
+      } else {
         baseItems.push({
           name: "Community",
           href: "/dashboard/management",
@@ -485,13 +490,7 @@ export default function Sidebar({
               );
 
               return (
-                <Fragment key={item.name}>
-                  {item.sectionLabel && (
-                    <li className="mt-4 border-t border-gray-200 px-4 pt-5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      {item.sectionLabel}
-                    </li>
-                  )}
-                  <li className={item.sectionEnd ? "mb-4" : undefined}>
+                <li key={item.name}>
                     {item.href ? (
                       <Link
                         aria-current={isActive ? "page" : undefined}
@@ -535,8 +534,7 @@ export default function Sidebar({
                         <span className="font-medium">{item.name}</span>
                       </button>
                     )}
-                  </li>
-                </Fragment>
+                </li>
               );
             })}
           </ul>

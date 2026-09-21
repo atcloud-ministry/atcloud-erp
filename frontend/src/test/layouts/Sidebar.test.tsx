@@ -248,7 +248,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       });
     });
 
-    it("shows the canonical Community entry to a member", () => {
+    it("shows the canonical Alumni Community entry to a member", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
         canManageUsers: false,
@@ -265,7 +265,9 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      const communityLink = screen.getByRole("link", { name: "Community" });
+      const communityLink = screen.getByRole("link", {
+        name: "Alumni Community",
+      });
       expect(communityLink).toHaveAttribute("href", "/dashboard/community");
       expect(communityLink).toHaveClass("text-blue-700");
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
@@ -325,7 +327,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       ).toHaveTextContent("6");
     });
 
-    it("adds Administration and User Management for account managers", () => {
+    it("adds User Management without a separate navigation section", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Administrator"),
         canManageUsers: true,
@@ -342,16 +344,46 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Administration")).toBeInTheDocument();
+      expect(screen.queryByText("Administration")).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "User Management" })).toHaveAttribute(
         "href",
         "/dashboard/admin/users",
       );
-      expect(screen.getByRole("link", { name: "Community" })).toHaveAttribute(
-        "href",
-        "/dashboard/community",
-      );
+      expect(
+        screen.getByRole("link", { name: "Alumni Community" }),
+      ).toHaveAttribute("href", "/dashboard/community");
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
+    });
+
+    it("places Alumni Community and Chat Rooms between Role Templates and Promo Codes", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Administrator"),
+        canManageUsers: true,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter>
+          <Sidebar
+            userRole="Administrator"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      const names = screen
+        .getAllByRole("link")
+        .map((link) => link.textContent ?? "");
+      expect(names.indexOf("Role Templates")).toBeLessThan(
+        names.indexOf("Alumni Community"),
+      );
+      expect(names.indexOf("Alumni Community")).toBeLessThan(
+        names.indexOf("Chat Rooms"),
+      );
+      expect(names.indexOf("Chat Rooms")).toBeLessThan(
+        names.indexOf("Promo Codes"),
+      );
     });
 
     it("does not expose User Management without its permission", () => {
