@@ -96,6 +96,23 @@ describe("ChatComposer", () => {
     );
   });
 
+  it("uses 16px mobile text controls to prevent iOS focus zoom", async () => {
+    const user = userEvent.setup();
+    render(<ChatComposer onSend={vi.fn()} />);
+
+    expect(screen.getByLabelText("Message")).toHaveClass(
+      "text-base",
+      "lg:text-sm",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add a safe link" }));
+    expect(screen.getByLabelText("URL")).toHaveClass("text-base", "lg:text-sm");
+    expect(screen.getByLabelText("Link label (optional)")).toHaveClass(
+      "text-base",
+      "lg:text-sm",
+    );
+  });
+
   it("grows with message content and scrolls after the composer height limit", () => {
     render(<ChatComposer onSend={vi.fn()} />);
     const composer = screen.getByLabelText("Message");

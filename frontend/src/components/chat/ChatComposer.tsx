@@ -175,7 +175,7 @@ export default function ChatComposer({
               <input
                 aria-describedby={linkHasError ? "chat-message-error" : undefined}
                 aria-invalid={linkHasError}
-                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 lg:text-sm"
                 disabled={disabled || sending}
                 id="chat-link-url"
                 inputMode="url"
@@ -191,7 +191,7 @@ export default function ChatComposer({
                 Link label (optional)
               </label>
               <input
-                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-1 min-h-11 w-full rounded-md border border-gray-500 px-3 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 lg:text-sm"
                 disabled={disabled || sending}
                 id="chat-link-label"
                 maxLength={200}
@@ -233,7 +233,7 @@ export default function ChatComposer({
           aria-describedby="chat-message-help chat-message-error"
           aria-disabled={disabled || sending}
           aria-invalid={messageHasError}
-          className="block min-h-11 max-h-36 w-full resize-none rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 disabled:bg-gray-100"
+          className="block min-h-11 max-h-36 w-full resize-none rounded-2xl border border-gray-500 px-4 py-2.5 text-base focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 disabled:bg-gray-100 lg:text-sm"
           id="chat-message-composer"
           onChange={(event) => setContent(event.target.value)}
           onKeyDown={handleKeyDown}

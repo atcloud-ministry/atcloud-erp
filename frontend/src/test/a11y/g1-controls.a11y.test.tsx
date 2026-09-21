@@ -206,6 +206,16 @@ describe("G1 accessible controls", () => {
     );
   });
 
+  it("uses a 16px mobile announcement editor to prevent iOS focus zoom", async () => {
+    const user = userEvent.setup();
+    render(<AnnouncementComposer onPublish={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Post announcement" }));
+    expect(
+      screen.getByRole("textbox", { name: "Program announcement" }),
+    ).toHaveClass("text-base", "lg:text-sm");
+  });
+
   it("associates unsafe-link feedback with the invalid Chat Room field", async () => {
     const user = userEvent.setup();
     render(<ChatComposer onSend={vi.fn()} />);
