@@ -1274,11 +1274,36 @@ describe("ChatRoom page", () => {
     const mute = await screen.findByRole("button", {
       name: "Mute Room notifications",
     });
+    expect(mute).toHaveClass(
+      "min-h-11",
+      "min-w-11",
+      "shrink-0",
+      "self-center",
+      "items-center",
+      "justify-center",
+      "!rounded-full",
+      "!border-0",
+      "!bg-transparent",
+      "!p-0",
+    );
+    expect(mute.querySelector("svg")).toHaveClass(
+      "h-6",
+      "w-6",
+      "shrink-0",
+      "stroke-2",
+    );
     await user.click(mute);
     await waitFor(() => expect(mocks.setMuted).toHaveBeenCalledWith(IDS.room, true));
-    expect(
-      await screen.findByRole("button", { name: "Unmute Room notifications" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    const unmute = await screen.findByRole("button", {
+      name: "Unmute Room notifications",
+    });
+    expect(unmute).toHaveAttribute("aria-pressed", "true");
+    expect(unmute.querySelector("svg")).toHaveClass(
+      "h-6",
+      "w-6",
+      "shrink-0",
+      "stroke-2",
+    );
 
     const preview = previewContent("x".repeat(400));
     expect(Array.from(preview ?? "")).toHaveLength(161);
