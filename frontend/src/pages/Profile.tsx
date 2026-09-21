@@ -1,12 +1,17 @@
+import { useEffect } from "react";
 import { useProfileForm } from "../hooks/useProfileForm";
 import { useAuth } from "../hooks/useAuth";
 import AvatarUpload from "../components/profile/AvatarUpload";
 import ProfileFormFields from "../components/profile/ProfileFormFields";
+import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
 import { PageHeader, Card, CardContent, Button } from "../components/ui";
 import { FormActions } from "../components/forms/common";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { isRegistrationProfileComplete } from "../utils/registrationProfile";
 
 export default function Profile() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const completionMode = searchParams.get("mode") === "complete";
   const {
     // Form state
     form,
@@ -23,10 +28,43 @@ export default function Profile() {
     handleEdit,
     handleCancel,
     handleAvatarChange,
-  } = useProfileForm();
+  } = useProfileForm({
+    forceRegistrationProfileCompletion: completionMode,
+  });
 
   // Get current user for role information and avatar data
   const { currentUser } = useAuth();
+  const registrationProfileComplete = currentUser
+    ? isRegistrationProfileComplete(currentUser)
+    : null;
+
+  useEffect(() => {
+    if (completionMode && registrationProfileComplete === false) {
+      handleEdit();
+    }
+  }, [completionMode, handleEdit, registrationProfileComplete]);
+
+  useEffect(() => {
+    if (!completionMode || registrationProfileComplete !== true) return;
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("mode");
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [
+    completionMode,
+    registrationProfileComplete,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  const handleProfileCancel = () => {
+    handleCancel();
+    if (!completionMode) return;
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("mode");
+    setSearchParams(nextSearchParams, { replace: true });
+  };
 
   const currentIsAtCloudLeader = watchedValues.isAtCloudLeader;
 
@@ -51,10 +89,18 @@ export default function Profile() {
         }
       />
 
+      {currentUser && (
+        <ProfileCompletionNotice
+          profile={currentUser}
+          placement="profile"
+          showAction={!isEditing}
+        />
+      )}
+
       {/* Profile Form */}
       <Card>
         <CardContent>
-          <form onSubmit={onSubmit} className="space-y-6">
+          <form onSubmit={onSubmit} noValidate className="space-y-6">
             {/* Avatar and Form Layout */}
             <div className="flex flex-col lg:flex-row lg:space-x-8 space-y-6 lg:space-y-0">
               {/* Avatar Section - Left Side */}
@@ -98,7 +144,7 @@ export default function Profile() {
               <FormActions
                 isSubmitting={false}
                 submitLabel="Save Changes"
-                onCancel={handleCancel}
+                onCancel={handleProfileCancel}
                 cancelLabel="Cancel"
               />
             )}

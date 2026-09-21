@@ -343,6 +343,16 @@ const purchaseSchema = new Schema<IPurchase>(
 purchaseSchema.index({ userId: 1, programId: 1 });
 purchaseSchema.index({ userId: 1, membershipId: 1 });
 purchaseSchema.index({ status: 1, purchaseDate: -1 });
+purchaseSchema.index(
+  {
+    programId: 1,
+    purchaseType: 1,
+    status: 1,
+    unenrolledAt: 1,
+    userId: 1,
+  },
+  { name: "idx_program_membership_resolver" },
+);
 
 // Static method to generate unique order number
 purchaseSchema.statics.generateOrderNumber =

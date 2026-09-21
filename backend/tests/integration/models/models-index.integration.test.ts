@@ -68,6 +68,16 @@ describe("models/index exports", () => {
       const { Message } = await import("../../../src/models/index");
       expect(Message).toBeDefined();
     });
+
+    it("should export the five M2 alumni data models and initializer", async () => {
+      const models = await import("../../../src/models/index");
+      expect(models.AlumniProfile).toBeDefined();
+      expect(models.AlumniAffiliation).toBeDefined();
+      expect(models.AlumniInvitation).toBeDefined();
+      expect(models.AlumniImportBatch).toBeDefined();
+      expect(models.ConsentRecord).toBeDefined();
+      expect(models.initializeAlumniDataModels).toBeTypeOf("function");
+    });
   });
 
   describe("Database utility exports", () => {

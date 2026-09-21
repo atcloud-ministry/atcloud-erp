@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -17,6 +18,7 @@ describe("Public Events API - openToPublic toggle", () => {
     await Promise.all([User.deleteMany({}), Event.deleteMany({})]);
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "toggleadmin",
       email: "toggleadmin@example.com",
       password: "AdminPass123!",
@@ -27,6 +29,7 @@ describe("Public Events API - openToPublic toggle", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
     await request(app).post("/api/auth/register").send(adminData);
     await User.findOneAndUpdate(

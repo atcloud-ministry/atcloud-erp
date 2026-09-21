@@ -82,6 +82,7 @@ export const corsOptions = {
     "X-Requested-With",
     "Cache-Control",
     "Pragma",
+    "Idempotency-Key",
   ],
   exposedHeaders: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"],
 };
@@ -188,6 +189,18 @@ export const securityErrorHandler = (
   res: Response,
   _next: NextFunction,
 ): void => {
+  if (
+    (err as Error & { code?: string }).code ===
+    "CHAT_MESSAGE_PAYLOAD_TOO_LARGE"
+  ) {
+    res.status(413).json({
+      success: false,
+      code: "CHAT_MESSAGE_PAYLOAD_TOO_LARGE",
+      message: "The chat message payload exceeds 16 KiB.",
+    });
+    return;
+  }
+
   // Log security-related errors
   if (err.message.includes("CORS") || err.message.includes("rate limit")) {
     console.warn(`Security warning: ${err.message} from IP: ${req.ip}`);

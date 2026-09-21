@@ -44,12 +44,21 @@ vi.mock("../../../src/utils/roleUtils", () => ({
     hasMinimumRole: vi.fn(),
     isAdmin: vi.fn(),
   },
+  PERMISSIONS: {
+    MANAGE_USERS: "manage_users",
+    VIEW_USER_PROFILES: "view_user_profiles",
+    DEACTIVATE_USERS: "deactivate_users",
+  },
   hasPermission: vi.fn(),
   Permission: {},
 }));
 
 vi.mock("../../../src/utils/event/eventPermissions", () => ({
   isAffiliatedProgramEditor: vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock("../../../src/services/authorization/AuthorizationAuditService", () => ({
+  recordAuthorizationDenial: vi.fn(),
 }));
 
 // Test helpers
@@ -81,6 +90,13 @@ const mockUser = {
   lastName: "User",
 };
 
+const activeRequestUser = (role: string, _id = "user123") => ({
+  _id,
+  role,
+  isActive: true,
+  isVerified: true,
+});
+
 describe("Auth Middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -96,6 +112,68 @@ describe("Auth Middleware", () => {
   });
 
   describe("TokenService", () => {
+    describe("production configuration", () => {
+      it("rejects missing or placeholder JWT secrets", () => {
+        const originalNodeEnv = process.env.NODE_ENV;
+        const originalAccess = process.env.JWT_ACCESS_SECRET;
+        const originalRefresh = process.env.JWT_REFRESH_SECRET;
+        try {
+          process.env.NODE_ENV = "production";
+          delete process.env.JWT_ACCESS_SECRET;
+          process.env.JWT_REFRESH_SECRET = "your-refresh-secret-key";
+
+          expect(() => TokenService.assertProductionConfiguration()).toThrow(
+            /JWT_ACCESS_SECRET/,
+          );
+        } finally {
+          process.env.NODE_ENV = originalNodeEnv;
+          process.env.JWT_ACCESS_SECRET = originalAccess;
+          process.env.JWT_REFRESH_SECRET = originalRefresh;
+        }
+      });
+
+      it("rejects reused access and refresh secrets", () => {
+        const originalNodeEnv = process.env.NODE_ENV;
+        const originalAccess = process.env.JWT_ACCESS_SECRET;
+        const originalRefresh = process.env.JWT_REFRESH_SECRET;
+        try {
+          process.env.NODE_ENV = "production";
+          const sharedSecret = "a-secure-but-incorrectly-shared-secret-value";
+          process.env.JWT_ACCESS_SECRET = sharedSecret;
+          process.env.JWT_REFRESH_SECRET = sharedSecret;
+
+          expect(() => TokenService.assertProductionConfiguration()).toThrow(
+            /must be different/,
+          );
+        } finally {
+          process.env.NODE_ENV = originalNodeEnv;
+          process.env.JWT_ACCESS_SECRET = originalAccess;
+          process.env.JWT_REFRESH_SECRET = originalRefresh;
+        }
+      });
+
+      it("accepts distinct non-placeholder production secrets", () => {
+        const originalNodeEnv = process.env.NODE_ENV;
+        const originalAccess = process.env.JWT_ACCESS_SECRET;
+        const originalRefresh = process.env.JWT_REFRESH_SECRET;
+        try {
+          process.env.NODE_ENV = "production";
+          process.env.JWT_ACCESS_SECRET =
+            "access-secret-with-at-least-thirty-two-random-characters";
+          process.env.JWT_REFRESH_SECRET =
+            "refresh-secret-with-at-least-thirty-two-random-characters";
+
+          expect(() =>
+            TokenService.assertProductionConfiguration(),
+          ).not.toThrow();
+        } finally {
+          process.env.NODE_ENV = originalNodeEnv;
+          process.env.JWT_ACCESS_SECRET = originalAccess;
+          process.env.JWT_REFRESH_SECRET = originalRefresh;
+        }
+      });
+    });
+
     describe("generateAccessToken", () => {
       it("should generate access token with correct payload", () => {
         const payload = {
@@ -143,11 +221,21 @@ describe("Auth Middleware", () => {
 
         const result = TokenService.generateRefreshToken(payload);
 
-        expect(jwt.sign).toHaveBeenCalledWith(payload, "test-refresh-secret", {
-          expiresIn: "7d",
-          issuer: "atcloud-system",
-          audience: "atcloud-users",
-        });
+        expect(jwt.sign).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: "user123",
+            sid: expect.any(String),
+            tokenType: "refresh",
+          }),
+          "test-refresh-secret",
+          expect.objectContaining({
+            expiresIn: "7d",
+            issuer: "atcloud-system",
+            audience: "atcloud-users",
+            algorithm: "HS256",
+            jwtid: expect.any(String),
+          }),
+        );
         expect(result).toBe(mockToken);
       });
     });
@@ -163,6 +251,7 @@ describe("Auth Middleware", () => {
         expect(jwt.verify).toHaveBeenCalledWith(token, "test-access-secret", {
           issuer: "atcloud-system",
           audience: "atcloud-users",
+          algorithms: ["HS256"],
         });
         expect(result).toEqual(mockPayload);
       });
@@ -182,7 +271,12 @@ describe("Auth Middleware", () => {
     describe("verifyRefreshToken", () => {
       it("should verify valid refresh token", () => {
         const token = "valid-refresh-token";
-        const mockPayload = { userId: "user123" };
+        const mockPayload = {
+          userId: "507f1f77bcf86cd799439011",
+          sid: "11111111-1111-4111-8111-111111111111",
+          jti: "22222222-2222-4222-8222-222222222222",
+          tokenType: "refresh" as const,
+        };
         (jwt.verify as any).mockReturnValue(mockPayload);
 
         const result = TokenService.verifyRefreshToken(token);
@@ -190,6 +284,7 @@ describe("Auth Middleware", () => {
         expect(jwt.verify).toHaveBeenCalledWith(token, "test-refresh-secret", {
           issuer: "atcloud-system",
           audience: "atcloud-users",
+          algorithms: ["HS256"],
         });
         expect(result).toEqual(mockPayload);
       });
@@ -237,9 +332,17 @@ describe("Auth Middleware", () => {
 
         // Verify refresh token generation
         expect(jwt.sign).toHaveBeenCalledWith(
-          { userId: "user123" },
+          expect.objectContaining({
+            userId: "user123",
+            sid: expect.any(String),
+            tokenType: "refresh",
+            exp: expect.any(Number),
+          }),
           "test-refresh-secret",
-          expect.any(Object),
+          expect.objectContaining({
+            algorithm: "HS256",
+            jwtid: expect.any(String),
+          }),
         );
       });
     });
@@ -275,10 +378,21 @@ describe("Auth Middleware", () => {
       await authenticate(req, res, next);
 
       expect(User.findById).toHaveBeenCalledWith("user123");
-      expect(mockUserQuery.select).toHaveBeenCalledWith("+password");
+      expect(mockUserQuery.select).toHaveBeenCalledWith(
+        "-password +passwordChangedAt",
+      );
       expect(req.user).toEqual(mockUser);
       expect(req.userId).toBe("user123");
       expect(req.userRole).toBe("Participant");
+      expect(req.authPrincipal).toEqual({
+        kind: "user",
+        userId: "user123",
+        role: "Participant",
+        isActive: true,
+        isVerified: true,
+      });
+      expect(req.authPrincipal).not.toHaveProperty("email");
+      expect(Object.isFrozen(req.authPrincipal)).toBe(true);
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
     });
@@ -399,6 +513,69 @@ describe("Auth Middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
+    it("rejects an access token issued before the password changed", async () => {
+      const req = createMockRequest("Bearer old-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_000,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_000),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("rejects an access token from the ambiguous password-change second", async () => {
+      const req = createMockRequest("Bearer new-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_001,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("accepts a new access token issued in a later second", async () => {
+      const req = createMockRequest("Bearer new-token") as Request;
+      const res = createMockResponse() as Response;
+      const next = createMockNext();
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_002,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+
+      await authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
     it("should return 401 for JsonWebTokenError", async () => {
       const req = createMockRequest("Bearer invalid-token") as Request;
       const res = createMockResponse() as Response;
@@ -466,7 +643,7 @@ describe("Auth Middleware", () => {
   });
 
   describe("authorizeRoles middleware", () => {
-    it("should allow access when user has one of the required roles", () => {
+    it("should allow access when user has one of the required roles", async () => {
       // Mock RoleUtils.hasAnyRole to return true
       vi.mocked(RoleUtils.hasAnyRole).mockReturnValue(true);
 
@@ -474,11 +651,13 @@ describe("Auth Middleware", () => {
         ROLES.ADMINISTRATOR,
         ROLES.LEADER,
       );
-      const req = { user: { role: "Administrator" } } as unknown as Request;
+      const req = {
+        user: activeRequestUser("Administrator"),
+      } as unknown as Request;
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(RoleUtils.hasAnyRole).toHaveBeenCalledWith("Administrator", [
         ROLES.ADMINISTRATOR,
@@ -488,7 +667,7 @@ describe("Auth Middleware", () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it("should return 401 when user not authenticated", () => {
+    it("should return 401 when user not authenticated", async () => {
       const authorizeMiddleware = authorizeRoles(
         ROLES.ADMINISTRATOR,
         ROLES.LEADER,
@@ -497,7 +676,7 @@ describe("Auth Middleware", () => {
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({
@@ -507,7 +686,7 @@ describe("Auth Middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it("should return 403 when user does not have required role", () => {
+    it("should return 403 when user does not have required role", async () => {
       // Mock RoleUtils.hasAnyRole to return false
       vi.mocked(RoleUtils.hasAnyRole).mockReturnValue(false);
 
@@ -515,11 +694,13 @@ describe("Auth Middleware", () => {
         ROLES.ADMINISTRATOR,
         ROLES.LEADER,
       );
-      const req = { user: { role: "Participant" } } as unknown as Request;
+      const req = {
+        user: activeRequestUser("Participant"),
+      } as unknown as Request;
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
@@ -532,16 +713,18 @@ describe("Auth Middleware", () => {
   });
 
   describe("authorizeMinimumRole middleware", () => {
-    it("should allow access when user has minimum role or higher", () => {
+    it("should allow access when user has minimum role or higher", async () => {
       // Mock RoleUtils.hasMinimumRole to return true
       vi.mocked(RoleUtils.hasMinimumRole).mockReturnValue(true);
 
       const authorizeMiddleware = authorizeMinimumRole(ROLES.LEADER);
-      const req = { user: { role: "Administrator" } } as unknown as Request;
+      const req = {
+        user: activeRequestUser("Administrator"),
+      } as unknown as Request;
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(RoleUtils.hasMinimumRole).toHaveBeenCalledWith(
         "Administrator",
@@ -551,13 +734,13 @@ describe("Auth Middleware", () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it("should return 401 when user not authenticated", () => {
+    it("should return 401 when user not authenticated", async () => {
       const authorizeMiddleware = authorizeMinimumRole(ROLES.LEADER);
       const req = {} as Request;
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({
@@ -567,16 +750,18 @@ describe("Auth Middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it("should return 403 when user does not have minimum role", () => {
+    it("should return 403 when user does not have minimum role", async () => {
       // Mock RoleUtils.hasMinimumRole to return false
       vi.mocked(RoleUtils.hasMinimumRole).mockReturnValue(false);
 
       const authorizeMiddleware = authorizeMinimumRole(ROLES.LEADER);
-      const req = { user: { role: "Participant" } } as unknown as Request;
+      const req = {
+        user: activeRequestUser("Participant"),
+      } as unknown as Request;
       const res = createMockResponse() as Response;
       const next = createMockNext();
 
-      authorizeMiddleware(req, res, next);
+      await authorizeMiddleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
@@ -610,31 +795,31 @@ describe("Auth Middleware", () => {
   });
 
   describe("authorizePermission middleware", () => {
-    it("should allow when user has required permission", () => {
+    it("should allow when user has required permission", async () => {
       vi.mocked(hasPermission).mockReturnValue(true as any);
 
-      const middleware = authorizePermission("CAN_EDIT" as any);
-      const req = { user: { role: ROLES.ADMINISTRATOR } } as any;
+      const middleware = authorizePermission("manage_users" as any);
+      const req = { user: activeRequestUser(ROLES.ADMINISTRATOR) } as any;
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       const next = vi.fn();
 
-      middleware(req, res, next);
+      await middleware(req, res, next);
 
       expect(hasPermission).toHaveBeenCalledWith(
         ROLES.ADMINISTRATOR,
-        "CAN_EDIT",
+        "manage_users",
       );
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it("should return 401 when no user present", () => {
-      const middleware = authorizePermission("CAN_VIEW" as any);
+    it("should return 401 when no user present", async () => {
+      const middleware = authorizePermission("view_user_profiles" as any);
       const req = {} as any;
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       const next = vi.fn();
 
-      middleware(req, res, next);
+      await middleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({
@@ -644,20 +829,20 @@ describe("Auth Middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it("should return 403 when permission not granted", () => {
+    it("should return 403 when permission not granted", async () => {
       vi.mocked(hasPermission).mockReturnValue(false as any);
 
-      const middleware = authorizePermission("CAN_DELETE" as any);
-      const req = { user: { role: ROLES.PARTICIPANT } } as any;
+      const middleware = authorizePermission("deactivate_users" as any);
+      const req = { user: activeRequestUser(ROLES.PARTICIPANT) } as any;
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       const next = vi.fn();
 
-      middleware(req, res, next);
+      await middleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: "Access denied. Required permission: CAN_DELETE",
+        message: "Access denied. Required permission: deactivate_users",
         error: "Insufficient permissions.",
       });
       expect(next).not.toHaveBeenCalled();
@@ -869,13 +1054,13 @@ describe("Auth Middleware", () => {
   });
 
   describe("Admin/SuperAdmin helpers", () => {
-    it("requireAdmin should enforce minimum Administrator role", () => {
+    it("requireAdmin should enforce minimum Administrator role", async () => {
       vi.mocked(RoleUtils.hasMinimumRole).mockReturnValue(false);
-      const req: any = { user: { role: ROLES.PARTICIPANT } };
+      const req: any = { user: activeRequestUser(ROLES.PARTICIPANT) };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       const next = vi.fn();
 
-      requireAdmin(req as any, res as any, next);
+      await requireAdmin(req as any, res as any, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
@@ -886,12 +1071,12 @@ describe("Auth Middleware", () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    it("requireSuperAdmin should restrict to Super Admin role", () => {
-      const req: any = { user: { role: ROLES.ADMINISTRATOR } };
+    it("requireSuperAdmin should restrict to Super Admin role", async () => {
+      const req: any = { user: activeRequestUser(ROLES.ADMINISTRATOR) };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       const next = vi.fn();
 
-      requireSuperAdmin(req as any, res as any, next);
+      await requireSuperAdmin(req as any, res as any, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
@@ -920,7 +1105,7 @@ describe("Auth Middleware", () => {
 
     it("should return 400 when no event id provided", async () => {
       const req: any = {
-        user: { _id: "u1", role: ROLES.PARTICIPANT },
+        user: activeRequestUser(ROLES.PARTICIPANT, "u1"),
         params: {},
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -938,7 +1123,7 @@ describe("Auth Middleware", () => {
     it("should allow Super Admin without checking event", async () => {
       const { Event } = await import("../../../src/models");
       const req: any = {
-        user: { _id: "u1", role: ROLES.SUPER_ADMIN },
+        user: activeRequestUser(ROLES.SUPER_ADMIN, "u1"),
         params: { eventId: "e1" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -953,7 +1138,7 @@ describe("Auth Middleware", () => {
     it("should allow Administrator without checking event", async () => {
       const { Event } = await import("../../../src/models");
       const req: any = {
-        user: { _id: "u1", role: ROLES.ADMINISTRATOR },
+        user: activeRequestUser(ROLES.ADMINISTRATOR, "u1"),
         params: { eventId: "e1" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -970,7 +1155,7 @@ describe("Auth Middleware", () => {
       (Event.findById as any).mockResolvedValue(null);
 
       const req: any = {
-        user: { _id: "u1", role: ROLES.LEADER },
+        user: activeRequestUser(ROLES.LEADER, "u1"),
         params: { eventId: "e404" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -990,7 +1175,7 @@ describe("Auth Middleware", () => {
       (Event.findById as any).mockResolvedValue({ createdBy: "u1" });
 
       const req: any = {
-        user: { _id: "u1", role: ROLES.LEADER },
+        user: activeRequestUser(ROLES.LEADER, "u1"),
         params: { eventId: "e1" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -1009,7 +1194,7 @@ describe("Auth Middleware", () => {
       });
 
       const req: any = {
-        user: { _id: "u1", role: ROLES.LEADER },
+        user: activeRequestUser(ROLES.LEADER, "u1"),
         params: { eventId: "e1" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -1028,7 +1213,7 @@ describe("Auth Middleware", () => {
       });
 
       const req: any = {
-        user: { _id: "u1", role: ROLES.LEADER },
+        user: activeRequestUser(ROLES.LEADER, "u1"),
         params: { eventId: "e1" },
       };
       const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn() };
@@ -1188,6 +1373,68 @@ describe("Auth Middleware", () => {
 
       expect(next).toHaveBeenCalled();
       expect(req.user).toBeUndefined();
+    });
+
+    it("proceeds anonymously for an access token revoked by a password change", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_000,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_000),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer old-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.user).toBeUndefined();
+      expect(req.authPrincipal).toBeUndefined();
+    });
+
+    it("proceeds anonymously at the ambiguous password-change second", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_001,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer new-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.user).toBeUndefined();
+      expect(req.authPrincipal).toBeUndefined();
+    });
+
+    it("attaches the user for a token issued in a later second", async () => {
+      vi.spyOn(TokenService, "verifyAccessToken").mockReturnValue({
+        userId: "user123",
+        iat: 1_700_000_002,
+      });
+      (User.findById as any).mockReturnValue({
+        select: vi.fn().mockResolvedValue({
+          ...mockUser,
+          passwordChangedAt: new Date(1_700_000_001_750),
+        }),
+      });
+      const req: any = { headers: { authorization: "Bearer new-token" } };
+      const next = vi.fn();
+
+      await authenticateOptional(req, {}, next);
+
+      expect(req.user).toBeDefined();
+      expect(req.userId).toBe("user123");
     });
 
     it("should proceed without user when token verification fails", async () => {

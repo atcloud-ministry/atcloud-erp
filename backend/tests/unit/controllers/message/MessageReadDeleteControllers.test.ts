@@ -8,7 +8,7 @@ import SystemMessagesDeletionController from "../../../../src/controllers/messag
 // Mock dependencies
 vi.mock("../../../../src/models/Message", () => {
   const mockMessage = {
-    findById: vi.fn(),
+    findOne: vi.fn(),
     getUnreadCountsForUser: vi.fn(),
   };
   return { default: mockMessage };
@@ -44,6 +44,7 @@ import { CachePatterns } from "../../../../src/services/infrastructure/CacheServ
 interface MockRequest {
   user?: {
     id: string;
+    role: string;
   };
   params: {
     messageId?: string;
@@ -86,7 +87,7 @@ describe("Message Read/Delete Controllers", () => {
     };
 
     mockReq = {
-      user: { id: userId },
+      user: { id: userId, role: "Participant" },
       params: { messageId: validMessageId },
     };
 
@@ -135,7 +136,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 404 if message not found", async () => {
-        vi.mocked(Message.findById).mockResolvedValue(null);
+        vi.mocked(Message.findOne).mockResolvedValue(null);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
           mockReq as unknown as Request,
@@ -151,7 +152,7 @@ describe("Message Read/Delete Controllers", () => {
 
       it("should mark notification as read successfully", async () => {
         const mockMessage = createMockMessage();
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage as any);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage as any);
 
         await BellNotificationsReadController.markBellNotificationAsRead(
           mockReq as unknown as Request,
@@ -171,7 +172,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 500 on database error", async () => {
-        vi.mocked(Message.findById).mockRejectedValue(
+        vi.mocked(Message.findOne).mockRejectedValue(
           new Error("Database error")
         );
 
@@ -207,7 +208,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 404 if message not found", async () => {
-        vi.mocked(Message.findById).mockResolvedValue(null);
+        vi.mocked(Message.findOne).mockResolvedValue(null);
 
         await SystemMessagesReadController.markSystemMessageAsRead(
           mockReq as unknown as Request,
@@ -223,7 +224,7 @@ describe("Message Read/Delete Controllers", () => {
 
       it("should mark message as read successfully", async () => {
         const mockMessage = createMockMessage();
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage as any);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage as any);
 
         await SystemMessagesReadController.markSystemMessageAsRead(
           mockReq as unknown as Request,
@@ -242,7 +243,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 500 on database error", async () => {
-        vi.mocked(Message.findById).mockRejectedValue(
+        vi.mocked(Message.findOne).mockRejectedValue(
           new Error("Database error")
         );
 
@@ -278,7 +279,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 404 if message not found", async () => {
-        vi.mocked(Message.findById).mockResolvedValue(null);
+        vi.mocked(Message.findOne).mockResolvedValue(null);
 
         await SystemMessagesDeletionController.deleteSystemMessage(
           mockReq as unknown as Request,
@@ -294,7 +295,7 @@ describe("Message Read/Delete Controllers", () => {
 
       it("should delete message successfully", async () => {
         const mockMessage = createMockMessage();
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage as any);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage as any);
 
         await SystemMessagesDeletionController.deleteSystemMessage(
           mockReq as unknown as Request,
@@ -326,7 +327,7 @@ describe("Message Read/Delete Controllers", () => {
           isReadInSystem: false,
           isReadInBell: false,
         });
-        vi.mocked(Message.findById).mockResolvedValue(mockMessage as any);
+        vi.mocked(Message.findOne).mockResolvedValue(mockMessage as any);
 
         await SystemMessagesDeletionController.deleteSystemMessage(
           mockReq as unknown as Request,
@@ -337,7 +338,7 @@ describe("Message Read/Delete Controllers", () => {
       });
 
       it("should return 500 on database error", async () => {
-        vi.mocked(Message.findById).mockRejectedValue(
+        vi.mocked(Message.findOne).mockRejectedValue(
           new Error("Database error")
         );
 

@@ -1,4 +1,9 @@
 import { Request, Response } from "express";
+import { User } from "../../models";
+import {
+  SELF_USER_QUERY_PROJECTION,
+  serializeSelfUser,
+} from "../../serializers/userReadSerializers";
 
 // Response helper utilities
 class ResponseHelper {
@@ -42,30 +47,18 @@ export default class GetProfileController {
         return;
       }
 
-      const userData = {
-        id: req.user._id,
-        username: req.user.username,
-        email: req.user.email,
-        phone: req.user.phone,
-        firstName: req.user.firstName,
-        lastName: req.user.lastName,
-        gender: req.user.gender,
-        avatar: req.user.avatar,
-        role: req.user.role,
-        isAtCloudLeader: req.user.isAtCloudLeader,
-        roleInAtCloud: req.user.roleInAtCloud,
-        homeAddress: req.user.homeAddress,
-        occupation: req.user.occupation,
-        company: req.user.company,
-        weeklyChurch: req.user.weeklyChurch,
-        churchAddress: req.user.churchAddress,
-        lastLogin: req.user.lastLogin,
-        createdAt: req.user.createdAt,
-        isVerified: req.user.isVerified,
-        isActive: req.user.isActive,
-      };
+      const user = await User.findById(req.user._id).select(
+        SELF_USER_QUERY_PROJECTION,
+      );
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: "User not found.",
+        });
+        return;
+      }
 
-      ResponseHelper.success(res, { user: userData });
+      ResponseHelper.success(res, { user: serializeSelfUser(user) });
     } catch (error: unknown) {
       ResponseHelper.serverError(res, error);
     }

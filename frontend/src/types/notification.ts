@@ -26,6 +26,9 @@ export interface Notification {
   // For events
   eventId?: string;
 
+  // Server-authored, recipient-scoped navigation metadata.
+  metadata?: Record<string, unknown>;
+
   // For system messages (when displayed in bell dropdown)
   systemMessage?: {
     id: string;

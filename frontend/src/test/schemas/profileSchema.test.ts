@@ -11,12 +11,17 @@ function baseValid(): ProfileFormData {
     lastName: "Lee",
     gender: "female",
     email: "alice@example.com",
-    phone: "",
+    phoneCountryCode: "US",
+    phone: "+14155552671",
+    birthYear: 1990,
+    residenceCountryCode: "US",
+    residenceRegion: "US-CA",
+    residenceCity: "San Francisco",
+    employmentStatus: "employed",
     isAtCloudLeader: "No",
     roleInAtCloud: "",
-    homeAddress: "",
-    occupation: "",
-    company: "",
+    occupation: "Product Manager",
+    company: "Example Corp",
     weeklyChurch: "",
     churchAddress: "",
   };
@@ -59,5 +64,56 @@ describe("profileSchema", () => {
     };
     const value = await profileSchema.validate(data);
     expect(value.roleInAtCloud).toBe("Event Director");
+  });
+
+  it("requires the registration-profile fields when an existing user saves", async () => {
+    const data = {
+      ...baseValid(),
+      phone: "",
+      birthYear: undefined,
+      residenceCity: "",
+      employmentStatus: "",
+    } as unknown as ProfileFormData;
+
+    await expect(
+      profileSchema.validate(data, { abortEarly: false }),
+    ).rejects.toMatchObject({
+      errors: expect.arrayContaining([
+        "Phone is required",
+        "Birth year is required",
+        "City is required",
+        "Select a valid employment status",
+      ]),
+    });
+  });
+
+  it("requires a US state and company for employed users", async () => {
+    const data = {
+      ...baseValid(),
+      residenceRegion: "",
+      company: "",
+    };
+
+    await expect(
+      profileSchema.validate(data, { abortEarly: false }),
+    ).rejects.toMatchObject({
+      errors: expect.arrayContaining([
+        "State is required for US residents",
+        "Company is required for this employment status",
+      ]),
+    });
+  });
+
+  it("accepts an optional region and clears company requirements for a retired user", async () => {
+    const value = await profileSchema.validate({
+      ...baseValid(),
+      residenceCountryCode: "GB",
+      residenceRegion: null,
+      employmentStatus: "retired",
+      company: null,
+    });
+
+    expect(value.residenceRegion).toBeNull();
+    expect(value.company).toBeNull();
   });
 });

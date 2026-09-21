@@ -1,5 +1,6 @@
 import * as yup from "yup";
 import { passwordValidation } from "./common/passwordValidation";
+import { registrationProfileFormSchemaFields } from "./common/registrationProfileSchema";
 
 export const signUpSchema = yup.object({
   username: yup
@@ -42,7 +43,7 @@ export const signUpSchema = yup.object({
     .string()
     .email("Invalid email address")
     .required("Email is required"),
-  phone: yup.string().optional(),
+  ...registrationProfileFormSchemaFields,
 
   isAtCloudLeader: yup
     .string()
@@ -53,11 +54,15 @@ export const signUpSchema = yup.object({
     otherwise: (schema) => schema.optional(),
   }),
 
-  homeAddress: yup.string().optional(),
-  occupation: yup.string().optional(),
-  company: yup.string().optional(),
   weeklyChurch: yup.string().optional(),
   churchAddress: yup.string().optional(),
+  acceptTerms: yup
+    .boolean()
+    .oneOf([true], "You must accept the registration privacy notice")
+    .required("You must accept the registration privacy notice"),
+  registrationNoticeVersion: yup
+    .string()
+    .required("The registration privacy notice must be loaded"),
 });
 
 export type SignUpFormData = yup.InferType<typeof signUpSchema>;

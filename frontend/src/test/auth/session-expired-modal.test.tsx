@@ -9,10 +9,10 @@ import {
 } from "../../services/session";
 
 // Mock useLocation
-const mockLocation = {
+let mockLocation = {
   pathname: "/dashboard/event/123",
   search: "?tab=details",
-  hash: "",
+  hash: "#registration",
   state: null,
   key: "test",
 };
@@ -29,6 +29,13 @@ describe("SessionExpiredModal", () => {
   const originalLocation = window.location;
 
   beforeEach(() => {
+    mockLocation = {
+      pathname: "/dashboard/event/123",
+      search: "?tab=details",
+      hash: "#registration",
+      state: null,
+      key: "test",
+    };
     __resetSessionPromptFlag();
     localStorage.setItem("authToken", "test-token");
     sessionStorage.clear();
@@ -97,10 +104,46 @@ describe("SessionExpiredModal", () => {
 
     // Verify returnUrl is stored in sessionStorage for post-login redirect
     expect(sessionStorage.getItem("returnUrl")).toBe(
-      "/dashboard/event/123?tab=details",
+      "/dashboard/event/123?tab=details#registration",
     );
 
     // Verify hard navigation to login page was triggered
+    expect(window.location.href).toBe("/#/login");
+  });
+
+  it("captures the protected deep link before auth redirects the router to login", async () => {
+    const user = userEvent.setup();
+    const rendered = render(
+      <BrowserRouter>
+        <SessionExpiredModal />
+      </BrowserRouter>,
+    );
+
+    handleSessionExpired();
+    await waitFor(() => {
+      expect(screen.getByText("Session Expired")).toBeInTheDocument();
+    });
+    expect(sessionStorage.getItem("returnUrl")).toBe(
+      "/dashboard/event/123?tab=details#registration",
+    );
+
+    mockLocation = {
+      pathname: "/login",
+      search: "",
+      hash: "",
+      state: null,
+      key: "login",
+    };
+    rendered.rerender(
+      <BrowserRouter>
+        <SessionExpiredModal />
+      </BrowserRouter>,
+    );
+    await user.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(sessionStorage.getItem("returnUrl")).toBe(
+      "/dashboard/event/123?tab=details#registration",
+    );
     expect(window.location.href).toBe("/#/login");
   });
 

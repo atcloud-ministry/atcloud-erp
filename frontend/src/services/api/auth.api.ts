@@ -4,12 +4,79 @@ import {
   type AuthResponse,
   type AuthTokens,
 } from "./common";
+import { socketService } from "../socketService";
+import type { RegistrationProfileFields } from "@atcloud/shared-time/registration-profile";
+
+export type RegisterUserPayload = {
+  username: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName?: string;
+  lastName?: string;
+  gender?: "male" | "female";
+  isAtCloudLeader: boolean;
+  roleInAtCloud?: string;
+  weeklyChurch?: string;
+  churchAddress?: string;
+  acceptTerms: boolean;
+  registrationNoticeVersion: string;
+} & RegistrationProfileFields;
+
+export interface RegistrationNoticeDTO {
+  version: string;
+  text: string;
+  effectiveAt: string;
+}
+
+function decodeRegistrationNotice(value: unknown): RegistrationNoticeDTO {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid registration notice response");
+  }
+  const data = value as Record<string, unknown>;
+  if (Object.keys(data).length !== 1 || !("notice" in data)) {
+    throw new Error("Invalid registration notice response");
+  }
+  const notice = data.notice;
+  if (!notice || typeof notice !== "object" || Array.isArray(notice)) {
+    throw new Error("Invalid registration notice response");
+  }
+  const record = notice as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 3 ||
+    typeof record.version !== "string" ||
+    !record.version.trim() ||
+    typeof record.text !== "string" ||
+    !record.text.trim() ||
+    typeof record.effectiveAt !== "string" ||
+    Number.isNaN(Date.parse(record.effectiveAt))
+  ) {
+    throw new Error("Invalid registration notice response");
+  }
+  return {
+    version: record.version,
+    text: record.text,
+    effectiveAt: record.effectiveAt,
+  };
+}
 
 /**
  * Authentication API Service
  * Handles login, registration, password reset, email verification, and profile management
  */
 class AuthApiClient extends BaseApiClient {
+  async getRegistrationNotice(
+    signal?: AbortSignal,
+  ): Promise<RegistrationNoticeDTO> {
+    const response = await this.request<unknown>("/auth/registration-notice", {
+      signal,
+    });
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to load registration notice");
+    }
+    return decodeRegistrationNotice(response.data);
+  }
+
   /**
    * Login with email/username and password
    */
@@ -49,6 +116,7 @@ class AuthApiClient extends BaseApiClient {
       if (response.ok && data.data) {
         // Store token in localStorage
         localStorage.setItem("authToken", data.data.accessToken);
+        socketService.updateAuthenticationToken(data.data.accessToken);
         return data.data;
       }
 
@@ -65,24 +133,7 @@ class AuthApiClient extends BaseApiClient {
   /**
    * Register a new user
    */
-  async register(userData: {
-    username: string;
-    email: string;
-    password: string;
-    confirmPassword: string;
-    firstName?: string;
-    lastName?: string;
-    gender?: "male" | "female";
-    isAtCloudLeader: boolean;
-    roleInAtCloud?: string;
-    occupation?: string;
-    company?: string;
-    weeklyChurch?: string;
-    homeAddress?: string;
-    phone?: string;
-    churchAddress?: string;
-    acceptTerms: boolean;
-  }): Promise<AuthResponse> {
+  async register(userData: RegisterUserPayload): Promise<AuthResponse> {
     const response = await this.request<AuthResponse>("/auth/register", {
       method: "POST",
       body: JSON.stringify(userData),
@@ -105,6 +156,7 @@ class AuthApiClient extends BaseApiClient {
       });
     } finally {
       localStorage.removeItem("authToken");
+      socketService.updateAuthenticationToken(null);
     }
   }
 
@@ -128,30 +180,7 @@ class AuthApiClient extends BaseApiClient {
    * Note: This is now exposed publicly (was private in base class) for explicit refresh calls
    */
   async refreshToken(): Promise<AuthTokens> {
-    const url = `${this.baseURL}/auth/refresh-token`;
-    const resp = await fetch(url, {
-      method: "POST",
-      credentials: "include",
-    });
-    const raw: unknown = await resp.json();
-    const data = raw as Partial<ApiResponse<AuthTokens>> &
-      Partial<AuthTokens> & {
-        data?: Partial<AuthTokens>;
-        message?: string;
-      };
-    if (!resp.ok) {
-      throw new Error(data?.message || `HTTP ${resp.status}`);
-    }
-    const token = data.accessToken || data?.data?.accessToken;
-    if (token) {
-      localStorage.setItem("authToken", token);
-      const expiresAt =
-        data.expiresAt ||
-        data?.data?.expiresAt ||
-        new Date(Date.now() + 55 * 60 * 1000).toISOString();
-      return { accessToken: token, expiresAt };
-    }
-    throw new Error(data?.message || "Token refresh failed");
+    return super.refreshToken();
   }
 
   /**
@@ -201,6 +230,8 @@ const authApiClient = new AuthApiClient();
 
 // Export service methods
 export const authService = {
+  getRegistrationNotice: (signal?: AbortSignal) =>
+    authApiClient.getRegistrationNotice(signal),
   login: (emailOrUsername: string, password: string, rememberMe?: boolean) =>
     authApiClient.login(emailOrUsername, password, rememberMe),
   register: (userData: Parameters<typeof authApiClient.register>[0]) =>

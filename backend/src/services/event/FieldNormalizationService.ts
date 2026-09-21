@@ -176,9 +176,18 @@ export class FieldNormalizationService {
   static prepareUpdateData(body: unknown): Record<string, unknown> {
     const updateData: Record<string, unknown> = { ...(body as object) };
 
-    // Remove control flag so it isn't accidentally persisted
-    delete (updateData as { suppressNotifications?: unknown })
-      .suppressNotifications;
+    // Keep server-owned identity and persistence fields immutable.
+    for (const field of [
+      "suppressNotifications",
+      "_id",
+      "id",
+      "createdBy",
+      "createdAt",
+      "updatedAt",
+      "__v",
+    ]) {
+      delete updateData[field];
+    }
 
     return updateData;
   }

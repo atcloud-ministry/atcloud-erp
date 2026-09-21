@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Message from "../../models/Message";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { buildMessageRoleVisibilityClauses } from "../../utils/messageAuthorization";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UnreadCounts = {
@@ -11,7 +12,10 @@ type UnreadCounts = {
 };
 
 const MessageModel = Message as unknown as {
-  getUnreadCountsForUser: (userId: string) => Promise<UnreadCounts>;
+  getUnreadCountsForUser: (
+    userId: string,
+    userRole: string
+  ) => Promise<UnreadCounts>;
 };
 
 /**
@@ -28,8 +32,9 @@ export default class BellNotificationsBulkReadController {
   ): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userRole = req.user?.role;
 
-      if (!userId) {
+      if (!userId || !userRole) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
@@ -43,6 +48,7 @@ export default class BellNotificationsBulkReadController {
         [`userStates.${userId}`]: { $exists: true }, // Only messages where user exists in userStates
         [`userStates.${userId}.isRemovedFromBell`]: { $ne: true },
         [`userStates.${userId}.isReadInBell`]: { $ne: true },
+        $or: buildMessageRoleVisibilityClauses(userRole),
       });
 
       let markedCount = 0;
@@ -66,7 +72,10 @@ export default class BellNotificationsBulkReadController {
       }
 
       // Get updated unread counts after marking all as read
-      const updatedCounts = await MessageModel.getUnreadCountsForUser(userId);
+      const updatedCounts = await MessageModel.getUnreadCountsForUser(
+        userId,
+        userRole
+      );
 
       // Emit unread count update for real-time bell count updates
       socketService.emitUnreadCountUpdate(userId, updatedCounts);

@@ -1,5 +1,7 @@
 import type { IMessage } from "../models/Message";
-import TargetedSystemMessagesController from "./message/TargetedSystemMessagesController";
+import TargetedSystemMessagesController, {
+  type TargetedSystemMessageDeliveryOptions,
+} from "./message/TargetedSystemMessagesController";
 
 /**
  * Internal notification gateway retained for service callers. HTTP handlers
@@ -13,7 +15,9 @@ export class UnifiedMessageController {
       type?: string;
       priority?: string;
       hideCreator?: boolean;
+      targetRoles?: string[];
       metadata?: Record<string, unknown>;
+      expiresAt?: Date;
     },
     targetUserIds: string[],
     creator?: {
@@ -26,11 +30,13 @@ export class UnifiedMessageController {
       authLevel: string;
       roleInAtCloud?: string;
     },
+    deliveryOptions?: TargetedSystemMessageDeliveryOptions,
   ): Promise<IMessage> {
     return TargetedSystemMessagesController.createTargetedSystemMessage(
       messageData,
       targetUserIds,
       creator,
+      deliveryOptions,
     );
   }
 }

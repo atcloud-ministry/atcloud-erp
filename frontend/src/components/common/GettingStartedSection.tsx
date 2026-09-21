@@ -1,9 +1,12 @@
 import GettingStartedStep from "./GettingStartedStep";
 import { gettingStartedSteps } from "../../config/gettingStartedConfig";
 import { useAuth } from "../../hooks/useAuth";
+import { useRuntimeConfig } from "../../contexts/RuntimeConfigContext";
 
 export default function GettingStartedSection() {
   const { currentUser } = useAuth();
+  const { config: runtimeConfig, status: runtimeConfigStatus } =
+    useRuntimeConfig();
   const isGuest = !currentUser;
   const role = currentUser?.role ?? "Participant";
 
@@ -15,6 +18,12 @@ export default function GettingStartedSection() {
         return "/dashboard/upcoming";
       case "Connect & Collaborate":
         if (isGuest) return "/login";
+        if (
+          runtimeConfigStatus === "ready" &&
+          runtimeConfig.alumniNetwork.readable
+        ) {
+          return "/dashboard/community";
+        }
         if (["Super Admin", "Administrator", "Leader"].includes(role)) {
           return "/dashboard/management"; // Management / Community
         }

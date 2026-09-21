@@ -3,6 +3,18 @@
  * This file centralizes all shared types to ensure consistency across the application
  */
 
+import type {
+  EmploymentStatus,
+  IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
+
+export type {
+  EmploymentStatus,
+  IsoCountryCode,
+  RegistrationProfileFields,
+  StoredRegistrationProfileFields,
+} from "@atcloud/shared-time/registration-profile";
+
 // Re-export Purchase types (Phase 4 - Paid Events Feature)
 export * from "./purchase";
 
@@ -24,6 +36,11 @@ export interface User {
   lastName: string;
   email: string;
   phone?: string;
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: IsoCountryCode;
+  employmentStatus?: EmploymentStatus;
   gender: Gender;
   avatar?: string | null;
 
@@ -34,8 +51,8 @@ export interface User {
 
   // Profile Information
   homeAddress?: string;
-  occupation?: string; // User's profession or occupation
-  company?: string;
+  occupation?: string | null; // User's profession or occupation
+  company?: string | null;
   weeklyChurch?: string; // Which church do you attend weekly?
   churchAddress?: string; // Church's full address
 
@@ -52,6 +69,11 @@ export interface AuthUser {
   lastName: string;
   email: string;
   phone?: string;
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: IsoCountryCode;
+  employmentStatus?: EmploymentStatus;
   role: SystemAuthorizationLevel;
   isAtCloudLeader: AtCloudLeaderStatus;
   roleInAtCloud?: string;
@@ -60,8 +82,8 @@ export interface AuthUser {
   weeklyChurch?: string;
   churchAddress?: string;
   homeAddress?: string;
-  occupation?: string;
-  company?: string;
+  occupation?: string | null;
+  company?: string | null;
 }
 
 // Event Organizer (for event management)
@@ -80,34 +102,6 @@ export interface LoginFormData {
   emailOrUsername: string; // unified credential input
   password: string;
   rememberMe?: boolean;
-}
-
-export interface SignUpFormData {
-  username: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  gender: Gender;
-  phone?: string;
-  isAtCloudLeader: AtCloudLeaderStatus;
-  roleInAtCloud?: string;
-  homeAddress?: string;
-  company?: string;
-}
-
-export interface ProfileFormData {
-  username: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  gender: Gender;
-  phone?: string;
-  isAtCloudLeader: AtCloudLeaderStatus;
-  roleInAtCloud?: string;
-  homeAddress?: string;
-  company?: string;
 }
 
 export interface ChangePasswordFormData {

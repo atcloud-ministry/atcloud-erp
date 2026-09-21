@@ -10,6 +10,15 @@ import { vi, describe, it, beforeEach, expect } from "vitest";
 import EditProgram from "../../pages/EditProgram";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 
+vi.mock("../../contexts/RuntimeConfigContext", () => ({
+  useRuntimeConfig: () => ({
+    status: "ready",
+    config: {
+      alumniNetwork: { mode: "off", readable: false, writable: false },
+    },
+  }),
+}));
+
 // Mock the API services
 vi.mock("../../services/api", () => ({
   programService: {

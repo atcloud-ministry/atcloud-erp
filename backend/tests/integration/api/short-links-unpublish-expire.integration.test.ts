@@ -8,6 +8,7 @@ import app from "../../../src/app";
 import Event from "../../../src/models/Event";
 import ShortLink from "../../../src/models/ShortLink";
 import User from "../../../src/models/User";
+import { __TEST__ as ShortLinkTestHooks } from "../../../src/services/ShortLinkService";
 import {
   createPublishedEvent,
   ensureCreatorUser,
@@ -45,6 +46,7 @@ async function authHeaders() {
 
 describe("Short Link persistence after unpublish", () => {
   beforeEach(async () => {
+    ShortLinkTestHooks.clearCache();
     await ShortLink.deleteMany({});
     await Event.deleteMany({});
     await User.deleteMany({});

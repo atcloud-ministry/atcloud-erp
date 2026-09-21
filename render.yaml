@@ -3,10 +3,11 @@ services:
     name: atcloud-backend
     env: node
     plan: starter
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
-    healthCheckPath: /api/health
+    buildCommand: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=atcloud-signup-system-backend
+    startCommand: npm start --workspace=atcloud-signup-system-backend
+    healthCheckPath: /api/readiness
     autoDeploy: false
+    numInstances: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -18,13 +19,48 @@ services:
         value: 900000
       - key: RATE_LIMIT_MAX_REQUESTS
         value: 100
-      - key: JWT_EXPIRES_IN
-        value: 24h
+      - key: AUTH_RATE_LIMIT_WINDOW_MS
+        value: 900000
+      - key: AUTH_RATE_LIMIT_MAX_REQUESTS
+        value: 20
+      - key: DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: DIRECTORY_SEARCH_RATE_LIMIT_MAX_REQUESTS
+        value: 60
+      - key: ENABLE_RATE_LIMITING
+        value: true
+      - key: AUDIT_LOG_RETENTION_MONTHS
+        value: 12
+      - key: AUDIT_LOG_TTL_FALLBACK_DAYS
+        value: 365
+      - key: WEB_CONCURRENCY
+        value: 1
+      - key: SINGLE_INSTANCE_ENFORCE
+        value: true
+      - key: SCHEDULER_ENABLED
+        value: true
+      - key: MONGO_TRANSACTIONS_REQUIRED
+        value: true
+      - key: NOTIFICATION_OUTBOX_ENABLED
+        value: true
+      - key: ALUMNI_NETWORK_RELEASE_AVAILABLE
+        value: false
+      - key: WEB_PUSH_ENABLED
+        value: false
+      - key: JWT_ACCESS_EXPIRE
+        value: 3h
+      - key: JWT_REFRESH_EXPIRE
+        value: 7d
       # These should be set manually in Render dashboard for security:
       # - MONGODB_URI (production MongoDB connection string)
       # - JWT_ACCESS_SECRET (generate secure random string)
       # - JWT_REFRESH_SECRET (generate secure random string)
       # - SESSION_SECRET (generate secure random string)
+      # - ALUMNI_CONTACT_LOOKUP_KEY_V1 (32 random bytes, unpadded base64url)
+      # - ALUMNI_INVITATION_TOKEN_KEY_V1 (different 32 random bytes, unpadded base64url)
+      # - VAPID_SUBJECT (https: URL or monitored mailto: address)
+      # - VAPID_PUBLIC_KEY (public half of one durable VAPID key pair)
+      # - VAPID_PRIVATE_KEY (Render secret; never expose through a VITE_ variable)
       # - FRONTEND_URL (your frontend deployment URL)
       # - SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM (email config)
 
@@ -32,26 +68,59 @@ services:
     name: atcloud-frontend
     env: static
     plan: starter
-    buildCommand: npm ci --include=dev && npm run build
-    staticPublishPath: ./dist
+    buildCommand: npm ci --include=dev && npm run build --workspace=@atcloud/shared-time && npm run build --workspace=frontend
+    staticPublishPath: ./frontend/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: false
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), geolocation=(), microphone=()
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /404.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /manifest.json
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /offline.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
     envVars:
       - key: VITE_API_URL
         fromService:
           type: web
           name: atcloud-backend
-          property: host
+          envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production
-
-databases:
-  - name: atcloud-mongodb
-    databaseName: atcloud_signup_production
-    user: atcloud_user
-    # Note: You'll need to set up MongoDB Atlas or another hosted MongoDB service
-    # and configure the connection string in the backend service's MONGODB_URI

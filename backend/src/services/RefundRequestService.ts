@@ -14,7 +14,7 @@ import {
   applyPurchaseItemSnapshot,
   calculateRefundEligibility,
   getPurchaseItemDetails,
-  markPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "./PurchaseRefundService";
 
 const ADMIN_ROLES = ["Super Admin", "Administrator"];
@@ -399,8 +399,7 @@ export class RefundRequestService {
       purchase.refundInitiatedAt = new Date();
       purchase.refundFailureReason = undefined;
       purchase.stripeRefundId = refund.id;
-      await markPurchaseUnenrolled(purchase, "refund_requested");
-      await purchase.save();
+      await persistPurchaseUnenrollment(purchase, "refund_requested");
 
       request.status = "approved";
       request.decidedAt = new Date();
@@ -489,8 +488,10 @@ export class RefundRequestService {
           .populate("eventId", "title")
           .populate("membershipId", "title");
         if (purchase) {
-          await markPurchaseUnenrolled(purchase, "self_unenroll_no_refund");
-          await purchase.save();
+          await persistPurchaseUnenrollment(
+            purchase,
+            "self_unenroll_no_refund",
+          );
         }
       }
 

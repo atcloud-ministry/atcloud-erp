@@ -3,12 +3,59 @@ import mongoose from "mongoose";
 import Purchase from "../../models/Purchase";
 import type { IProgram } from "../../models/Program";
 import { createCheckoutSession as stripeCreateCheckoutSession } from "../../services/stripeService";
+import { resolveCanonicalProgramPurchaseRole } from "../../services/programs/ProgramPurchaseRolePreflightService";
+import type { IPurchase } from "../../models/Purchase";
 
 /**
  * PurchaseRetryController
  * Handles retrying failed or pending purchases
  */
 class PurchaseRetryController {
+  private static async reservePendingAttempt(
+    purchase: IPurchase,
+    ownerId: mongoose.Types.ObjectId,
+    fields: Record<string, unknown> = {},
+  ): Promise<number | null> {
+    const versionedPurchase = purchase as IPurchase & { __v?: number };
+    const observedVersion = versionedPurchase.__v ?? 0;
+    const update: Record<string, unknown> = {
+      $unset: {
+        stripeSessionId: 1,
+        stripePaymentIntentId: 1,
+      },
+      $inc: { __v: 1 },
+    };
+    if (Object.keys(fields).length > 0) update.$set = fields;
+
+    const result = await Purchase.updateOne(
+      {
+        _id: purchase._id,
+        userId: ownerId,
+        status: "pending",
+        __v: observedVersion,
+      },
+      update,
+      { runValidators: true },
+    );
+    if (result.matchedCount !== 1) return null;
+
+    Object.assign(purchase, fields, {
+      stripeSessionId: undefined,
+      stripePaymentIntentId: undefined,
+      __v: observedVersion + 1,
+    });
+    return observedVersion + 1;
+  }
+
+  private static async expireUnboundSession(sessionId: string): Promise<void> {
+    try {
+      const { stripe } = await import("../../services/stripeService");
+      await stripe.checkout.sessions.expire(sessionId);
+    } catch (error) {
+      console.error("Failed to expire unbound retry session:", error);
+    }
+  }
+
   /**
    * Retry a pending purchase - creates a new checkout session
    * POST /api/purchases/retry/:id
@@ -111,11 +158,50 @@ class PurchaseRetryController {
         return;
       }
 
-      // Create new Stripe checkout session based on purchase type
+      // Reserve this retry before any external Stripe call. Clearing the old
+      // Stripe identities makes already-read success/failure events lose their
+      // own identity-bound status CAS, while __v admits only one retry caller.
       let session;
+      let reservedVersion: number;
 
       if (pendingPurchase.purchaseType === "program") {
         const program = pendingPurchase.programId as unknown as IProgram;
+        if (!program || typeof program !== "object" || !("_id" in program)) {
+          res.status(409).json({
+            success: false,
+            message:
+              "This purchase's Program role needs staff review before retry.",
+          });
+          return;
+        }
+        const role = resolveCanonicalProgramPurchaseRole(program, {
+          studentRoleId: pendingPurchase.studentRoleId,
+          isClassRep: pendingPurchase.isClassRep === true,
+        });
+        if (role.status !== "resolved") {
+          res.status(409).json({
+            success: false,
+            message:
+              "This purchase's Program role needs staff review before retry.",
+          });
+          return;
+        }
+        const reservation = await PurchaseRetryController.reservePendingAttempt(
+          pendingPurchase,
+          req.user._id as mongoose.Types.ObjectId,
+          {
+            studentRoleId: role.studentRoleId,
+            studentRoleName: role.studentRoleName,
+          },
+        );
+        if (reservation == null) {
+          res.status(409).json({
+            success: false,
+            message: "This purchase changed while retrying. Please refresh and try again.",
+          });
+          return;
+        }
+        reservedVersion = reservation;
 
         session = await stripeCreateCheckoutSession({
           userId: (req.user._id as mongoose.Types.ObjectId).toString(),
@@ -128,6 +214,7 @@ class PurchaseRetryController {
           finalPrice: pendingPurchase.finalPrice,
           isClassRep: pendingPurchase.isClassRep,
           isEarlyBird: pendingPurchase.isEarlyBird,
+          purchaseId: pendingPurchase._id.toString(),
         });
       } else if (pendingPurchase.purchaseType === "event") {
         // Event purchase retry
@@ -141,6 +228,19 @@ class PurchaseRetryController {
           });
           return;
         }
+
+        const reservation = await PurchaseRetryController.reservePendingAttempt(
+          pendingPurchase,
+          req.user._id as mongoose.Types.ObjectId,
+        );
+        if (reservation == null) {
+          res.status(409).json({
+            success: false,
+            message: "This purchase changed while retrying. Please refresh and try again.",
+          });
+          return;
+        }
+        reservedVersion = reservation;
 
         const { stripe } = await import("../../services/stripeService");
 
@@ -177,6 +277,18 @@ class PurchaseRetryController {
           title: string;
           price: number;
         };
+        const reservation = await PurchaseRetryController.reservePendingAttempt(
+          pendingPurchase,
+          req.user._id as mongoose.Types.ObjectId,
+        );
+        if (reservation == null) {
+          res.status(409).json({
+            success: false,
+            message: "This purchase changed while retrying. Please refresh and try again.",
+          });
+          return;
+        }
+        reservedVersion = reservation;
         const { createMembershipCheckoutSession } = await import(
           "../../services/stripeService"
         );
@@ -191,9 +303,47 @@ class PurchaseRetryController {
         });
       }
 
-      // Update the pending purchase with new session ID
+      // Bind the returned session only to the reservation that created it.
+      // A signed completion webhook may win in this short window; that is an
+      // idempotent success when it stored this exact session ID.
+      let bindResult;
+      try {
+        bindResult = await Purchase.updateOne(
+          {
+            _id: pendingPurchase._id,
+            userId: req.user._id,
+            status: "pending",
+            __v: reservedVersion,
+          },
+          {
+            $set: { stripeSessionId: session.id },
+            $inc: { __v: 1 },
+          },
+          { runValidators: true },
+        );
+      } catch (error) {
+        await PurchaseRetryController.expireUnboundSession(session.id);
+        throw error;
+      }
+
+      if (bindResult.matchedCount !== 1) {
+        const current = await Purchase.findById(pendingPurchase._id);
+        const completedByThisSession =
+          current?.status === "completed" &&
+          current.stripeSessionId === session.id;
+        if (!completedByThisSession) {
+          await PurchaseRetryController.expireUnboundSession(session.id);
+          res.status(409).json({
+            success: false,
+            message: "This purchase changed while the payment session was being created. Please refresh and try again.",
+          });
+          return;
+        }
+      }
+
       pendingPurchase.stripeSessionId = session.id;
-      await pendingPurchase.save();
+      (pendingPurchase as IPurchase & { __v?: number }).__v =
+        reservedVersion + 1;
 
       console.log(
         `Created new checkout session for pending purchase ${pendingPurchase.orderNumber}`
@@ -211,7 +361,6 @@ class PurchaseRetryController {
       res.status(500).json({
         success: false,
         message: "Failed to retry purchase.",
-        error: (error as Error).message,
       });
     }
   }

@@ -10,8 +10,10 @@ describe("Programs Creation API Integration Tests", () => {
   describe("POST /api/programs", () => {
     let adminUser: any;
     let nonAdminUser: any;
+    let leaderUser: any;
     let adminToken: string;
     let nonAdminToken: string;
+    let leaderToken: string;
 
     beforeAll(async () => {
       await ensureIntegrationDB();
@@ -48,6 +50,21 @@ describe("Programs Creation API Integration Tests", () => {
         userId: nonAdminUser._id.toString(),
         email: nonAdminUser.email,
         role: nonAdminUser.role,
+      });
+
+      leaderUser = await User.create({
+        username: "leader_programs",
+        email: "leader-programs@test.com",
+        phone: "1234567891",
+        role: "Leader",
+        password: "LeaderPass123!",
+        isVerified: true,
+        isActive: true,
+      } as any);
+      leaderToken = TokenService.generateAccessToken({
+        userId: leaderUser._id.toString(),
+        email: leaderUser.email,
+        role: leaderUser.role,
       });
     });
 
@@ -109,6 +126,71 @@ describe("Programs Creation API Integration Tests", () => {
         expect(response.body.success).toBe(true);
         expect(response.body.data).toBeDefined();
         expect(response.body.data.title).toBe("Admin Test Program");
+      });
+
+      it("should initialize ownership, enrollment lists, links, and role counts on the server", async () => {
+        const injectedUserId = new mongoose.Types.ObjectId();
+        const injectedEventId = new mongoose.Types.ObjectId();
+        const response = await request(app)
+          .post("/api/programs")
+          .set("Authorization", `Bearer ${leaderToken}`)
+          .send({
+            title: "Leader Program",
+            programType: "Webinar",
+            fullPriceTicket: 0,
+            isFree: true,
+            createdBy: injectedUserId,
+            adminEnrollments: { classReps: [injectedUserId] },
+            events: [injectedEventId],
+            classRepCount: 99,
+            programRoles: {
+              teacherRoleName: "Coach",
+              studentRoles: [
+                {
+                  id: "DISCOUNT ROLE",
+                  name: "Discount Role",
+                  discountEligible: true,
+                  discountAmount: 0,
+                  limit: 5,
+                  count: 99,
+                },
+              ],
+            },
+          })
+          .expect(201);
+
+        const stored = await Program.findById(response.body.data.id);
+        expect(String(stored?.createdBy)).toBe(String(leaderUser._id));
+        expect(stored?.adminEnrollments).toBeUndefined();
+        expect(stored?.events).toHaveLength(0);
+        expect(stored?.classRepCount).toBe(0);
+        expect(stored?.programRoles?.studentRoles).toEqual([
+          expect.objectContaining({ id: "discount-role", count: 0 }),
+        ]);
+      });
+
+      it.each([
+        null,
+        {
+          teacherRoleName: "Coach",
+          studentRoles: { id: "replacement", count: 99 },
+        },
+      ])("should reject a non-canonical programRoles payload", async (programRoles) => {
+        await request(app)
+          .post("/api/programs")
+          .set("Authorization", `Bearer ${leaderToken}`)
+          .send({
+            title: "Invalid Role Program",
+            programType: "Webinar",
+            fullPriceTicket: 0,
+            isFree: true,
+            programRoles,
+          })
+          .expect(400);
+
+        expect(
+          await Program.countDocuments({ title: "Invalid Role Program" }),
+        ).toBe(0);
       });
     });
 

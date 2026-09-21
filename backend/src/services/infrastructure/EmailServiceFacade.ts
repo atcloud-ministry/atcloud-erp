@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import type { SendMailOptions } from "nodemailer";
 import dotenv from "dotenv";
 import { createLogger } from "../../services/LoggerService";
 import { buildRegistrationICS } from "../ICSBuilder";
@@ -470,7 +470,7 @@ export class EmailService {
       subject: string;
       contentHtml: string;
       contentText?: string;
-      attachments?: nodemailer.SendMailOptions["attachments"];
+      attachments?: SendMailOptions["attachments"];
     },
   ): Promise<boolean> {
     return UtilityEmailService.sendGenericNotificationEmail(

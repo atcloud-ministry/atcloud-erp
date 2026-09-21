@@ -6,7 +6,7 @@ import { PurchaseEmailService } from "../../services/email/domains/PurchaseEmail
 import {
   calculateRefundEligibility,
   getPurchaseItemDetails,
-  markProgramPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "../../services/PurchaseRefundService";
 import { RefundRequestService } from "../../services/RefundRequestService";
 
@@ -184,8 +184,7 @@ class PurchaseRefundController {
       purchase.status = "refund_processing";
       purchase.refundInitiatedAt = new Date();
       purchase.refundFailureReason = undefined;
-      await markProgramPurchaseUnenrolled(purchase, "refund_requested");
-      await purchase.save();
+      await persistPurchaseUnenrollment(purchase, "refund_requested");
 
       // Send refund initiated email to user
       try {

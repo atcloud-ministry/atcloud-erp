@@ -119,7 +119,6 @@ class GuestManageLinkController {
                     name: asString(o["name"]) || "Organizer",
                     role: asString(o["role"]) || "Organizer",
                     email: asString(o["email"]) || "",
-                    phone: asString(o["phone"]) || undefined,
                   }))
                   .filter((o) => !!o.email)
               : undefined,
@@ -129,7 +128,6 @@ class GuestManageLinkController {
                   lastName?: string;
                   username?: string;
                   email?: string;
-                  phone?: string;
                   avatar?: string;
                   gender?: string;
                 }
@@ -145,7 +143,6 @@ class GuestManageLinkController {
                     lastName: asString(cb["lastName"]),
                     username: asString(cb["username"]),
                     email: asString(cb["email"]),
-                    phone: asString(cb["phone"]),
                     avatar: asString(cb["avatar"]),
                     gender: asString(cb["gender"]),
                   }

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -18,6 +19,7 @@ async function bootstrapAdminAndEvent() {
   ]);
 
   const adminData = {
+    ...TEST_REGISTRATION_PROFILE,
     username: "admin",
     email: "admin@example.com",
     password: "AdminPass123!",
@@ -28,6 +30,7 @@ async function bootstrapAdminAndEvent() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   } as const;
 
   await request(app).post("/api/auth/register").send(adminData);

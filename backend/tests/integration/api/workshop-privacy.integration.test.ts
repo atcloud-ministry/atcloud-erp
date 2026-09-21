@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -18,6 +19,7 @@ describe("Workshop contact visibility - simplified public access", () => {
 
     // Admin
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "Pass123!@#",
@@ -28,6 +30,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     await User.findOneAndUpdate(
       { email: "admin@example.com" },
@@ -41,6 +44,7 @@ describe("Workshop contact visibility - simplified public access", () => {
 
     // Group A Leader
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "leadA",
       email: "leada@example.com",
       password: "Pass123!@#",
@@ -51,7 +55,8 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "111-1111",
+      registrationNoticeVersion: "registration-privacy-v1",
+      phone: "+12065550111",
     });
     await User.findOneAndUpdate(
       { email: "leada@example.com" },
@@ -65,6 +70,7 @@ describe("Workshop contact visibility - simplified public access", () => {
 
     // Group B Leader
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "leadB",
       email: "leadb@example.com",
       password: "Pass123!@#",
@@ -75,7 +81,8 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "222-2222",
+      registrationNoticeVersion: "registration-privacy-v1",
+      phone: "+12065550222",
     });
     await User.findOneAndUpdate(
       { email: "leadb@example.com" },
@@ -89,6 +96,7 @@ describe("Workshop contact visibility - simplified public access", () => {
 
     // Group A Participant
     await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "partA",
       email: "parta@example.com",
       password: "Pass123!@#",
@@ -99,7 +107,8 @@ describe("Workshop contact visibility - simplified public access", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
-      phone: "333-3333",
+      registrationNoticeVersion: "registration-privacy-v1",
+      phone: "+12065550333",
     });
     await User.findOneAndUpdate(
       { email: "parta@example.com" },
@@ -196,8 +205,8 @@ describe("Workshop contact visibility - simplified public access", () => {
     await Event.deleteMany({});
   });
 
-  it("shows email/phone to all registered users (simplified from old group-based logic)", async () => {
-    // Viewer: Group A Participant -> should now see ALL contacts (not just same group)
+  it("keeps registered-user email visibility while limiting exact phones to self", async () => {
+    // Viewer: Group A Participant retains existing email visibility.
     const resAView = await request(app)
       .get(`/api/events/${eventId}`)
       .set("Authorization", `Bearer ${participantAToken}`)
@@ -212,13 +221,13 @@ describe("Workshop contact visibility - simplified public access", () => {
     const gaLeaderUser = gaLeaderRole.registrations[0].user;
     const gbLeaderUser = gbLeaderRole.registrations[0].user;
 
-    // Now both contacts should be visible (simplified visibility)
+    // Exact phone values belong only to their account owners or user managers.
     expect(gaLeaderUser.email).toBe("leada@example.com");
-    expect(gaLeaderUser.phone).toBe("111-1111");
-    expect(gbLeaderUser.email).toBe("leadb@example.com"); // now visible
-    expect(gbLeaderUser.phone).toBe("222-2222"); // now visible
+    expect(gaLeaderUser.phone).toBeUndefined();
+    expect(gbLeaderUser.email).toBe("leadb@example.com");
+    expect(gbLeaderUser.phone).toBeUndefined();
 
-    // Viewer: Group B Leader -> should also see ALL contacts
+    // Viewer: Group B Leader sees their own phone, not another user's.
     const resBView = await request(app)
       .get(`/api/events/${eventId}`)
       .set("Authorization", `Bearer ${leaderBToken}`)
@@ -231,11 +240,10 @@ describe("Workshop contact visibility - simplified public access", () => {
       (r: any) => r.name === "Group B Leader"
     ).registrations[0].user;
 
-    // Both contacts now visible to Group B Leader too
     expect(gbLeaderUser2.email).toBe("leadb@example.com");
-    expect(gbLeaderUser2.phone).toBe("222-2222");
-    expect(gaLeaderUser2.email).toBe("leada@example.com"); // now visible
-    expect(gaLeaderUser2.phone).toBe("111-1111"); // now visible
+    expect(gbLeaderUser2.phone).toBe("+12065550222");
+    expect(gaLeaderUser2.email).toBe("leada@example.com");
+    expect(gaLeaderUser2.phone).toBeUndefined();
   });
 
   it("always shows viewer's own email/phone on their card", async () => {
@@ -248,10 +256,28 @@ describe("Workshop contact visibility - simplified public access", () => {
       (r: any) => r.name === "Group A Leader"
     ).registrations[0].user;
     expect(selfUser.email).toBe("leada@example.com");
-    expect(selfUser.phone).toBe("111-1111");
+    expect(selfUser.phone).toBe("+12065550111");
   });
 
-  it("user registered in multiple groups can see all contact info (multi-group registration still works)", async () => {
+  it("shows exact participant phones to a MANAGE_USERS viewer", async () => {
+    const response = await request(app)
+      .get(`/api/events/${eventId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .expect(200);
+    const phones = response.body.data.event.roles
+      .flatMap((role: any) => role.registrations)
+      .map((registration: any) => registration.user.phone)
+      .filter(Boolean);
+    expect(phones).toEqual(
+      expect.arrayContaining([
+        "+12065550111",
+        "+12065550222",
+        "+12065550333",
+      ]),
+    );
+  });
+
+  it("multi-group registration does not broaden exact-phone visibility", async () => {
     // Register Group A Leader in Group B Participants as well (multiple groups)
     await request(app)
       .post(`/api/events/${eventId}/signup`)
@@ -259,7 +285,7 @@ describe("Workshop contact visibility - simplified public access", () => {
       .send({ roleId: roleIds.gbP })
       .expect(200);
 
-    // Viewer: Group A Leader (also in Group B) -> should see all contacts (simplified visibility)
+    // Viewer: Group A Leader (also in Group B) retains broad email visibility.
     const resMultiGroup = await request(app)
       .get(`/api/events/${eventId}`)
       .set("Authorization", `Bearer ${leaderAToken}`)
@@ -273,7 +299,7 @@ describe("Workshop contact visibility - simplified public access", () => {
     );
     const gaLeaderUser = gaLeaderRole.registrations[0].user;
     expect(gaLeaderUser.email).toBe("leada@example.com");
-    expect(gaLeaderUser.phone).toBe("111-1111");
+    expect(gaLeaderUser.phone).toBe("+12065550111");
 
     // Should see Group A Participant contact
     const gaParticipantRole = eventMultiGroupView.roles.find(
@@ -281,14 +307,14 @@ describe("Workshop contact visibility - simplified public access", () => {
     );
     const gaParticipantUser = gaParticipantRole.registrations[0].user;
     expect(gaParticipantUser.email).toBe("parta@example.com");
-    expect(gaParticipantUser.phone).toBe("333-3333");
+    expect(gaParticipantUser.phone).toBeUndefined();
 
-    // Should also see Group B Leader contact (now always visible with simplified logic)
+    // Group membership does not grant another account's exact phone.
     const gbLeaderRole = eventMultiGroupView.roles.find(
       (r: any) => r.name === "Group B Leader"
     );
     const gbLeaderUser = gbLeaderRole.registrations[0].user;
     expect(gbLeaderUser.email).toBe("leadb@example.com");
-    expect(gbLeaderUser.phone).toBe("222-2222");
+    expect(gbLeaderUser.phone).toBeUndefined();
   });
 });

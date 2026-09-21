@@ -4,6 +4,10 @@
  */
 
 import mongoose from "mongoose";
+import type {
+  EmploymentStatus,
+  IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
 
 // Lightweight helpers to avoid `any` while preserving runtime behavior
 export type LoggerLike = {
@@ -16,6 +20,11 @@ export type UserDocLike = {
   username?: string;
   email: string;
   phone?: string;
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: IsoCountryCode;
+  employmentStatus?: EmploymentStatus;
   firstName?: string;
   lastName?: string;
   gender?: string;
@@ -23,8 +32,8 @@ export type UserDocLike = {
   isAtCloudLeader?: boolean;
   isVerified?: boolean;
   roleInAtCloud?: string;
-  occupation?: string;
-  company?: string;
+  occupation?: string | null;
+  company?: string | null;
   weeklyChurch?: string;
   homeAddress?: string;
   churchAddress?: string;
@@ -37,6 +46,7 @@ export type UserDocLike = {
   password?: string;
   passwordResetToken?: string;
   passwordResetExpires?: Date | string;
+  passwordChangedAt?: Date;
   generateEmailVerificationToken: () => string;
   isAccountLocked?: () => boolean;
   comparePassword?: (pwd: string) => Promise<boolean>;
@@ -53,20 +63,25 @@ export { toIdString } from "../../utils/idUtils";
 export interface RegisterRequest {
   username: string;
   email: string;
-  phone?: string;
+  phone: string;
+  birthYear: number | string;
+  residenceCity: string;
+  residenceRegion: string | null;
+  residenceCountryCode: string;
+  employmentStatus: EmploymentStatus;
   password: string;
   confirmPassword: string;
   firstName?: string;
   lastName?: string;
   gender?: "male" | "female";
-  homeAddress?: string;
   isAtCloudLeader: boolean;
   roleInAtCloud?: string;
-  occupation?: string;
-  company?: string;
+  occupation?: string | null;
+  company?: string | null;
   weeklyChurch?: string;
   churchAddress?: string;
   acceptTerms: boolean;
+  registrationNoticeVersion: string;
 }
 
 // Interface for login request

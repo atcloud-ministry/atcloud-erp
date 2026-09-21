@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, beforeEach, expect, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -26,6 +27,7 @@ async function registerAndLogin(opts: {
 }) {
   const password = "TestPass123!";
   const regRes = await request(app).post("/api/auth/register").send({
+    ...TEST_REGISTRATION_PROFILE,
     username: opts.username,
     email: opts.email,
     password,
@@ -35,6 +37,7 @@ async function registerAndLogin(opts: {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   });
   if (regRes.status !== 201) {
     throw new Error(`Registration failed for ${opts.email}: ${regRes.status}`);
@@ -224,10 +227,12 @@ describe("Event creation notification suppression", () => {
     await registerAndLogin({
       username: "coorg_1",
       email: "coorg1@example.com",
+      role: "Leader",
     });
     await registerAndLogin({
       username: "coorg_2",
       email: "coorg2@example.com",
+      role: "Leader",
     });
 
     const co1 = await User.findOne({ email: "coorg1@example.com" }).lean();

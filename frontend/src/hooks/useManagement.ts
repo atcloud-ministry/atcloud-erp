@@ -65,7 +65,7 @@ export function useManagement(providedUsers?: User[]) {
     currentUser?.role || "Participant";
 
   // Use existing hooks for user data management
-  const userData = useUserData();
+  const userData = useUserData({ enabled: providedUsers === undefined });
   const {
     users: internalUsers,
     promoteUser,
@@ -85,7 +85,7 @@ export function useManagement(providedUsers?: User[]) {
 
   // 2) Backend-wide stats for the whole collection (all authenticated users can fetch)
   const { stats: backendStats, loading: backendStatsLoading } =
-    useCommunityStats();
+    useCommunityStats(providedUsers === undefined);
 
   // Map backend stats shape to RoleStats for UI cards; fallback to page stats while loading
   const roleStats = useMemo(() => {

@@ -17,225 +17,16 @@ export type EventUpdateType =
   | "guest_moved"
   | "role_rejected"; // user declined an assigned role (new realtime event)
 
-// Narrow payloads for realtime events
-export interface MinimalEventSnapshot {
-  id?: string;
-  _id?: string;
-  title?: string;
-  type?: string;
-  date?: string;
-  endDate?: string;
-  time?: string;
-  endTime?: string;
-  timeZone?: string;
-  roles?: unknown[];
-  status?: string;
-  attendees?: unknown[];
+/**
+ * Event socket messages are invalidation notifications only. Event details
+ * must be fetched through the viewer-authorized HTTP endpoint.
+ */
+export interface EventUpdate {
+  eventId: string;
+  updateType: EventUpdateType;
+  data: null;
+  timestamp: string;
 }
-
-// Guest-related payloads
-export interface GuestBasicPayload {
-  roleId: string;
-  guestName: string;
-}
-
-export type GuestRegistrationPayload = GuestBasicPayload;
-export type GuestCancellationPayload = GuestBasicPayload;
-export type GuestUpdatedPayload = GuestBasicPayload & {
-  email?: string;
-  phone?: string;
-};
-
-export interface GuestMovedPayload {
-  fromRoleId: string;
-  toRoleId: string;
-  fromRoleName?: string;
-  toRoleName?: string;
-  // Optional event snapshot for richer toasts; minimal shape by design
-  event?: MinimalEventSnapshot;
-}
-
-// User-related payloads
-export interface UserSignedUpPayload {
-  userId: string;
-  roleId: string;
-  roleName: string;
-  user?: {
-    userId: string;
-    username?: string;
-    firstName?: string;
-    lastName?: string;
-  };
-  event?: MinimalEventSnapshot;
-}
-
-export interface UserCancelledPayload {
-  userId: string;
-  roleId: string;
-  roleName: string;
-  event?: MinimalEventSnapshot;
-}
-
-export interface UserRemovedPayload {
-  userId: string;
-  roleId: string;
-  roleName: string;
-  event?: MinimalEventSnapshot;
-}
-
-export interface UserMovedPayload {
-  userId: string;
-  fromRoleId: string;
-  toRoleId: string;
-  fromRoleName?: string;
-  toRoleName?: string;
-  event?: MinimalEventSnapshot;
-}
-
-export interface UserAssignedPayload {
-  operatorId: string; // actor who assigned
-  userId: string; // target user
-  roleId: string;
-  roleName: string;
-  event?: MinimalEventSnapshot;
-}
-
-export interface WorkshopTopicUpdatedPayload {
-  group: string; // "A" | "B" | ...
-  topic: string;
-  userId?: string; // actor id
-}
-
-export interface AttendanceUpdatedPayload {
-  registrationId: string;
-  userId: string;
-  roleId: string;
-  attended: boolean;
-  event?: MinimalEventSnapshot;
-}
-
-// Role capacity state payloads (minimal contract for UI hints)
-export interface RoleFullPayload {
-  roleId: string;
-  roleName?: string;
-}
-
-export interface RoleAvailablePayload {
-  roleId: string;
-  roleName?: string;
-}
-
-// Discriminated union by updateType; keeps other updates permissive
-export type EventUpdate =
-  // Guest updates
-  | {
-      eventId: string;
-      updateType: "guest_registration";
-      data: GuestRegistrationPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "guest_cancellation";
-      data: GuestCancellationPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "guest_declined";
-      data: GuestCancellationPayload; // same payload shape: roleId, guestName
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "guest_updated";
-      data: GuestUpdatedPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "guest_moved";
-      data: GuestMovedPayload;
-      timestamp: string;
-    }
-  // User updates
-  | {
-      eventId: string;
-      updateType: "user_signed_up";
-      data: UserSignedUpPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "user_cancelled";
-      data: UserCancelledPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "user_removed";
-      data: UserRemovedPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "user_moved";
-      data: UserMovedPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "user_assigned";
-      data: UserAssignedPayload;
-      timestamp: string;
-    }
-  // Workshop topic update
-  | {
-      eventId: string;
-      updateType: "workshop_topic_updated";
-      data: WorkshopTopicUpdatedPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "attendance_updated";
-      data: AttendanceUpdatedPayload;
-      timestamp: string;
-    }
-  // Role capacity updates
-  | {
-      eventId: string;
-      updateType: "role_full";
-      data: RoleFullPayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: "role_available";
-      data: RoleAvailablePayload;
-      timestamp: string;
-    }
-  | {
-      eventId: string;
-      updateType: Exclude<
-        EventUpdateType,
-        | "guest_registration"
-        | "guest_cancellation"
-        | "guest_updated"
-        | "guest_moved"
-        | "user_signed_up"
-        | "user_cancelled"
-        | "user_removed"
-        | "user_moved"
-        | "user_assigned"
-        | "workshop_topic_updated"
-        | "attendance_updated"
-        | "role_full"
-        | "role_available"
-      >;
-      data: unknown;
-      timestamp: string;
-    };
 
 export type EventRoomUpdate = EventUpdate;
 
@@ -260,22 +51,122 @@ export interface UnreadCountUpdate {
   timestamp: string;
 }
 
+export interface AlumniHelpUpdate {
+  requestId: string;
+  requestRevision: number;
+  helpActionRequiredCount: number;
+  helpNotificationCount?: number;
+  /**
+   * Present only on the delivery that establishes a private Alumni Help room.
+   * It contains no participant or message data, and is scoped to the two
+   * already-authorized participants by the server.
+   */
+  roomCreated?: {
+    conversationId: string;
+  };
+  timestamp: string;
+}
+
+export interface ChatParticipantDTO {
+  id: string;
+  displayName: string;
+  avatar: string | null;
+}
+
+export interface ChatSafeLinkDTO {
+  url: string;
+  label: string;
+}
+
+export interface RealtimeChatMessageDTO {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  kind: "text" | "announcement";
+  sender: ChatParticipantDTO;
+  content: string | null;
+  safeLink: ChatSafeLinkDTO | null;
+  clientMessageId: string;
+  createdAt: string;
+}
+
+export interface ChatMessageUpdate {
+  message: RealtimeChatMessageDTO;
+  timestamp: string;
+}
+
+export interface ChatUnreadUpdate {
+  conversationId: string;
+  roomUnreadCount: number;
+  chatUnreadTotal: number;
+  lastReadSequence: number;
+  timestamp: string;
+}
+
 export interface ConnectedPayload {
   message: string;
   userId: string;
 }
 
+export interface AuthExpiredPayload {
+  expiredAt: string;
+}
+
+export interface ConnectionLimitPayload {
+  limit: number;
+  disconnectedAt: string;
+}
+
+export type SocketRoomErrorCode =
+  | "INVALID_EVENT_ID"
+  | "ACCOUNT_UNAVAILABLE"
+  | "EVENT_NOT_FOUND"
+  | "AUTHORIZATION_FAILED"
+  | "RATE_LIMITED"
+  | "REQUEST_IN_PROGRESS";
+
+export type SocketRoomAck =
+  | { ok: true; eventId: string }
+  | { ok: false; code: SocketRoomErrorCode };
+
+export type ConversationRoomErrorCode =
+  | "INVALID_CONVERSATION_ID"
+  | "ACCOUNT_UNAVAILABLE"
+  | "CONVERSATION_NOT_FOUND"
+  | "AUTHORIZATION_FAILED"
+  | "RATE_LIMITED"
+  | "REQUEST_IN_PROGRESS";
+
+export type ConversationRoomAck =
+  | { ok: true; conversationId: string }
+  | { ok: false; code: ConversationRoomErrorCode };
+
 export type ServerToClientEvents = {
   connected: (payload: ConnectedPayload) => void;
+  auth_expired: (payload: AuthExpiredPayload) => void;
+  connection_limit: (payload: ConnectionLimitPayload) => void;
   event_update: (payload: EventUpdate) => void;
   event_room_update: (payload: EventRoomUpdate) => void;
   system_message_update: (payload: SystemMessageUpdate) => void;
   bell_notification_update: (payload: BellNotificationUpdate) => void;
   unread_count_update: (payload: UnreadCountUpdate) => void;
+  alumni_help_update: (payload: AlumniHelpUpdate) => void;
+  chat_message: (payload: ChatMessageUpdate) => void;
+  chat_unread_update: (payload: ChatUnreadUpdate) => void;
 };
 
 export type ClientToServerEvents = {
-  join_event_room: (eventId: string) => void;
-  leave_event_room: (eventId: string) => void;
-  update_status: (status: "online" | "away" | "busy") => void;
+  join_event_room: (eventId: string, ack: (result: SocketRoomAck) => void) => void;
+  leave_event_room: (
+    eventId: string,
+    ack?: (result: SocketRoomAck) => void,
+  ) => void;
+  join_conversation_room: (
+    conversationId: string,
+    ack: (result: ConversationRoomAck) => void,
+  ) => void;
+  leave_conversation_room: (
+    conversationId: string,
+    ack?: (result: ConversationRoomAck) => void,
+  ) => void;
 };

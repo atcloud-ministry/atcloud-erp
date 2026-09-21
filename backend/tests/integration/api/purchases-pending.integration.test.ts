@@ -27,15 +27,42 @@ import Program from "../../../src/models/Program";
 import { Purchase } from "../../../src/models";
 import { ensureIntegrationDB } from "../setup/connect";
 
-// Mock Stripe service for checkout session creation
+const stripeCheckoutMocks = vi.hoisted(() => {
+  let nextSessionNumber = 0;
+
+  return {
+    create: vi.fn(async () => {
+      nextSessionNumber += 1;
+      const id = `cs_test_pending_purchase_${nextSessionNumber}`;
+      return {
+        id,
+        url: `https://checkout.stripe.com/c/pay/${id}`,
+        status: "open",
+      };
+    }),
+    retrieve: vi.fn(async () => ({ status: "open" })),
+    expire: vi.fn(async () => ({ status: "expired" })),
+  };
+});
+
+// Purchase retry imports `createCheckoutSession` under a local alias, so mock
+// the exported symbol as well as direct checkout session calls.
 vi.mock("../../../src/services/stripeService", async () => {
-  const actual = await vi.importActual("../../../src/services/stripeService");
+  const actual = await vi.importActual<
+    typeof import("../../../src/services/stripeService")
+  >("../../../src/services/stripeService");
   return {
     ...actual,
-    stripeCreateCheckoutSession: vi.fn().mockResolvedValue({
-      id: "cs_test_new_session",
-      url: "https://checkout.stripe.com/c/pay/cs_test_new_session",
-    }),
+    createCheckoutSession: stripeCheckoutMocks.create,
+    stripe: {
+      checkout: {
+        sessions: {
+          create: stripeCheckoutMocks.create,
+          retrieve: stripeCheckoutMocks.retrieve,
+          expire: stripeCheckoutMocks.expire,
+        },
+      },
+    },
   };
 });
 

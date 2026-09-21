@@ -20,6 +20,7 @@ import {
   getStudentRoleByRequest,
   normalizeProgramRoles,
 } from "../../utils/programRoles";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 /**
  * Controller for handling purchase checkout operations
@@ -45,6 +46,7 @@ class PurchaseCheckoutController {
 
       // Extract user info early (needed for promo validation)
       const userId = req.user._id;
+      const userRole = req.user.role;
       const userEmail = req.user.email;
       const userName =
         `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim() ||
@@ -458,6 +460,18 @@ class PurchaseCheckoutController {
               },
               purchaseDate: new Date(),
             });
+            programMembershipMutationSyncTrigger.programPurchaseChanged(
+              { purchaseType: "program", programId: program._id },
+              {
+                actor: {
+                  type: "user",
+                  id: String(userId),
+                  role: userRole,
+                },
+                source: "http",
+                correlationId: req.correlationId,
+              },
+            );
 
             // Mark promo code as used
             if (validatedPromoCode) {

@@ -6,7 +6,9 @@ import type {
 } from "react-hook-form";
 import { COMMON_TIMEZONES } from "../../data/timeZones";
 import { EVENT_TYPES } from "../../config/eventConstants";
-import OrganizerSelection from "../events/OrganizerSelection";
+import OrganizerSelection, {
+  type Organizer,
+} from "../events/OrganizerSelection";
 import ProgramSelection from "../events/ProgramSelection";
 import ValidationIndicator from "../events/ValidationIndicator";
 import type { EventFormData } from "../../schemas/eventSchema";
@@ -18,19 +20,6 @@ import {
 } from "../../utils/eventStatsUtils";
 import { fileService } from "../../services/api";
 import { useToastReplacement } from "../../contexts/NotificationModalContext";
-
-// Re-define Organizer locally to match OrganizerSelection component (not exported)
-interface Organizer {
-  id: string;
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string;
-  phone?: string;
-}
 
 interface User {
   id: string;
@@ -134,7 +123,6 @@ export default function BasicEventFields({
   onWeekdayChange,
 }: BasicEventFieldsProps) {
   const notification = useToastReplacement();
-  void id;
 
   return (
     <>
@@ -568,18 +556,12 @@ export default function BasicEventFields({
                 : undefined) ||
               currentUser.avatar ||
               null,
-            email:
-              (eventData && typeof eventData.createdBy === "object"
-                ? eventData.createdBy?.email
-                : undefined) || currentUser.email,
-            phone:
-              (eventData && typeof eventData.createdBy === "object"
-                ? eventData.createdBy?.phone
-                : undefined) || currentUser.phone,
           }}
           currentUserId={currentUser.id}
           selectedOrganizers={selectedOrganizers}
           onOrganizersChange={onOrganizersChange}
+          context="event-organizer"
+          resourceId={id}
         />
       )}
 

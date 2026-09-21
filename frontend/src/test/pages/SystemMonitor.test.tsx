@@ -4,6 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { BrowserRouter } from "react-router-dom";
 import SystemMonitor from "../../pages/SystemMonitor";
 
+vi.mock("../../components/system/AlumniNetworkModeControl", () => ({
+  default: () => null,
+}));
+
 // Mock data
 const mockHealthData = {
   success: true,

@@ -4,8 +4,8 @@
  * Issue: Adding a mentor could submit mentors with a missing userId, causing
  * the backend to reject the update with "mentors.0.userId: Path `userId` is required."
  *
- * Fix: Normalize mentor IDs from id, _id, or userId before building the API payload,
- * and filter out rows that still do not have a usable ID.
+ * Fix: Build the mentor payload from the purpose-scoped picker ID and send only
+ * the canonical userId to the backend.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -13,6 +13,15 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import EditProgram from "../../pages/EditProgram";
+
+vi.mock("../../contexts/RuntimeConfigContext", () => ({
+  useRuntimeConfig: () => ({
+    status: "ready",
+    config: {
+      alumniNetwork: { mode: "off", readable: false, writable: false },
+    },
+  }),
+}));
 
 const mockedProgramService = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -23,17 +32,14 @@ const mockedPurchaseService = vi.hoisted(() => ({
   checkProgramAccess: vi.fn(),
 }));
 
-const mockedUserService = vi.hoisted(() => ({
-  getUsers: vi.fn(),
+const mockedUserOptionsService = vi.hoisted(() => ({
+  list: vi.fn(),
 }));
 
 vi.mock("../../services/api", () => ({
   programService: mockedProgramService,
   purchaseService: mockedPurchaseService,
-  userService: mockedUserService,
-  searchService: {
-    searchUsers: vi.fn(),
-  },
+  userOptionsService: mockedUserOptionsService,
   fileService: {
     uploadGenericImage: vi.fn(),
   },
@@ -135,33 +141,30 @@ describe("Bug Fix: Edit Program mentor userId payload", () => {
       reason: "admin",
     });
 
-    mockedUserService.getUsers.mockResolvedValue({
-      users: [
+    mockedUserOptionsService.list.mockResolvedValue({
+      options: [
         {
-          _id: "mentor-object-id",
+          id: "mentor-object-id",
           username: "mentor",
-          email: "mentor@example.com",
           firstName: "Mentor",
           lastName: "OnlyId",
           role: "Leader",
           roleInAtCloud: "Mentor",
           gender: "female",
           avatar: null,
-          phone: "555-0200",
-          isActive: true,
         },
       ],
       pagination: {
         currentPage: 1,
         totalPages: 1,
-        totalUsers: 1,
+        totalOptions: 1,
         hasNext: false,
         hasPrev: false,
       },
     });
   });
 
-  it("normalizes an added mentor from _id into mentors[].userId", async () => {
+  it("maps an added picker option id into mentors[].userId", async () => {
     renderEditProgram();
 
     await waitFor(() => {
@@ -186,12 +189,11 @@ describe("Bug Fix: Edit Program mentor userId payload", () => {
     const [, payload] = mockedProgramService.updateProgram.mock.calls[0];
 
     expect(payload.mentors).toHaveLength(1);
-    expect(payload.mentors[0]).toEqual(
+    expect(payload.mentors[0]).toEqual({ userId: "mentor-object-id" });
+    expect(mockedUserOptionsService.list).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: "mentor-object-id",
-        firstName: "Mentor",
-        lastName: "OnlyId",
-        email: "mentor@example.com",
+        context: "program-mentor",
+        resourceId: "program1",
       }),
     );
   });

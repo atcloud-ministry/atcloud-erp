@@ -334,6 +334,40 @@ describe("SystemMessagesRetrievalController", () => {
           }),
         );
       });
+
+      it.each([null, [null, "Administrator"]])(
+        "should fail closed for malformed targetRoles %j",
+        async (targetRoles) => {
+          vi.mocked(Message.find).mockReturnValue({
+            sort: vi.fn().mockResolvedValue([
+              {
+                _id: "msg-malformed",
+                title: "Malformed roles",
+                content: "Content",
+                type: "announcement",
+                priority: "high",
+                creator: {},
+                userStates: new Map([
+                  ["user123", { isReadInSystem: false }],
+                ]),
+                targetRoles,
+                createdAt: new Date(),
+              },
+            ]),
+          } as any);
+
+          await SystemMessagesRetrievalController.getSystemMessages(
+            mockReq as unknown as Request,
+            mockRes as Response,
+          );
+
+          expect(jsonMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+              data: expect.objectContaining({ messages: [] }),
+            }),
+          );
+        },
+      );
     });
 
     describe("Legacy targetUserId Inference", () => {
@@ -417,6 +451,43 @@ describe("SystemMessagesRetrievalController", () => {
             ["user123", { isReadInSystem: false }],
             ["user456", { isReadInSystem: true }],
           ]),
+          createdAt: new Date(),
+        };
+        vi.mocked(Message.find).mockReturnValue({
+          sort: vi.fn().mockResolvedValue([mockMessage]),
+        } as any);
+
+        await SystemMessagesRetrievalController.getSystemMessages(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        expect(jsonMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              messages: expect.arrayContaining([
+                expect.objectContaining({
+                  targetUserId: undefined,
+                }),
+              ]),
+            }),
+          }),
+        );
+      });
+
+      it("should not expose another recipient's explicit targetUserId", async () => {
+        const mockMessage = {
+          _id: "msg4",
+          title: "Role Change",
+          content: "Content",
+          type: "event_role_change",
+          priority: "medium",
+          creator: {},
+          userStates: new Map([
+            ["user123", { isReadInSystem: false }],
+            ["user456", { isReadInSystem: false }],
+          ]),
+          targetUserId: "user456",
           createdAt: new Date(),
         };
         vi.mocked(Message.find).mockReturnValue({

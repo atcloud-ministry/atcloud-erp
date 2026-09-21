@@ -6,6 +6,7 @@ import {
   type DonationAnalytics,
   type FinancialSummary,
   type ProgramAnalytics,
+  type UserAnalytics,
 } from "../services/api/analytics.api";
 
 export type AnalyticsResourceState<T> = {
@@ -72,6 +73,11 @@ export function useAnalyticsOverviewResource(enabled: boolean) {
 export function useEventAnalyticsResource(enabled: boolean) {
   const fetcher = useCallback(() => analyticsService.getEventAnalytics(), []);
   return useLazyAnalyticsResource<unknown>(enabled, fetcher);
+}
+
+export function useUserAnalyticsResource(enabled: boolean) {
+  const fetcher = useCallback(() => analyticsService.getUserAnalytics(), []);
+  return useLazyAnalyticsResource<UserAnalytics>(enabled, fetcher);
 }
 
 export function useAttendanceAnalyticsResource(enabled: boolean) {

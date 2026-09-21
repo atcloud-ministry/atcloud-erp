@@ -19,14 +19,89 @@ import {
 import { EmailService } from "../services/infrastructure/EmailServiceFacade";
 import { lockService } from "../services/LockService";
 import { TrioNotificationService } from "../services/notifications/TrioNotificationService";
+import { socketService } from "../services/infrastructure/SocketService";
 import {
   applyPurchaseItemSnapshot,
   getPurchaseItemDetails,
-  markProgramPurchaseUnenrolled,
+  persistPurchaseUnenrollment,
 } from "../services/PurchaseRefundService";
 import { buildDiscountRoleCountIncrement } from "../utils/programRoles";
+import { programMembershipMutationSyncTrigger } from "../services/programs/ProgramMembershipMutationSyncTrigger";
+import { resolveCanonicalProgramPurchaseRole } from "../services/programs/ProgramPurchaseRolePreflightService";
+import type { IPurchase } from "../models/Purchase";
 
 export class WebhookController {
+  private static async transitionPendingPurchase(
+    purchase: IPurchase,
+    nextStatus: "completed" | "failed",
+    fields: Record<string, unknown>,
+    identity: Record<string, unknown>,
+  ): Promise<boolean> {
+    const result = await Purchase.updateOne(
+      {
+        _id: purchase._id,
+        status: "pending",
+        ...identity,
+      },
+      {
+        $set: {
+          ...fields,
+          status: nextStatus,
+        },
+        $inc: { __v: 1 },
+      },
+      { runValidators: true },
+    );
+
+    if (result.matchedCount === 1) {
+      Object.assign(purchase, fields, { status: nextStatus });
+      return true;
+    }
+
+    const current = await Purchase.findById(purchase._id);
+    console.log(
+      `Ignoring ${nextStatus} transition for purchase ${purchase.orderNumber}; current status is ${current?.status ?? "missing"}`,
+    );
+    return false;
+  }
+
+  private static async requireCanonicalProgramPurchaseRole(
+    purchase: IPurchase,
+  ): Promise<void> {
+    if (purchase.purchaseType !== "program") return;
+    const rawProgramId = purchase.programId as unknown;
+    const candidate =
+      rawProgramId && typeof rawProgramId === "object" && "_id" in rawProgramId
+        ? (rawProgramId as { readonly _id?: unknown })._id
+        : rawProgramId;
+    const programId = String(candidate ?? "");
+    if (!mongoose.Types.ObjectId.isValid(programId)) {
+      throw new Error(
+        "Program purchase role could not be resolved before completion.",
+      );
+    }
+    const program = await Program.findById(programId);
+    if (!program) {
+      throw new Error(
+        "Program purchase role could not be resolved before completion.",
+      );
+    }
+    const role = resolveCanonicalProgramPurchaseRole(program, {
+      studentRoleId: purchase.studentRoleId,
+      // `isClassRep` has always had a schema default of false. Using the
+      // hydrated value this way also preserves that legacy default for rows
+      // created before Mongoose began materializing it consistently.
+      isClassRep: purchase.isClassRep === true,
+    });
+    if (role.status !== "resolved") {
+      throw new Error(
+        "Program purchase role could not be resolved before completion.",
+      );
+    }
+    purchase.studentRoleId = role.studentRoleId;
+    purchase.studentRoleName = role.studentRoleName;
+  }
+
   /**
    * Handle Stripe webhook events
    * POST /api/webhooks/stripe
@@ -204,13 +279,14 @@ export class WebhookController {
           return; // Exit gracefully - don't throw, return 200 to avoid Stripe retries
         }
 
-        // 2. IDEMPOTENCY CHECK: Skip if already completed
-        if (purchase.status === "completed") {
+        // A successful Stripe event may arrive after a failure, refund, or
+        // cancellation. Completion is a one-way pending -> completed
+        // transition; every other state is an idempotent no-op.
+        if (purchase.status !== "pending") {
           console.log(
-            "Purchase already completed (idempotent), skipping:",
-            purchase.orderNumber
+            `Ignoring checkout completion for purchase ${purchase.orderNumber} in status ${purchase.status}`,
           );
-          return; // Exit early, don't re-process
+          return;
         }
 
         // 3. Fetch payment details from Stripe
@@ -270,9 +346,9 @@ export class WebhookController {
         // 5. Update payment method
         purchase.paymentMethod = paymentMethod;
 
-        // 6. Mark purchase as completed (ATOMIC UPDATE)
-        purchase.status = "completed";
-        purchase.purchaseDate = new Date();
+        // 6. Resolve the canonical role before attempting the status CAS.
+        await WebhookController.requireCanonicalProgramPurchaseRole(purchase);
+        const purchaseDate = new Date();
         if (!purchase.itemTitle?.trim()) {
           const metadataTitle =
             purchase.purchaseType === "event"
@@ -286,8 +362,49 @@ export class WebhookController {
         }
         applyPurchaseItemSnapshot(purchase);
 
-        // 7. Save all changes atomically
-        await purchase.save();
+        // 7. Atomically claim the only valid pending -> completed transition.
+        // Stripe reads above may yield while a refund/failure commits, so the
+        // persistence boundary must re-check both state and Stripe identity.
+        const completionFields: Record<string, unknown> = {
+          purchaseDate,
+          billingInfo: purchase.billingInfo,
+          paymentMethod: purchase.paymentMethod,
+          itemTitle: purchase.itemTitle,
+          itemLabel: purchase.itemLabel,
+          stripeSessionId: session.id,
+        };
+        if (purchase.stripePaymentIntentId) {
+          completionFields.stripePaymentIntentId =
+            purchase.stripePaymentIntentId;
+        }
+        if (purchase.studentRoleId) {
+          completionFields.studentRoleId = purchase.studentRoleId;
+        }
+        if (purchase.studentRoleName) {
+          completionFields.studentRoleName = purchase.studentRoleName;
+        }
+        const completed = await WebhookController.transitionPendingPurchase(
+          purchase,
+          "completed",
+          completionFields,
+          // Signed Stripe metadata binds new and retried sessions to this
+          // purchase even when the process died before persisting the new
+          // session ID. Legacy events have no such identity and stay exact.
+          purchaseId ? {} : { stripeSessionId: session.id },
+        );
+        if (!completed) return;
+
+        programMembershipMutationSyncTrigger.programPurchaseChanged(
+          {
+            purchaseType: purchase.purchaseType,
+            programId: purchase.programId,
+          },
+          {
+            actor: { type: "system", key: "stripe-webhook" },
+            source: "system",
+            correlationId: session.id,
+          },
+        );
 
         console.log("Purchase completed successfully:", purchase.orderNumber);
 
@@ -439,11 +556,22 @@ export class WebhookController {
                 createdBy: "system",
               });
 
-              // Update purchase with bundle code info
+              // Persist only the generated bundle fields. A refund may commit
+              // after the completion CAS; a hydrated-document save here could
+              // otherwise write its stale completed status back over it.
               purchase.bundlePromoCode = bundlePromoCode.code;
               purchase.bundleDiscountAmount = bundleConfig.discountAmount;
               purchase.bundleExpiresAt = expiresAt;
-              await purchase.save();
+              await Purchase.updateOne(
+                { _id: purchase._id },
+                {
+                  $set: {
+                    bundlePromoCode: bundlePromoCode.code,
+                    bundleDiscountAmount: bundleConfig.discountAmount,
+                    bundleExpiresAt: expiresAt,
+                  },
+                },
+              );
             }
           }
         } catch (bundleError) {
@@ -598,16 +726,49 @@ export class WebhookController {
       return;
     }
 
-    // Update purchase status if not already completed
-    if (purchase.status !== "completed") {
-      purchase.status = "completed";
-      purchase.purchaseDate = new Date();
-      await purchase.save();
+    // A successful Stripe event may arrive after a failure, refund, or
+    // cancellation. Completion is a one-way pending -> completed transition;
+    // ignored events must not schedule Program Room membership reconciliation.
+    if (purchase.status !== "pending") {
       console.log(
-        "Purchase marked as completed via payment intent:",
-        purchase.orderNumber
+        `Ignoring payment-intent completion for purchase ${purchase.orderNumber} in status ${purchase.status}`,
       );
+      return;
     }
+
+    await WebhookController.requireCanonicalProgramPurchaseRole(purchase);
+    const completionFields: Record<string, unknown> = {
+      purchaseDate: new Date(),
+    };
+    if (purchase.studentRoleId) {
+      completionFields.studentRoleId = purchase.studentRoleId;
+    }
+    if (purchase.studentRoleName) {
+      completionFields.studentRoleName = purchase.studentRoleName;
+    }
+    const completed = await WebhookController.transitionPendingPurchase(
+      purchase,
+      "completed",
+      completionFields,
+      { stripePaymentIntentId: paymentIntent.id },
+    );
+    if (!completed) return;
+
+    console.log(
+      "Purchase marked as completed via payment intent:",
+      purchase.orderNumber
+    );
+    programMembershipMutationSyncTrigger.programPurchaseChanged(
+      {
+        purchaseType: purchase.purchaseType,
+        programId: purchase.programId,
+      },
+      {
+        actor: { type: "system", key: "stripe-webhook" },
+        source: "system",
+        correlationId: paymentIntent.id,
+      },
+    );
   }
 
   /**
@@ -626,12 +787,27 @@ export class WebhookController {
       return;
     }
 
+    // Payment-intent failures can arrive late or out of order. Only a pending
+    // checkout may transition to failed; completed access remains unchanged.
+    if (purchase.status !== "pending") {
+      console.log(
+        `Ignoring payment failure for purchase ${purchase.orderNumber} in status ${purchase.status}`,
+      );
+      return;
+    }
+
+    // Competing success/failure events may both have read a pending document.
+    // Claim failure first so only the CAS winner performs follow-up effects.
+    const failed = await WebhookController.transitionPendingPurchase(
+      purchase,
+      "failed",
+      {},
+      { stripePaymentIntentId: paymentIntent.id },
+    );
+    if (!failed) return;
+
     // If this was a Class Rep purchase that's now failed, decrement the counter
-    if (
-      purchase.purchaseType === "program" &&
-      purchase.isClassRep &&
-      purchase.status === "pending"
-    ) {
+    if (purchase.purchaseType === "program" && purchase.isClassRep) {
       const { Program } = await import("../models");
       const program = await Program.findById(purchase.programId);
       await Program.findByIdAndUpdate(
@@ -649,10 +825,6 @@ export class WebhookController {
         `Decremented classRepCount for failed purchase: ${purchase.orderNumber}`
       );
     }
-
-    // Mark purchase as failed
-    purchase.status = "failed";
-    await purchase.save();
 
     console.log("Purchase marked as failed:", purchase.orderNumber);
 
@@ -707,8 +879,7 @@ export class WebhookController {
         // Update purchase status
         purchase.status = "refunded";
         purchase.refundedAt = new Date();
-        await markProgramPurchaseUnenrolled(purchase, "refund_requested");
-        await purchase.save();
+        await persistPurchaseUnenrollment(purchase, "refund_requested");
 
         // Recover promo code if one was used
         if (purchase.promoCode) {
@@ -887,6 +1058,7 @@ export class WebhookController {
         purchase.status = "refund_failed";
         purchase.refundFailureReason = refund.failure_reason || "Refund failed";
         await purchase.save();
+        socketService.disconnectUser(String(purchase.userId));
 
         // Send refund failed email to user
         try {

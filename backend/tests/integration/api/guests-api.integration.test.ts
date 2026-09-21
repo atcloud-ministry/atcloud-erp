@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Guests API Integration Tests
  *
@@ -33,6 +34,7 @@ describe("Guests API Integration", () => {
 
     // Create admin user and login
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -43,6 +45,7 @@ describe("Guests API Integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     await request(app).post("/api/auth/register").send(adminData);

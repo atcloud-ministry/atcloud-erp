@@ -74,7 +74,7 @@ describe("ResponseBuilderService", () => {
   });
 
   describe("buildEventWithRegistrations", () => {
-    it("enriches organizer contacts when userId is present and leaves others unchanged", async () => {
+    it("enriches organizer contacts while redacting exact phones from public reads", async () => {
       const organizerUserId = new Types.ObjectId().toString();
       const mockEvent = {
         _id: eventId,
@@ -131,11 +131,55 @@ describe("ResponseBuilderService", () => {
       const orgs = (result as any).organizerDetails as any[];
       expect(orgs[0].email).toBe("new@x.com");
       expect(orgs[0].name).toBe("New Name");
-      expect(orgs[0].phone).toBe("123");
-      // Second organizer had no userId and should remain unchanged
+      expect(orgs[0]).not.toHaveProperty("phone");
+      // Stored fallback contacts follow the same exact-phone boundary.
       expect(orgs[1].email).toBe("keep@x.com");
+      expect(orgs[1]).not.toHaveProperty("phone");
       expect(User.find).toHaveBeenCalledOnce();
       expect(User.findById).not.toHaveBeenCalled();
+    });
+
+    it("returns organizer exact phones to a MANAGE_USERS viewer", async () => {
+      const organizerUserId = new Types.ObjectId().toString();
+      const mockEvent = {
+        _id: eventId,
+        title: "Managed Event",
+        location: "loc",
+        date: "2099-01-01",
+        time: "10:00",
+        createdBy: {
+          _id: userId,
+          username: "organizer",
+          firstName: "Org",
+          lastName: "User",
+        },
+        roles: [],
+        organizerDetails: [
+          { userId: organizerUserId, email: "old@x.com", phone: "old" },
+        ],
+      };
+      vi.mocked(Event.findById).mockReturnValue({
+        populate: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(mockEvent),
+        }),
+      } as any);
+      mockOrganizerQuery([
+        {
+          _id: organizerUserId,
+          email: "new@x.com",
+          phone: "+12065550123",
+          firstName: "New",
+          lastName: "Name",
+        },
+      ]);
+
+      const result = await ResponseBuilderService.buildEventWithRegistrations(
+        eventId,
+        new Types.ObjectId().toString(),
+        "Administrator",
+      );
+
+      expect(result?.organizerDetails?.[0].phone).toBe("+12065550123");
     });
     it("should build complete event with registration data successfully", async () => {
       // Mock event data

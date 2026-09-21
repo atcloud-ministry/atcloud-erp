@@ -4,24 +4,16 @@ import type {
   UseFormSetValue,
   FieldErrors,
 } from "react-hook-form";
-import OrganizerSelection from "../events/OrganizerSelection";
+import OrganizerSelection, {
+  type Organizer,
+} from "../events/OrganizerSelection";
 import ValidationIndicator from "../events/ValidationIndicator";
 import { fileService } from "../../services/api";
 import { getProgramTypes } from "../../constants/programTypes";
 import type { ProgramStudentRoleForm } from "../../types/program";
 import { DEFAULT_TEACHER_ROLE_NAME } from "../../utils/programRoles";
 
-interface Mentor {
-  id: string;
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string;
-  phone?: string;
-}
+type Mentor = Organizer;
 
 interface User {
   id: string;
@@ -85,6 +77,7 @@ interface ProgramFormFieldsProps {
   originalFlyerUrl: string | null;
   YEARS: string[];
   MONTHS: string[];
+  programId?: string;
 }
 
 const PROGRAM_TYPES = getProgramTypes();
@@ -101,6 +94,7 @@ export default function ProgramFormFields({
   originalFlyerUrl,
   YEARS,
   MONTHS,
+  programId,
 }: ProgramFormFieldsProps) {
   const teacherRoleName =
     watch("teacherRoleName")?.trim() || DEFAULT_TEACHER_ROLE_NAME;
@@ -385,8 +379,6 @@ export default function ProgramFormFields({
               roleInAtCloud: currentUser.roleInAtCloud,
               gender: currentUser.gender,
               avatar: currentUser.avatar || null,
-              email: currentUser.email,
-              phone: currentUser.phone,
             }}
             currentUserId={currentUser.id}
             selectedOrganizers={mentors}
@@ -395,6 +387,8 @@ export default function ProgramFormFields({
             excludeMainOrganizer={false}
             organizersLabel={`${teacherRoleName}s`}
             buttonText={`Add ${teacherRoleName}`}
+            context="program-mentor"
+            resourceId={programId}
           />
         </div>
       )}

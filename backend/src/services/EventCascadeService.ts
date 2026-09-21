@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Event, Program, Registration, GuestRegistration } from "../models";
 import { CachePatterns } from "./infrastructure/CacheService";
+import { resourceAuthorizationInvalidationService } from "./authorization/ResourceAuthorizationInvalidationService";
 
 export class EventCascadeService {
   /**
@@ -72,6 +73,7 @@ export class EventCascadeService {
 
     // Delete the event document itself
     await Event.findByIdAndDelete(eventId);
+    resourceAuthorizationInvalidationService.invalidateEventRoom(eventId);
 
     // Invalidate caches
     try {

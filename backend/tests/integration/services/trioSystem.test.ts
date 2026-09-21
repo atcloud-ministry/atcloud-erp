@@ -68,21 +68,38 @@ vi.mock("../../../src/services/infrastructure/SocketService", () => ({
 
 vi.mock("../../../src/controllers/unifiedMessageController", () => ({
   UnifiedMessageController: {
-    createTargetedSystemMessage: vi.fn().mockResolvedValue({
-      _id: { toString: () => "mock-message-id" } as any,
-      title: "Test Message",
-      content: "Test Content",
-      isActive: true,
-      toJSON: () => ({
-        _id: "mock-message-id",
-        title: "Test Message",
-        content: "Test Content",
-        isActive: true,
-      }),
-      save: vi.fn().mockResolvedValue(true),
-    } as any),
+    createTargetedSystemMessage: vi.fn(),
   },
 }));
+
+import { UnifiedMessageController } from "../../../src/controllers/unifiedMessageController";
+import { socketService } from "../../../src/services/infrastructure/SocketService";
+
+function createMockMessage(recipientIds: string[]) {
+  return {
+    _id: { toString: () => "mock-message-id" } as any,
+    title: "Test Message",
+    content: "Test Content",
+    type: "announcement",
+    priority: "medium",
+    createdAt: new Date("2026-09-09T12:00:00.000Z"),
+    creator: {
+      id: "system",
+      firstName: "System",
+      lastName: "Administrator",
+      username: "system",
+      gender: "male",
+      authLevel: "Super Admin",
+    },
+    hideCreator: false,
+    userStates: new Map(recipientIds.map((userId) => [userId, {}])),
+    isActive: true,
+    toJSON: vi.fn(() => {
+      throw new Error("raw document serialization must not be used for realtime");
+    }),
+    save: vi.fn().mockResolvedValue(true),
+  };
+}
 
 describe("Trio System Integration", () => {
   // Ensure real timers for integration tests to respect configured timeouts
@@ -94,6 +111,11 @@ describe("Trio System Integration", () => {
     // Reset metrics and clear mocks before each test
     TrioNotificationService.resetMetrics();
     vi.clearAllMocks();
+    vi.mocked(
+      UnifiedMessageController.createTargetedSystemMessage,
+    ).mockImplementation(async (_messageData, recipientIds) =>
+      createMockMessage(recipientIds) as any,
+    );
   });
 
   describe("Complete Trio Flows", () => {
@@ -182,9 +204,6 @@ describe("Trio System Integration", () => {
       expect(result.notificationsSent).toBe(3);
 
       // Should emit websocket events for each recipient
-      const { socketService } = await import(
-        "../../../src/services/infrastructure/SocketService"
-      );
       expect(socketService.emitSystemMessageUpdate).toHaveBeenCalledTimes(3);
     });
   });
@@ -219,9 +238,6 @@ describe("Trio System Integration", () => {
 
     it("should handle database failures gracefully", async () => {
       // Arrange - Mock database operation to fail
-      const { UnifiedMessageController } = await import(
-        "../../../src/controllers/unifiedMessageController"
-      );
       vi.mocked(
         UnifiedMessageController.createTargetedSystemMessage
       ).mockRejectedValue(new Error("Database connection failed"));
@@ -243,27 +259,10 @@ describe("Trio System Integration", () => {
 
     it("should handle partial WebSocket failures", async () => {
       // Arrange - Reset database mock to work properly
-      const { UnifiedMessageController } = await import(
-        "../../../src/controllers/unifiedMessageController"
-      );
       vi.mocked(
         UnifiedMessageController.createTargetedSystemMessage
-      ).mockResolvedValue({
-        _id: { toString: () => "mock-message-id" } as any,
-        title: "Test Message",
-        content: "Test Content",
-        isActive: true,
-        toJSON: () => ({
-          _id: "mock-message-id",
-          title: "Test Message",
-          content: "Test Content",
-          isActive: true,
-        }),
-        save: vi.fn().mockResolvedValue(true),
-      } as any);
-
-      const { socketService } = await import(
-        "../../../src/services/infrastructure/SocketService"
+      ).mockResolvedValue(
+        createMockMessage(["user-1", "user-2", "user-3"]) as any,
       );
 
       // Mock the socketService.emitSystemMessageUpdate to throw for the second call
@@ -330,26 +329,12 @@ describe("Trio System Integration", () => {
       const { AuthEmailService } = await import(
         "../../../src/services/email/domains/AuthEmailService"
       );
-      const { UnifiedMessageController } = await import(
-        "../../../src/controllers/unifiedMessageController"
-      );
-
       vi.mocked(AuthEmailService.sendWelcomeEmail).mockResolvedValue(true);
       vi.mocked(
         UnifiedMessageController.createTargetedSystemMessage
-      ).mockResolvedValue({
-        _id: { toString: () => "mock-message-id" } as any,
-        title: "Test Message",
-        content: "Test Content",
-        isActive: true,
-        toJSON: () => ({
-          _id: "mock-message-id",
-          title: "Test Message",
-          content: "Test Content",
-          isActive: true,
-        }),
-        save: vi.fn().mockResolvedValue(true),
-      } as any);
+      ).mockImplementation(async (_messageData, recipientIds) =>
+        createMockMessage(recipientIds) as any,
+      );
 
       // Act - Create multiple trios
       await TrioNotificationService.createWelcomeTrio(

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -16,6 +17,7 @@ describe("Events API - Purpose optional", () => {
     await Event.deleteMany({});
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminpurpose", // must be lowercase per validation rules
       email: "admin-purpose@example.com",
       password: "AdminPass123!",
@@ -25,6 +27,7 @@ describe("Events API - Purpose optional", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     const adminResponse = await request(app)

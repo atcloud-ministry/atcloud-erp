@@ -18,6 +18,8 @@ import {
   sanitizeMentors,
   sanitizeParticipant,
   sanitizeParticipants,
+  canViewExactPrivateProfileFields,
+  stripExactPrivateProfileFields,
 } from "../../../src/utils/privacy";
 import crypto from "crypto";
 
@@ -392,6 +394,35 @@ describe("privacy utilities", () => {
 
       expect(result[0].isPaid).toBe(true);
       expect(result[1].isPaid).toBe(false);
+    });
+  });
+
+  describe("exact private profile fields", () => {
+    it("allows only self or MANAGE_USERS viewers", () => {
+      expect(
+        canViewExactPrivateProfileFields("user-1", "Participant", "user-1"),
+      ).toBe(true);
+      expect(
+        canViewExactPrivateProfileFields(
+          "admin-1",
+          "Administrator",
+          "user-1",
+        ),
+      ).toBe(true);
+      expect(
+        canViewExactPrivateProfileFields("leader-1", "Leader", "user-1"),
+      ).toBe(false);
+    });
+
+    it("removes phone and birthYear without changing other fields", () => {
+      expect(
+        stripExactPrivateProfileFields({
+          id: "user-1",
+          email: "visible@example.com",
+          phone: "+12065550123",
+          birthYear: 1990,
+        }),
+      ).toEqual({ id: "user-1", email: "visible@example.com" });
     });
   });
 });

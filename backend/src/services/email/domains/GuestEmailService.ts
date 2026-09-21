@@ -453,7 +453,7 @@ export class GuestEmailService {
           zoomLink: params.event.zoomLink,
           meetingId: params.event.meetingId,
           passcode: params.event.passcode,
-        },
+        } as unknown as Parameters<typeof buildRegistrationICS>[0]["event"],
         role: {
           name: params.role.name,
           description: params.role.description || `Role: ${params.role.name}`,

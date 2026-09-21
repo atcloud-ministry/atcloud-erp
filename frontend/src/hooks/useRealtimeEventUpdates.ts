@@ -138,14 +138,14 @@ export interface UseRealtimeEventUpdatesParams {
  */
 export function useRealtimeEventUpdates({
   eventId,
-  currentUserId,
   setEvent,
   setGuestsByRole,
   notification,
-  locationPathname,
 }: UseRealtimeEventUpdatesParams): void {
   // Keep a stable reference for notifications inside effects
   const notificationRef = useRef(notification);
+  const eventRefreshSequenceRef = useRef(0);
+  const guestRefreshSequenceRef = useRef(0);
   useEffect(() => {
     notificationRef.current = notification;
   }, [notification]);
@@ -157,375 +157,69 @@ export function useRealtimeEventUpdates({
 
     let isComponentMounted = true; // Track component mount state
     socketService.connect(token);
-    void socketService.joinEventRoom(eventId);
+    void Promise.resolve(socketService.joinEventRoom(eventId)).catch(
+      (error: unknown) => {
+        if (import.meta.env.DEV) {
+          console.warn("Unable to subscribe to realtime event updates:", error);
+        }
+      },
+    );
 
     // Handle event updates with current values
     const handleEventUpdate = async (updateData: EventUpdate) => {
       // Early return if component unmounted or wrong event
-      if (!isComponentMounted || updateData.eventId !== eventId) return;
-
-      // Keep admin guest list in sync on guest events without full refetch
       if (
-        updateData.updateType === "guest_cancellation" ||
-        updateData.updateType === "guest_declined" ||
-        updateData.updateType === "guest_updated" ||
-        updateData.updateType === "guest_registration" ||
-        updateData.updateType === "guest_moved"
+        !isComponentMounted ||
+        !updateData ||
+        updateData.eventId !== eventId ||
+        typeof updateData.updateType !== "string"
       ) {
-        // guest_moved doesn't carry roleId/guestName; other guest_* do
-        if (updateData.updateType !== "guest_moved") {
-          const payloadUnknown: unknown = updateData.data;
-          const { roleId, guestName } =
-            typeof payloadUnknown === "object" && payloadUnknown !== null
-              ? (payloadUnknown as { roleId?: string; guestName?: string })
-              : ({} as { roleId?: string; guestName?: string });
-          if (roleId && guestName) {
-            setGuestsByRole((prev) => {
-              const copy: typeof prev = { ...prev };
-              const list = copy[roleId] ? [...copy[roleId]] : [];
-              if (
-                updateData.updateType === "guest_cancellation" ||
-                updateData.updateType === "guest_declined"
-              ) {
-                copy[roleId] = list.filter((g) => g.fullName !== guestName);
-              } else if (updateData.updateType === "guest_registration") {
-                // optimistically add entry if not present (admin view lists guests by role)
-                if (!list.find((g) => g.fullName === guestName)) {
-                  list.push({
-                    id: `${guestName}-${Date.now()}`,
-                    fullName: guestName,
-                  });
-                }
-                copy[roleId] = list;
-              } else {
-                // guest_updated: name or phone may change; best-effort update by name
-                const idx = list.findIndex((g) => g.fullName === guestName);
-                if (idx !== -1) {
-                  list[idx] = { ...list[idx] };
-                  copy[roleId] = list;
-                }
-              }
-              return copy;
-            });
-          }
-        }
-
-        // Immediately refresh guests list from API to include contact info (email/phone)
-        // Only for guest_registration and guest_updated; for cancellations, keep optimistic removal stable
-        if (
-          updateData.updateType === "guest_registration" ||
-          updateData.updateType === "guest_updated" ||
-          updateData.updateType === "guest_moved"
-        ) {
-          try {
-            const data = await GuestApi.getEventGuests(eventId);
-            const grouped: Record<string, GuestDisplay[]> = {};
-            const guests = (data?.guests || []) as GuestApiGuest[];
-            guests.forEach((g) => {
-              const r = g.roleId;
-              if (!grouped[r]) grouped[r] = [];
-              grouped[r].push({
-                id: g.id || g._id!,
-                fullName: g.fullName,
-                email: g.email,
-                phone: g.phone,
-                notes: g.notes,
-              });
-            });
-            setGuestsByRole(grouped);
-          } catch {
-            // Ignore if unauthorized or failed; optimistic update remains
-          }
-        }
+        return;
       }
+      const eventRefreshSequence = ++eventRefreshSequenceRef.current;
 
-      // Update quickly with payload for instant UI feedback using typed unions
-      const maybeEvent = (() => {
-        switch (updateData.updateType) {
-          case "user_signed_up":
-          case "user_cancelled":
-          case "user_removed":
-          case "user_moved":
-          case "user_assigned":
-          case "attendance_updated":
-            return updateData.data.event;
-          case "guest_moved":
-            return updateData.data.event;
-          default:
-            return undefined;
+      // Guest details are also refreshed through their viewer-authorized API.
+      const guestRefresh = (async () => {
+        if (!updateData.updateType.startsWith("guest_")) return;
+        const guestRefreshSequence = ++guestRefreshSequenceRef.current;
+        try {
+          const data = await GuestApi.getEventGuests(eventId);
+          const grouped: Record<string, GuestDisplay[]> = {};
+          const guests = (data?.guests || []) as GuestApiGuest[];
+          guests.forEach((guest) => {
+            if (!grouped[guest.roleId]) grouped[guest.roleId] = [];
+            grouped[guest.roleId].push({
+              id: guest.id || guest._id!,
+              fullName: guest.fullName,
+              email: guest.email,
+              phone: guest.phone,
+              notes: guest.notes,
+            });
+          });
+          if (
+            isComponentMounted &&
+            guestRefreshSequenceRef.current === guestRefreshSequence
+          ) {
+            setGuestsByRole(grouped);
+          }
+        } catch {
+          // Event refetch below remains the source of truth for the main view.
         }
       })();
 
-      if (maybeEvent) {
-        const e = maybeEvent as BackendEventLike;
-        setEvent((prev) => {
-          const convertedEvent: EventData = {
-            id: e.id || (e._id as string),
-            title: e.title,
-            type: e.type,
-            date: e.date,
-            endDate: e.endDate,
-            time: e.time,
-            endTime: e.endTime,
-            timeZone: e.timeZone,
-            location: e.location,
-            organizer: e.organizer,
-            hostedBy: e.hostedBy,
-            organizerDetails: e.organizerDetails || [],
-            purpose: e.purpose,
-            agenda: e.agenda,
-            format: e.format,
-            disclaimer: e.disclaimer,
-            flyerUrl: e.flyerUrl,
-            secondaryFlyerUrl: e.secondaryFlyerUrl,
-            roles: (e.roles || []).map((role: BackendRole) => {
-              interface RoleWithPublic extends BackendRole {
-                openToPublic?: boolean;
-                capacityRemaining?: number;
-              }
-              const r = role as RoleWithPublic;
-              return {
-                id: role.id,
-                name: role.name,
-                description: role.description,
-                maxParticipants: role.maxParticipants,
-                openToPublic:
-                  r.openToPublic ??
-                  prev?.roles.find((pr) => pr.id === role.id)?.openToPublic,
-                capacityRemaining: r.capacityRemaining,
-                currentSignups: role.registrations
-                  ? role.registrations.map((reg: BackendRegistration) => ({
-                      registrationId: reg.id,
-                      userId: reg.user.id,
-                      username: reg.user.username,
-                      firstName: reg.user.firstName,
-                      lastName: reg.user.lastName,
-                      email: reg.user.email,
-                      phone: reg.user.phone,
-                      avatar: reg.user.avatar,
-                      gender: reg.user.gender,
-                      systemAuthorizationLevel:
-                        (reg.user as { role?: string }).role ||
-                        reg.user.systemAuthorizationLevel,
-                      roleInAtCloud: reg.user.roleInAtCloud,
-                      notes: reg.notes,
-                      registeredAt: reg.registeredAt,
-                      registrationStatus: reg.status,
-                      attendanceConfirmed: reg.attendanceConfirmed,
-                    }))
-                  : role.currentSignups || [],
-              };
-            }),
-            signedUp:
-              (e.roles || []).reduce(
-                (sum: number, role: BackendRole) =>
-                  sum +
-                  (role.registrations?.length ||
-                    role.currentSignups?.length ||
-                    0),
-                0
-              ) || 0,
-            totalSlots:
-              (e.roles || []).reduce(
-                (sum: number, role: BackendRole) =>
-                  sum + (role.maxParticipants || 0),
-                0
-              ) || 0,
-            createdBy: e.createdBy,
-            createdAt: e.createdAt,
-            isHybrid: e.isHybrid,
-            zoomLink: e.zoomLink,
-            meetingId: e.meetingId,
-            passcode: e.passcode,
-            requirements: e.requirements,
-            materials: e.materials,
-            status:
-              e.status === "completed" || e.status === "cancelled"
-                ? e.status
-                : undefined,
-            attendees: e.attendees,
-            workshopGroupTopics: e.workshopGroupTopics || undefined,
-            // Preserve publish metadata if omitted in the socket payload
-            publish: e.publish ?? prev?.publish,
-            publicSlug: e.publicSlug ?? prev?.publicSlug,
-            publishedAt: e.publishedAt ?? prev?.publishedAt,
-            // Preserve pricing and program data (critical for UI sections)
-            pricing: e.pricing ?? prev?.pricing,
-            programLabels: e.programLabels ?? prev?.programLabels,
-            // Preserve auto-unpublish tracking
-            autoUnpublishedAt: e.autoUnpublishedAt ?? prev?.autoUnpublishedAt,
-            autoUnpublishedReason:
-              e.autoUnpublishedReason ?? prev?.autoUnpublishedReason,
-            unpublishScheduledAt:
-              e.unpublishScheduledAt ?? prev?.unpublishScheduledAt,
-            unpublishWarningFields:
-              e.unpublishWarningFields ?? prev?.unpublishWarningFields,
-          };
-          return convertedEvent;
-        });
-      }
-
-      // Show notification based on update type - use currentUserId from hook scope
-      switch (updateData.updateType) {
-        case "workshop_topic_updated": {
-          const { group, topic, userId: actorId } = updateData.data;
-          const grp = group as "A" | "B" | "C" | "D" | "E" | "F";
-          setEvent((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              workshopGroupTopics: {
-                ...(prev.workshopGroupTopics || {}),
-                [grp]: topic,
-              },
-            };
-          });
-          if (actorId !== currentUserId) {
-            notificationRef.current.info(`Group ${grp} topic updated`, {
-              title: "Workshop Topic",
-            });
-          }
-          break;
-        }
-        case "user_signed_up": {
-          const { userId: uid, roleName } = updateData.data;
-          if (uid !== currentUserId) {
-            notificationRef.current.info(`Someone joined ${roleName}`, {
-              title: "Event Updated",
-            });
-          }
-          break;
-        }
-        case "user_cancelled": {
-          const { userId: uid, roleName } = updateData.data;
-          if (uid !== currentUserId) {
-            notificationRef.current.info(`Someone left ${roleName}`, {
-              title: "Event Updated",
-            });
-          }
-          break;
-        }
-        case "role_rejected": {
-          // Backend emits when a previously assigned user rejects the role via email token
-          type RoleRejectedPayload = {
-            userId?: string;
-            roleName?: string;
-            roleId?: string;
-          };
-          const dataUnknown: unknown = updateData.data;
-          const payload: RoleRejectedPayload =
-            typeof dataUnknown === "object" && dataUnknown !== null
-              ? (dataUnknown as RoleRejectedPayload)
-              : {};
-          const roleName = payload.roleName || "a role";
-          const uid = payload.userId;
-          if (uid === currentUserId) {
-            // This would only happen if user rejected from another tab; still give feedback
-            notificationRef.current.info(`You rejected ${roleName}`, {
-              title: "Role Rejected",
-            });
-          } else {
-            notificationRef.current.info(`Someone rejected ${roleName}`, {
-              title: "Event Updated",
-            });
-          }
-          break;
-        }
-        case "user_removed": {
-          const { userId: uid, roleName } = updateData.data;
-          if (
-            uid === currentUserId &&
-            locationPathname === `/dashboard/event/${eventId}`
-          ) {
-            notificationRef.current.warning(
-              `You were removed from ${roleName}`,
-              {
-                title: "Event Update",
-              }
-            );
-          } else if (uid !== currentUserId) {
-            notificationRef.current.info(
-              `Someone was removed from ${roleName}`,
-              {
-                title: "Event Updated",
-              }
-            );
-          }
-          break;
-        }
-        case "user_moved": {
-          const { userId: uid, fromRoleName, toRoleName } = updateData.data;
-          if (
-            uid === currentUserId &&
-            locationPathname === `/dashboard/event/${eventId}`
-          ) {
-            notificationRef.current.info(
-              `You were moved from ${fromRoleName} to ${toRoleName}`,
-              { title: "Event Update" }
-            );
-          } else if (uid !== currentUserId) {
-            notificationRef.current.info(`Someone was moved between roles`, {
-              title: "Event Updated",
-            });
-          }
-          break;
-        }
-        case "user_assigned": {
-          const { userId: uid, roleName } = updateData.data;
-          if (
-            uid === currentUserId &&
-            locationPathname === `/dashboard/event/${eventId}`
-          ) {
-            notificationRef.current.info(`You were assigned to ${roleName}`, {
-              title: "Event Update",
-            });
-          }
-          break;
-        }
-        case "attendance_updated":
-          notificationRef.current.info(`Attendance updated`, {
-            title: "Event Updated",
-          });
-          break;
-        case "guest_cancellation":
-          notificationRef.current.info(`A guest cancelled their registration`, {
-            title: "Event Updated",
-          });
-          break;
-        case "guest_declined":
-          notificationRef.current.info(`A guest declined an invitation`, {
-            title: "Event Updated",
-          });
-          break;
-        case "guest_registration":
-          notificationRef.current.info(`A guest registered`, {
-            title: "Event Updated",
-          });
-          break;
-        case "guest_updated":
-          notificationRef.current.info(`Guest details updated`, {
-            title: "Event Updated",
-          });
-          break;
-        case "guest_moved": {
-          const { fromRoleName, toRoleName, fromRoleId, toRoleId } =
-            updateData.data;
-          notificationRef.current.info(
-            `A guest was moved from ${fromRoleName || fromRoleId} to ${
-              toRoleName || toRoleId
-            }`,
-            { title: "Event Updated" }
-          );
-          break;
-        }
-      }
+      notificationRef.current.info("Event information has changed.", {
+        title: "Event Updated",
+      });
 
       // Always refetch fresh event for viewer-specific privacy (ensures email/phone visibility is correct without page refresh)
       try {
         const fresh = (await eventService.getEvent(
           eventId
         )) as unknown as BackendEventLike;
-        if (isComponentMounted) {
+        if (
+          isComponentMounted &&
+          eventRefreshSequenceRef.current === eventRefreshSequence
+        ) {
           setEvent((prev) => {
             const viewerScopedEvent: EventData = {
               id: fresh.id || fresh._id!,
@@ -664,8 +358,9 @@ export function useRealtimeEventUpdates({
           });
         }
       } catch {
-        // Ignore refetch failures for realtime; initial optimistic update already applied
+        // A later invalidation or normal page reload will retry the HTTP fetch.
       }
+      await guestRefresh;
     };
 
     socketService.on("event_update", handleEventUpdate);
@@ -673,8 +368,10 @@ export function useRealtimeEventUpdates({
     // Cleanup on unmount
     return () => {
       isComponentMounted = false; // Mark component as unmounted
+      eventRefreshSequenceRef.current += 1;
+      guestRefreshSequenceRef.current += 1;
       socketService.off("event_update", handleEventUpdate);
       socketService.leaveEventRoom(eventId);
     };
-  }, [eventId, currentUserId, locationPathname, setEvent, setGuestsByRole]); // notification handled via ref to avoid unstable deps
+  }, [eventId, setEvent, setGuestsByRole]); // notification handled via ref to avoid unstable deps
 }

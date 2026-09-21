@@ -7,72 +7,118 @@
 import { Request, Response } from "express";
 import { User } from "../../models";
 import { TokenService } from "../../middleware/auth";
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  refreshTokenClearCookieOptions,
+  refreshTokenCookieOptions,
+} from "../../utils/refreshTokenCookie";
+import { isTokenCurrentForPasswordChange } from "../../utils/tokenRevocation";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
+import {
+  RefreshSessionRejectedError,
+  RefreshSessionService,
+} from "../../services/auth/RefreshSessionService";
+
+function rejectRefresh(res: Response, message: string): void {
+  res.clearCookie(
+    REFRESH_TOKEN_COOKIE_NAME,
+    refreshTokenClearCookieOptions(),
+  );
+  res.status(401).json({ success: false, message });
+}
 
 export default class TokenController {
   static async refreshToken(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
-      const refreshToken = req.cookies.refreshToken;
+      const refreshToken = req.cookies[REFRESH_TOKEN_COOKIE_NAME];
 
       if (!refreshToken) {
-        res.status(401).json({
-          success: false,
-          message: "Refresh token not provided.",
-        });
+        rejectRefresh(res, "Refresh token not provided.");
         return;
       }
 
       // Verify the refresh token
-      const decoded = TokenService.verifyRefreshToken(refreshToken);
+      let decoded;
+      try {
+        decoded = TokenService.verifyRefreshToken(refreshToken);
+      } catch {
+        rejectRefresh(res, "Invalid refresh token.");
+        return;
+      }
 
       if (!decoded || !decoded.userId) {
-        res.status(401).json({
-          success: false,
-          message: "Invalid refresh token.",
-        });
+        rejectRefresh(res, "Invalid refresh token.");
         return;
       }
+      userId = String(decoded.userId);
 
       // Get user to ensure they still exist and are active
-      const user = await User.findById(decoded.userId);
+      const user = await User.findById(decoded.userId, "+passwordChangedAt");
 
-      if (!user || !user.isActive) {
-        res.status(401).json({
-          success: false,
-          message: "User not found or inactive.",
-        });
+      const tokenMatchesPassword =
+        user != null && isTokenCurrentForPasswordChange(decoded, user);
+      if (!user || !user.isActive || !user.isVerified || !tokenMatchesPassword) {
+        if (user && !tokenMatchesPassword) {
+          await RefreshSessionService.revokeAllForUser(
+            String(user._id),
+            "password_changed",
+          );
+        } else {
+          await RefreshSessionService.revokeAllForUser(
+            String(decoded.userId),
+            user ? "account_deactivated" : "account_deleted",
+          );
+        }
+        rejectRefresh(res, "User not found or unavailable.");
         return;
       }
 
-      // Generate new access token
-      const newTokens = TokenService.generateTokenPair(user);
+      // Prepare the replacement JWT, then atomically compare-and-swap the
+      // stored JTI hash. A concurrent/stale token revokes the whole family.
+      const nextIdentity = RefreshSessionService.createRotationIdentity(
+        decoded.sid,
+      );
+      const refreshExpiresAt = TokenService.refreshTokenExpiresAt(decoded);
+      const newTokens = TokenService.generateTokenPair(user, {
+        refreshIdentity: nextIdentity,
+        refreshExpiresAt,
+      });
+      const rotation = await RefreshSessionService.rotate({
+        claims: decoded,
+        nextIdentity,
+        nextExpiresAt: newTokens.refreshTokenExpires,
+      });
 
       // Set new refresh token in cookie
-      const refreshExpireMs = TokenService.parseTimeToMs(
-        process.env.JWT_REFRESH_EXPIRE || "7d"
+      const remainingSessionMs = Math.max(
+        1,
+        rotation.expiresAt.getTime() - Date.now(),
       );
-
-      const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict" as const,
-        maxAge: refreshExpireMs,
-      };
-
-      res.cookie("refreshToken", newTokens.refreshToken, cookieOptions);
+      res.cookie(
+        REFRESH_TOKEN_COOKIE_NAME,
+        newTokens.refreshToken,
+        refreshTokenCookieOptions(
+          Math.min(rotation.lifetimeMs, remainingSessionMs),
+        ),
+      );
 
       res.status(200).json({
         success: true,
         data: {
           accessToken: newTokens.accessToken,
-          refreshToken: newTokens.refreshToken,
         },
         message: "Token refreshed successfully.",
       });
     } catch (error: unknown) {
-      console.error("Refresh token error:", error);
-      res.status(401).json({
+      logSafeErrorEvent("AUTH_REFRESH_FAILED", error, userId);
+      if (error instanceof RefreshSessionRejectedError) {
+        rejectRefresh(res, "Token refresh failed.");
+        return;
+      }
+      res.status(503).json({
         success: false,
-        message: "Token refresh failed.",
+        message: "Token refresh is temporarily unavailable.",
       });
     }
   }

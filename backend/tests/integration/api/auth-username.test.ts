@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -9,6 +10,7 @@ describe("Auth Username Validation (Option C)", () => {
   });
 
   const baseUser = {
+    ...TEST_REGISTRATION_PROFILE,
     email: "u1@example.com",
     password: "StrongPass1",
     confirmPassword: "StrongPass1",
@@ -17,6 +19,7 @@ describe("Auth Username Validation (Option C)", () => {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   };
 
   it("rejects invalid username format", async () => {

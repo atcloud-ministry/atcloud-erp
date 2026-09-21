@@ -11,32 +11,10 @@ import {
   getAvatarUrlWithCacheBust,
   getAvatarAlt,
 } from "../../utils/avatarUtils";
-import type { User } from "../../types/management";
-import { searchService, userService } from "../../services/api";
-
-// Minimal backend user shape
-type RawUser = {
-  id: string;
-  username: string;
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  role: string;
-  isAtCloudLeader?: boolean | "Yes" | "No" | null;
-  roleInAtCloud?: string | null;
-  avatar?: string | null;
-  gender?: "male" | "female" | null;
-  phone?: string | null;
-  createdAt?: string | null;
-  joinedAt?: string | null;
-  homeAddress?: string | null;
-  location?: string | null;
-  occupation?: string | null;
-  company?: string | null;
-  weeklyChurch?: string | null;
-  churchAddress?: string | null;
-  isActive?: boolean | null;
-};
+import {
+  adminUsersService,
+  type AdminUserDTO,
+} from "../../services/api";
 
 export interface SelectedUser {
   id: string;
@@ -62,6 +40,19 @@ interface UserSelectionModalProps {
   excludeUserIds?: string[];
 }
 
+const USER_ROLES: AdminUserDTO["role"][] = [
+  "Super Admin",
+  "Administrator",
+  "Leader",
+  "Guest Expert",
+  "Participant",
+];
+
+const asUserRole = (value: string | undefined) =>
+  value && USER_ROLES.includes(value as AdminUserDTO["role"])
+    ? (value as AdminUserDTO["role"])
+    : undefined;
+
 export default function UserSelectionModal({
   isOpen,
   onClose,
@@ -74,7 +65,7 @@ export default function UserSelectionModal({
   useAvatarUpdates(); // Listen for avatar updates
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [searchResults, setSearchResults] = useState<AdminUserDTO[]>([]);
   const [searchPage, setSearchPage] = useState(1);
   const [searchHasNext, setSearchHasNext] = useState(false);
   const [searchTotalPages, setSearchTotalPages] = useState(0);
@@ -82,33 +73,32 @@ export default function UserSelectionModal({
 
   // Paginated user browsing (when no search query)
   const [browsePage, setBrowsePage] = useState(1);
-  const [browseUsers, setBrowseUsers] = useState<User[]>([]);
+  const [browseUsers, setBrowseUsers] = useState<AdminUserDTO[]>([]);
   const [browseTotalPages, setBrowseTotalPages] = useState(0);
   const [browseTotalUsers, setBrowseTotalUsers] = useState(0);
   const [loadingBrowse, setLoadingBrowse] = useState(false);
 
   // Admin selection warning modal
   const [showAdminWarning, setShowAdminWarning] = useState(false);
-  const [attemptedAdminUser, setAttemptedAdminUser] = useState<User | null>(
-    null
-  );
+  const [attemptedAdminUser, setAttemptedAdminUser] =
+    useState<AdminUserDTO | null>(null);
 
   const USERS_PER_PAGE = 20;
 
   // Convert User to SelectedUser format
-  const convertUserToSelectedUser = (user: User): SelectedUser => ({
+  const convertUserToSelectedUser = (user: AdminUserDTO): SelectedUser => ({
     id: user.id,
-    firstName: user.firstName,
-    lastName: user.lastName,
+    firstName: user.firstName ?? "",
+    lastName: user.lastName ?? "",
     email: user.email,
     role: user.role,
-    roleInAtCloud: user.roleInAtCloud,
-    gender: user.gender,
-    avatar: user.avatar || null,
-    phone: user.phone,
+    roleInAtCloud: user.roleInAtCloud ?? undefined,
+    gender: user.gender ?? "male",
+    avatar: user.avatar,
+    phone: user.phone ?? undefined,
   });
 
-  const handleSelectUser = (user: User) => {
+  const handleSelectUser = (user: AdminUserDTO) => {
     // Check if user is Administrator or Super Admin
     if (user.role === "Administrator" || user.role === "Super Admin") {
       setAttemptedAdminUser(user);
@@ -140,31 +130,6 @@ export default function UserSelectionModal({
     onClose();
   };
 
-  // Map backend AppUser -> management User
-  const mapAppUserToMgmtUser = (u: RawUser): User => ({
-    id: u.id,
-    username: u.username,
-    firstName: u.firstName || "",
-    lastName: u.lastName || "",
-    email: u.email,
-    phone: u.phone ?? undefined,
-    role: (u.role as User["role"]) || "Participant",
-    isAtCloudLeader:
-      u.isAtCloudLeader === true || u.isAtCloudLeader === "Yes" ? "Yes" : "No",
-    roleInAtCloud: u.roleInAtCloud ?? undefined,
-    joinDate: (u.createdAt || u.joinedAt || new Date().toISOString()).split(
-      "T"
-    )[0],
-    gender: (u.gender as User["gender"]) || "male",
-    avatar: u.avatar ?? undefined,
-    homeAddress: u.homeAddress ?? u.location ?? undefined,
-    occupation: u.occupation ?? undefined,
-    company: u.company ?? undefined,
-    weeklyChurch: u.weeklyChurch ?? undefined,
-    churchAddress: u.churchAddress ?? undefined,
-    isActive: u.isActive !== false,
-  });
-
   // Focus the search input when opening
   useEffect(() => {
     if (isOpen) {
@@ -180,36 +145,20 @@ export default function UserSelectionModal({
     const fetchBrowseUsers = async () => {
       setLoadingBrowse(true);
       try {
-        const params: Record<string, unknown> = {
+        const params = {
           page: browsePage,
           limit: USERS_PER_PAGE,
           isActive: true,
-          sortBy: "firstName",
-          sortOrder: "asc",
+          sortBy: "firstName" as const,
+          sortOrder: "asc" as const,
+          role:
+            allowedRoles?.length === 1
+              ? asUserRole(allowedRoles[0])
+              : undefined,
         };
 
-        // Add role filter if specified
-        if (allowedRoles && allowedRoles.length > 0) {
-          // Fetch users for all allowed roles - backend supports single role param
-          // We'll fetch the first allowed role, then filter client-side for now
-          params.role = allowedRoles[0];
-        }
-
-        const response = await userService.getUsers(params);
-
-        type UsersResponse = {
-          users?: RawUser[];
-          pagination?: {
-            totalPages?: number;
-            totalUsers?: number;
-          };
-        };
-
-        const resp = response as unknown as UsersResponse;
-        const usersRaw: RawUser[] = resp.users || [];
-        const converted: User[] = usersRaw
-          .map(mapAppUserToMgmtUser)
-          .filter((user) => {
+        const response = await adminUsersService.list(params);
+        const users = response.users.filter((user) => {
             if (!user.id) return false;
             // Exclude specified user IDs
             if (excludeUserIds.includes(user.id)) return false;
@@ -221,9 +170,9 @@ export default function UserSelectionModal({
           });
 
         if (!cancelled) {
-          setBrowseUsers(converted);
-          setBrowseTotalPages(resp.pagination?.totalPages || 1);
-          setBrowseTotalUsers(resp.pagination?.totalUsers || converted.length);
+          setBrowseUsers(users);
+          setBrowseTotalPages(response.pagination.totalPages);
+          setBrowseTotalUsers(response.pagination.totalUsers);
         }
       } catch (err) {
         console.error("Failed to fetch browse users:", err);
@@ -258,25 +207,19 @@ export default function UserSelectionModal({
       }
       setSearching(true);
       try {
-        const result = await searchService.searchUsers(query.trim(), {
+        const result = await adminUsersService.list({
+          q: query.trim(),
           page: searchPage,
           limit: USERS_PER_PAGE,
           isActive: true,
+          sortBy: "firstName",
+          sortOrder: "asc",
+          role:
+            allowedRoles?.length === 1
+              ? asUserRole(allowedRoles[0])
+              : undefined,
         });
-
-        type SearchUsersResponse = {
-          results?: RawUser[];
-          users?: RawUser[];
-          pagination?: {
-            hasNext?: boolean;
-            totalPages?: number;
-          };
-        };
-        const r = result as unknown as SearchUsersResponse;
-        const resultsRaw: RawUser[] = r.results || r.users || [];
-        const converted: User[] = resultsRaw
-          .map(mapAppUserToMgmtUser)
-          .filter((user) => {
+        const users = result.users.filter((user) => {
             if (!user.id) return false;
             // Exclude specified user IDs
             if (excludeUserIds.includes(user.id)) return false;
@@ -287,11 +230,11 @@ export default function UserSelectionModal({
             return true;
           });
 
-        setSearchResults(converted);
-
-        const pg = r.pagination;
-        setSearchHasNext(Boolean(pg?.hasNext));
-        setSearchTotalPages(pg?.totalPages || 1);
+        if (!cancelled) {
+          setSearchResults(users);
+          setSearchHasNext(result.pagination.hasNext);
+          setSearchTotalPages(result.pagination.totalPages);
+        }
       } catch (err) {
         console.error("Search users failed:", err);
       } finally {
@@ -377,7 +320,7 @@ export default function UserSelectionModal({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {browseUsers.map((user: User) => (
+                  {browseUsers.map((user) => (
                     <button
                       key={user.id}
                       type="button"
@@ -387,11 +330,11 @@ export default function UserSelectionModal({
                       <img
                         src={getAvatarUrlWithCacheBust(
                           user.avatar || null,
-                          user.gender
+                          user.gender ?? "male"
                         )}
                         alt={getAvatarAlt(
-                          user.firstName,
-                          user.lastName,
+                          user.firstName ?? "",
+                          user.lastName ?? "",
                           !!user.avatar
                         )}
                         className="h-12 w-12 rounded-full object-cover"
@@ -426,11 +369,11 @@ export default function UserSelectionModal({
                     <img
                       src={getAvatarUrlWithCacheBust(
                         user.avatar || null,
-                        user.gender
+                        user.gender ?? "male"
                       )}
                       alt={getAvatarAlt(
-                        user.firstName,
-                        user.lastName,
+                        user.firstName ?? "",
+                        user.lastName ?? "",
                         !!user.avatar
                       )}
                       className="h-12 w-12 rounded-full object-cover"

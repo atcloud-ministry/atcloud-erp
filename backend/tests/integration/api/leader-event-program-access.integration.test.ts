@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import mongoose from "mongoose";
 import request from "supertest";
@@ -47,6 +48,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
 
     // Create Leader user
     const leaderResponse = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "leader@test.com",
       username: "leader",
       password: "TestPass123!",
@@ -56,6 +58,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     leaderUserId = leaderResponse.body.data.user.id;
@@ -78,6 +81,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
 
     // Create Admin user (for comparison - Admin should not be restricted)
     const adminResponse = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       email: "admin@test.com",
       username: "admin",
       password: "TestPass123!",
@@ -87,6 +91,7 @@ describe("Leader Event Creation - Program Access Validation", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
 
     adminUserId = adminResponse.body.data.user.id;

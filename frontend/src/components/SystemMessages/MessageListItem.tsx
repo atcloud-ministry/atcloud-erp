@@ -1,6 +1,8 @@
 import { Icon } from "../common";
 import { formatViewerLocalDateTime } from "../../utils/timezoneUtils";
 import { messageTypeHelpers } from "../../utils/messageTypeHelpers";
+import { getHashRouteUrl } from "../../utils/hashRouting";
+import { getAlumniHelpRequestPath } from "../../utils/alumniHelpNotification";
 
 interface TimingMeta {
   originalDate?: string;
@@ -206,6 +208,21 @@ export default function MessageListItem({
               return message.content;
             })()}
           </p>
+          {(() => {
+            const requestPath = getAlumniHelpRequestPath(message.metadata);
+            if (!requestPath) return null;
+            return (
+              <div className="mt-4">
+                <a
+                  href={getHashRouteUrl(requestPath)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="block w-full rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-center font-semibold text-white shadow transition-all hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  View Help Request
+                </a>
+              </div>
+            );
+          })()}
           {/* Local time already inlined by replacing Event Time line above */}
           {typeof message.metadata?.eventId === "string" &&
             (message.title.startsWith("New Event:") ||

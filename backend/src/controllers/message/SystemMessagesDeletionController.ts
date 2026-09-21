@@ -3,6 +3,7 @@ import { Types } from "mongoose";
 import Message from "../../models/Message";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { buildRecipientMessageFilter } from "./MessageRecipientAuthorization";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UnreadCounts = {
@@ -12,7 +13,10 @@ type UnreadCounts = {
 };
 
 const MessageModel = Message as unknown as {
-  getUnreadCountsForUser: (userId: string) => Promise<UnreadCounts>;
+  getUnreadCountsForUser: (
+    userId: string,
+    userRole: string
+  ) => Promise<UnreadCounts>;
 };
 
 /**
@@ -27,9 +31,10 @@ export default class SystemMessagesDeletionController {
   static async deleteSystemMessage(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userRole = req.user?.role;
       const { messageId } = req.params;
 
-      if (!userId) {
+      if (!userId || !userRole) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
@@ -42,7 +47,9 @@ export default class SystemMessagesDeletionController {
         return;
       }
 
-      const message = await Message.findById(messageId);
+      const message = await Message.findOne(
+        buildRecipientMessageFilter(messageId, userId, userRole)
+      );
       if (!message) {
         res.status(404).json({
           success: false,
@@ -75,7 +82,10 @@ export default class SystemMessagesDeletionController {
 
       // Update unread counts if the message was unread
       if (wasUnreadInSystem || wasUnreadInBell) {
-        const unreadCounts = await MessageModel.getUnreadCountsForUser(userId);
+        const unreadCounts = await MessageModel.getUnreadCountsForUser(
+          userId,
+          userRole
+        );
         socketService.emitUnreadCountUpdate(userId, unreadCounts);
       }
 

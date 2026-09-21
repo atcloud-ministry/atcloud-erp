@@ -1,25 +1,134 @@
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { Server as HTTPServer } from "http";
-import jwt, { JwtPayload } from "jsonwebtoken";
+import { Types } from "mongoose";
 import { getAllowedFrontendOrigins } from "../../middleware/security";
+import { TokenService } from "../../middleware/auth";
+import { User } from "../../models";
 import { Logger } from "../../services/LoggerService";
+import { PERMISSIONS } from "../../utils/roleUtils";
+import {
+  authorizationService,
+  createUserAuthorizationPrincipal,
+} from "../authorization/AuthorizationService";
+import { AUTHORIZATION_ACTIONS } from "../authorization/types";
+import { recordAuthorizationDenial } from "../authorization/AuthorizationAuditService";
 import type {
   EventUpdate,
   EventUpdateType,
+  SocketRoomAck,
   SystemMessageUpdate,
   BellNotificationUpdate,
   UnreadCountUpdate,
+  AlumniHelpUpdate,
+  ChatMessageUpdate,
+  ChatUnreadUpdate,
+  ConversationRoomAck,
   ConnectedPayload,
+  AuthExpiredPayload,
+  ConnectionLimitPayload,
 } from "@/types/realtime";
+import { featureControlService } from "../runtime/FeatureControlService";
+import {
+  CHAT_MESSAGE_MAX_SERIALIZED_PAYLOAD_BYTES,
+  UUID_PATTERN,
+  isValidChatMessagePayload,
+  isValidChatSafeLinkUrl,
+  isValidSafeLinkLabel,
+} from "../../contracts/chatRooms";
+import { isTokenCurrentForPasswordChange } from "../../utils/tokenRevocation";
+import { safeErrorName } from "../../utils/safeEventLogger";
+
+export type SocketResourceType = "event" | "program" | "conversation";
 
 interface AuthenticatedSocket extends Socket {
   userId: string;
+  authorizationRevision: number;
+  tokenExpiresAt: number;
   user: {
     id: string;
     firstName: string;
     lastName: string;
-    role: string;
   };
+  canManageUsers: boolean;
+}
+
+const ADMIN_USERS_ROOM = "permission:manage_users";
+const EVENT_JOIN_WINDOW_MS = 60_000;
+const MAX_EVENT_JOINS_PER_WINDOW = 20;
+export const MAX_SOCKET_CONNECTIONS_PER_ACCOUNT = 5;
+const CONVERSATION_JOIN_WINDOW_MS = 60_000;
+const MAX_CONVERSATION_JOINS_PER_WINDOW = 60;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const VALID_RESOURCE_TYPES = new Set<SocketResourceType>([
+  "event",
+  "program",
+  "conversation",
+]);
+
+const normalizeObjectId = (value: unknown): string | null => {
+  if (typeof value !== "string" || !Types.ObjectId.isValid(value)) return null;
+  return new Types.ObjectId(value).toString();
+};
+
+const buildResourceRoom = (
+  resourceType: SocketResourceType,
+  resourceId: string,
+): string => `${resourceType}:${resourceId}`;
+
+function isCanonicalIsoInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function serializedPayloadFits(value: unknown): boolean {
+  try {
+    return (
+      Buffer.byteLength(JSON.stringify(value), "utf8") <=
+      CHAT_MESSAGE_MAX_SERIALIZED_PAYLOAD_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidChatMessageUpdate(
+  conversationId: string,
+  update: Omit<ChatMessageUpdate, "timestamp">,
+): boolean {
+  const message = update?.message;
+  const safeLink = message?.safeLink;
+  return Boolean(
+    normalizeObjectId(conversationId) &&
+      message &&
+      normalizeObjectId(message.id) &&
+      normalizeObjectId(message.conversationId) ===
+        normalizeObjectId(conversationId) &&
+      Number.isSafeInteger(message.sequence) &&
+      message.sequence >= 1 &&
+      (message.kind === "text" || message.kind === "announcement") &&
+      normalizeObjectId(message.sender?.id) &&
+      typeof message.sender.displayName === "string" &&
+      message.sender.displayName.length > 0 &&
+      message.sender.displayName.length <= 160 &&
+      (message.sender.avatar === null ||
+        (typeof message.sender.avatar === "string" &&
+          message.sender.avatar.length <= 2_048)) &&
+      isValidChatMessagePayload({
+        content: message.content,
+        safeLink: message.safeLink,
+      }) &&
+      (safeLink === null ||
+        (safeLink !== undefined &&
+          typeof safeLink === "object" &&
+          !Array.isArray(safeLink) &&
+          isValidChatSafeLinkUrl(safeLink.url) &&
+          typeof safeLink.label === "string" &&
+          isValidSafeLinkLabel(safeLink.label))) &&
+      typeof message.clientMessageId === "string" &&
+      UUID_PATTERN.test(message.clientMessageId) &&
+      isCanonicalIsoInstant(message.createdAt),
+  );
 }
 
 /**
@@ -30,7 +139,50 @@ class SocketService {
   private io: SocketIOServer | null = null;
   private authenticatedSockets = new Map<string, AuthenticatedSocket>();
   private userSockets = new Map<string, Set<string>>(); // userId -> Set of socketIds
+  private userAuthorizationRevisions = new Map<string, number>();
+  private resourceAuthorizationRevisions = new Map<string, number>();
+  private eventJoinGuards = new Map<
+    string,
+    { attempts: number[]; inFlight: Set<string> }
+  >();
+  private conversationJoinGuards = new Map<
+    string,
+    { attempts: number[]; inFlight: Set<string> }
+  >();
   private log = Logger.getInstance().child("SocketService");
+
+  /** Stop accepting realtime work and disconnect clients during deployment. */
+  async shutdown(timeoutMs: number = 5_000): Promise<void> {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+      throw new Error("Socket shutdown timeout is invalid");
+    }
+
+    const io = this.io;
+    this.io = null;
+    this.authenticatedSockets.clear();
+    this.userSockets.clear();
+    this.userAuthorizationRevisions.clear();
+    this.resourceAuthorizationRevisions.clear();
+    this.eventJoinGuards.clear();
+    this.conversationJoinGuards.clear();
+    if (!io) return;
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        this.log.warn("Socket shutdown exceeded its drain deadline");
+        finish();
+      }, timeoutMs);
+      timeout.unref?.();
+      io.close(finish);
+    });
+  }
 
   /**
    * Initialize the WebSocket server
@@ -60,19 +212,12 @@ class SocketService {
 
     // Handle authentication errors at the namespace level
     this.io.engine.on("connection_error", (err) => {
-      console.error(
-        "Socket.IO engine connection error:",
-        err.req,
-        err.code,
-        err.message,
-      );
       this.log.error(
         "Socket.IO engine connection error",
         undefined,
         undefined,
         {
           code: err.code,
-          message: err.message,
         },
       );
     });
@@ -80,10 +225,39 @@ class SocketService {
     this.io.on("connection", (socket: Socket) => {
       const authSocket = socket as AuthenticatedSocket;
 
+      if (
+        authSocket.authorizationRevision !==
+          this.getUserAuthorizationRevision(authSocket.userId) ||
+        !Number.isFinite(authSocket.tokenExpiresAt) ||
+        authSocket.tokenExpiresAt <= Date.now()
+      ) {
+        this.log.warn(
+          "Socket authorization changed during authentication",
+          undefined,
+          {
+            socketId: authSocket.id,
+            userId: authSocket.userId,
+          },
+        );
+        authSocket.disconnect(true);
+        return;
+      }
+
+      const tokenExpiryTimer = setTimeout(() => {
+        const payload: AuthExpiredPayload = {
+          expiredAt: new Date(authSocket.tokenExpiresAt).toISOString(),
+        };
+        authSocket.emit("auth_expired", payload);
+        authSocket.disconnect(true);
+      }, Math.min(authSocket.tokenExpiresAt - Date.now(), MAX_TIMER_DELAY_MS));
+      tokenExpiryTimer.unref?.();
+
       // Handle any connection errors
-      authSocket.on("error", (error) => {
-        console.error("Socket error:", error);
-        this.log.error("Socket error", error as Error);
+      authSocket.on("error", () => {
+        this.log.error("Socket error", undefined, undefined, {
+          socketId: authSocket.id,
+          userId: authSocket.userId,
+        });
       }); // Track authenticated socket
       this.authenticatedSockets.set(authSocket.id, authSocket);
 
@@ -95,6 +269,9 @@ class SocketService {
 
       // Join user-specific room
       authSocket.join(`user:${authSocket.userId}`);
+      if (authSocket.canManageUsers) {
+        authSocket.join(ADMIN_USERS_ROOM);
+      }
 
       // Structured log for connection
       this.log.info("Socket connected", undefined, {
@@ -104,7 +281,10 @@ class SocketService {
 
       // Handle disconnection
       authSocket.on("disconnect", () => {
+        clearTimeout(tokenExpiryTimer);
         this.authenticatedSockets.delete(authSocket.id);
+        this.eventJoinGuards.delete(authSocket.id);
+        this.conversationJoinGuards.delete(authSocket.id);
 
         const userSocketSet = this.userSockets.get(authSocket.userId);
         if (userSocketSet) {
@@ -121,23 +301,56 @@ class SocketService {
         });
       });
 
-      // Handle status updates
-      authSocket.on("update_status", (status: "online" | "away" | "busy") => {
-        authSocket.broadcast.emit("user_status_update", {
-          userId: authSocket.userId,
-          status,
-          user: authSocket.user,
-        });
-      });
+      this.enforceAccountConnectionLimit(authSocket);
 
       // Handle event room management
-      authSocket.on("join_event_room", (eventId: string) => {
-        this.handleJoinEventRoom(authSocket, eventId);
+      authSocket.on("join_event_room", (eventId: unknown, ack?: SocketRoomAck) => {
+        return this.handleJoinEventRoom(authSocket, eventId, ack).catch(
+          (error: unknown) => {
+            this.log.error(
+              "Unexpected event room join failure",
+              error instanceof Error ? error : undefined,
+              undefined,
+              { socketId: authSocket.id },
+            );
+            if (typeof ack === "function") {
+              ack({ ok: false, code: "AUTHORIZATION_FAILED" });
+            }
+          },
+        );
       });
 
-      authSocket.on("leave_event_room", (eventId: string) => {
-        this.handleLeaveEventRoom(authSocket, eventId);
+      authSocket.on("leave_event_room", (eventId: unknown, ack?: SocketRoomAck) => {
+        this.handleLeaveEventRoom(authSocket, eventId, ack);
       });
+
+      authSocket.on(
+        "join_conversation_room",
+        (conversationId: unknown, ack?: ConversationRoomAck) => {
+          return this.handleJoinConversationRoom(
+            authSocket,
+            conversationId,
+            ack,
+          ).catch((error: unknown) => {
+            this.log.error(
+              "Unexpected conversation room join failure",
+              error instanceof Error ? error : undefined,
+              undefined,
+              { socketId: authSocket.id },
+            );
+            if (typeof ack === "function") {
+              ack({ ok: false, code: "AUTHORIZATION_FAILED" });
+            }
+          });
+        },
+      );
+
+      authSocket.on(
+        "leave_conversation_room",
+        (conversationId: unknown, ack?: ConversationRoomAck) => {
+          this.handleLeaveConversationRoom(authSocket, conversationId, ack);
+        },
+      );
 
       // Send initial connection confirmation
       const payload: ConnectedPayload = {
@@ -146,6 +359,34 @@ class SocketService {
       };
       authSocket.emit("connected", payload);
     });
+  }
+
+  private enforceAccountConnectionLimit(socket: AuthenticatedSocket): void {
+    const socketIds = this.userSockets.get(socket.userId);
+    if (!socketIds) return;
+
+    while (socketIds.size > MAX_SOCKET_CONNECTIONS_PER_ACCOUNT) {
+      const oldestSocketId = socketIds.values().next().value as string | undefined;
+      if (!oldestSocketId) break;
+      socketIds.delete(oldestSocketId);
+      const oldestSocket = this.authenticatedSockets.get(oldestSocketId);
+      this.authenticatedSockets.delete(oldestSocketId);
+      this.eventJoinGuards.delete(oldestSocketId);
+      this.conversationJoinGuards.delete(oldestSocketId);
+      if (oldestSocket && oldestSocket.id !== socket.id) {
+        this.log.info("Closing oldest Socket.IO connection at account limit", undefined, {
+          userId: socket.userId,
+          socketId: oldestSocketId,
+          limit: MAX_SOCKET_CONNECTIONS_PER_ACCOUNT,
+        });
+        const payload: ConnectionLimitPayload = {
+          limit: MAX_SOCKET_CONNECTIONS_PER_ACCOUNT,
+          disconnectedAt: new Date().toISOString(),
+        };
+        oldestSocket.emit("connection_limit", payload);
+        oldestSocket.disconnect(true);
+      }
+    }
   }
 
   /**
@@ -164,47 +405,61 @@ class SocketService {
         return next(new Error("Authentication token required"));
       }
 
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_ACCESS_SECRET || "your-access-secret-key",
-      ) as JwtPayload;
+      const decoded = TokenService.verifyAccessToken(token);
+      const decodedUserId = normalizeObjectId(decoded.userId);
+      const tokenExpiresAt =
+        typeof decoded.exp === "number" && Number.isFinite(decoded.exp)
+          ? decoded.exp * 1000
+          : 0;
+      if (!decodedUserId || tokenExpiresAt <= Date.now()) {
+        return next(new Error("Authentication failed"));
+      }
+      const authorizationRevision =
+        this.getUserAuthorizationRevision(decodedUserId);
 
-      // Import User model dynamically to avoid circular dependencies
-      const { User } = await import("../../models");
       const user = await User.findById(
-        (decoded as JwtPayload).userId as string,
+        decodedUserId,
+        "_id firstName lastName role isActive isVerified +passwordChangedAt",
       );
 
-      if (!user || !user.isActive) {
-        return next(new Error("Invalid or inactive user"));
+      if (!user || !user.isActive || !user.isVerified) {
+        return next(new Error("Invalid, inactive, or unverified user"));
       }
+      if (!isTokenCurrentForPasswordChange(decoded, user)) {
+        return next(new Error("Authentication failed"));
+      }
+
+      const principal = createUserAuthorizationPrincipal(user);
+      if (!principal || normalizeObjectId(principal.userId) !== decodedUserId) {
+        return next(new Error("Authentication failed"));
+      }
+
+      const adminRoomDecision = await authorizationService.authorize({
+        source: "socket",
+        principal,
+        action: AUTHORIZATION_ACTIONS.HAS_PERMISSION,
+        context: { permission: PERMISSIONS.MANAGE_USERS },
+      });
 
       // Attach user info to socket (support both Mongoose _id and id virtual)
       const authSocket = socket as AuthenticatedSocket;
-      const userIdStr =
-        // Mongoose Document _id -> string
-        ((
-          user as unknown as { _id?: { toString?: () => string } }
-        )._id?.toString?.() ??
-          // Some stubs may expose plain id
-          (
-            user as unknown as { id?: string | { toString?: () => string } }
-          ).id?.toString?.() ??
-          // Fallback to token payload if provided
-          (decoded as JwtPayload).userId?.toString?.()) ||
-        "";
+      const userIdStr = principal.userId;
       authSocket.userId = userIdStr;
+      authSocket.authorizationRevision = authorizationRevision;
+      authSocket.tokenExpiresAt = tokenExpiresAt;
       authSocket.user = {
         id: userIdStr,
         firstName: user.firstName || "",
         lastName: user.lastName || "",
-        role: user.role,
       };
+      authSocket.canManageUsers = adminRoomDecision.allowed;
 
       next();
     } catch (error: unknown) {
-      const err = error as Error;
-      this.log.error("Socket authentication error", err);
+      this.log.error("Socket authentication error", undefined, undefined, {
+        eventCode: "SOCKET_AUTHENTICATION_FAILED",
+        errorName: safeErrorName(error),
+      });
       return next(new Error("Authentication failed"));
     }
   }
@@ -303,40 +558,163 @@ class SocketService {
     this.io.to(`user:${userId}`).emit("unread_count_update", payload);
   }
 
+  /** Emit a recipient-scoped Alumni Help invalidation and absolute badge count. */
+  emitAlumniHelpUpdate(
+    userId: string,
+    update: Omit<AlumniHelpUpdate, "timestamp">,
+  ): void {
+    if (!this.io) return;
+    const normalizedUserId = normalizeObjectId(userId);
+    const normalizedRequestId = normalizeObjectId(update.requestId);
+    const roomCreated = update.roomCreated;
+    const normalizedConversationId = roomCreated
+      ? normalizeObjectId(roomCreated.conversationId)
+      : null;
+    if (
+      !normalizedUserId ||
+      !normalizedRequestId ||
+      !Number.isSafeInteger(update.requestRevision) ||
+      update.requestRevision < 0 ||
+      !Number.isSafeInteger(update.helpActionRequiredCount) ||
+      update.helpActionRequiredCount < 0 ||
+      !Number.isSafeInteger(update.helpNotificationCount) ||
+      update.helpNotificationCount < 0 ||
+      (roomCreated !== undefined &&
+        (!roomCreated ||
+          typeof roomCreated !== "object" ||
+          Array.isArray(roomCreated) ||
+          Object.keys(roomCreated).length !== 1 ||
+          !Object.prototype.hasOwnProperty.call(roomCreated, "conversationId") ||
+          !normalizedConversationId))
+    ) {
+      this.log.warn("Refused invalid alumni_help_update", undefined, {
+        hasValidUserId: Boolean(normalizedUserId),
+        hasValidRequestId: Boolean(normalizedRequestId),
+      });
+      return;
+    }
+
+    const payload: AlumniHelpUpdate = {
+      requestId: normalizedRequestId,
+      requestRevision: update.requestRevision,
+      helpActionRequiredCount: update.helpActionRequiredCount,
+      helpNotificationCount: update.helpNotificationCount,
+      ...(normalizedConversationId
+        ? { roomCreated: { conversationId: normalizedConversationId } }
+        : {}),
+      timestamp: new Date().toISOString(),
+    };
+    this.log.debug("Emitting alumni_help_update", undefined, {
+      userId: normalizedUserId,
+      requestId: normalizedRequestId,
+      requestRevision: update.requestRevision,
+      helpActionRequiredCount: update.helpActionRequiredCount,
+      helpNotificationCount: update.helpNotificationCount,
+    });
+    this.io
+      .to(`user:${normalizedUserId}`)
+      .emit("alumni_help_update", payload);
+  }
+
+  /**
+   * Emit a persisted message to one freshly authorized member's account room.
+   * Delivery deliberately does not trust a prior conversation-room join: an
+   * access window may have closed after that socket was admitted.
+   */
+  emitChatMessageToUser(
+    userId: string,
+    conversationId: string,
+    update: Omit<ChatMessageUpdate, "timestamp">,
+  ): boolean {
+    const normalizedUserId = normalizeObjectId(userId);
+    if (
+      !this.io ||
+      !normalizedUserId ||
+      !isValidChatMessageUpdate(conversationId, update)
+    ) {
+      return false;
+    }
+    const normalizedConversationId = normalizeObjectId(conversationId)!;
+    const payload: ChatMessageUpdate = {
+      message: update.message,
+      timestamp: new Date().toISOString(),
+    };
+    if (!serializedPayloadFits(payload)) {
+      this.log.warn("Refused oversized chat_message payload", undefined, {
+        conversationId: normalizedConversationId,
+        sequence: update.message.sequence,
+      });
+      return false;
+    }
+    this.io.to(`user:${normalizedUserId}`).emit("chat_message", payload);
+    return true;
+  }
+
+  /** Emit authoritative recipient-scoped Room and aggregate unread counters. */
+  emitChatUnreadUpdate(
+    userId: string,
+    update: Omit<ChatUnreadUpdate, "timestamp">,
+  ): boolean {
+    if (!this.io) return false;
+    const normalizedUserId = normalizeObjectId(userId);
+    const normalizedConversationId = normalizeObjectId(update.conversationId);
+    if (
+      !normalizedUserId ||
+      !normalizedConversationId ||
+      !Number.isSafeInteger(update.roomUnreadCount) ||
+      update.roomUnreadCount < 0 ||
+      !Number.isSafeInteger(update.chatUnreadTotal) ||
+      update.chatUnreadTotal < 0 ||
+      !Number.isSafeInteger(update.lastReadSequence) ||
+      update.lastReadSequence < 0
+    ) {
+      return false;
+    }
+    const payload: ChatUnreadUpdate = {
+      conversationId: normalizedConversationId,
+      roomUnreadCount: update.roomUnreadCount,
+      chatUnreadTotal: update.chatUnreadTotal,
+      lastReadSequence: update.lastReadSequence,
+      timestamp: new Date().toISOString(),
+    };
+    if (!serializedPayloadFits(payload)) return false;
+    this.io.to(`user:${normalizedUserId}`).emit("chat_unread_update", payload);
+    return true;
+  }
+
   /**
    * Emit event update to all users viewing a specific event
    */
   emitEventUpdate(
     eventId: string,
     updateType: EventUpdateType,
-    data: unknown,
+    _data: unknown,
   ): void {
     if (!this.io) return;
+    const normalizedEventId = normalizeObjectId(eventId);
+    if (!normalizedEventId) return;
 
-    // Contract note: updateType must be one of the union values used by the frontend.
-    // Covered today: user_removed | user_moved | user_signed_up | user_cancelled |
-    // user_assigned | guest_registration | guest_cancellation | guest_declined | guest_updated | guest_moved |
-    // workshop_topic_updated | attendance_updated | role_full | role_available. Data is minimal and may include
-    // an inline minimal event snapshot when helpful for UI toasts; frontend still refetches
-    // for privacy-aware fields.
+    // Contract note: updateType must be one of the union values used by the
+    // frontend. The payload is only an invalidation signal; each authorized
+    // room member refetches its viewer-specific HTTP DTO.
     const eventUpdateData: EventUpdate = {
-      eventId,
+      eventId: normalizedEventId,
       updateType,
-      data,
+      data: null,
       timestamp: new Date().toISOString(),
     };
 
     this.log.info("Emitting event_update", undefined, {
-      eventId,
+      eventId: normalizedEventId,
       updateType,
-      hasData: data != null,
+      payload: "invalidation-only",
     });
 
-    // Emit to all connected sockets (global broadcast)
-    this.io.emit("event_update", eventUpdateData);
-
-    // Also emit to the specific event room for good measure
-    this.io.to(`event:${eventId}`).emit("event_update", eventUpdateData);
+    // Room membership is authorized at join time. Never emit the event id or
+    // activity signal outside that scoped room.
+    this.io
+      .to(buildResourceRoom("event", normalizedEventId))
+      .emit("event_update", eventUpdateData);
   }
 
   /**
@@ -345,22 +723,26 @@ class SocketService {
   emitEventRoomUpdate(
     eventId: string,
     updateType: EventUpdateType,
-    data: unknown,
+    _data: unknown,
   ): void {
     if (!this.io) return;
+    const normalizedEventId = normalizeObjectId(eventId);
+    if (!normalizedEventId) return;
 
     const payload: EventUpdate = {
-      eventId,
+      eventId: normalizedEventId,
       updateType,
-      data,
+      data: null,
       timestamp: new Date().toISOString(),
     };
     this.log.debug("Emitting event_room_update", undefined, {
-      eventId,
+      eventId: normalizedEventId,
       updateType,
-      hasData: data != null,
+      payload: "invalidation-only",
     });
-    this.io.to(`event:${eventId}`).emit("event_room_update", payload);
+    this.io
+      .to(buildResourceRoom("event", normalizedEventId))
+      .emit("event_room_update", payload);
   }
 
   /**
@@ -399,37 +781,488 @@ class SocketService {
       updateType: updateData.type,
     });
 
-    // Emit to all connected sockets (global broadcast) so all admins see the change
-    this.io.emit("user_update", {
+    const adminPayload = {
       userId,
       ...updateData,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // Account-management data is restricted to sockets that held MANAGE_USERS
+    // when they authenticated. Persisting controllers synchronize changed
+    // account authorization before publishing this invalidation.
+    this.io.to(ADMIN_USERS_ROOM).emit("user_update", adminPayload);
+
+    const safeChanges = Object.fromEntries(
+      Object.entries(updateData.changes || {}).filter(
+        ([key, changed]) =>
+          changed === true &&
+          ["avatar", "roleInAtCloud", "isAtCloudLeader"].includes(key),
+      ),
+    );
+    const safePayload = {
+      userId,
+      type: updateData.type,
+      user: {
+        id: userId,
+        ...(updateData.user.avatar !== undefined
+          ? { avatar: updateData.user.avatar }
+          : {}),
+      },
+      ...(Object.keys(safeChanges).length > 0 ? { changes: safeChanges } : {}),
+      timestamp: adminPayload.timestamp,
+    };
+
+    // Non-admin community consumers receive only a safe invalidation/avatar DTO.
+    this.io.except(ADMIN_USERS_ROOM).emit("user_update", safePayload);
   }
 
   /**
    * Handle user joining event room for real-time updates
    */
-  handleJoinEventRoom(socket: AuthenticatedSocket, eventId: string): void {
-    socket.join(`event:${eventId}`);
-    this.log.debug("Joined event room", undefined, {
-      userId: socket.userId,
-      eventId,
-      socketId: socket.id,
-    });
+  async handleJoinEventRoom(
+    socket: AuthenticatedSocket,
+    eventId: unknown,
+    ack?: SocketRoomAck,
+  ): Promise<void> {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedEventId = normalizeObjectId(eventId);
+    if (!normalizedEventId) {
+      acknowledge?.({ ok: false, code: "INVALID_EVENT_ID" });
+      return;
+    }
+    const authorizationRevision = this.getUserAuthorizationRevision(
+      socket.userId,
+    );
+    const resourceAuthorizationRevision =
+      this.getResourceAuthorizationRevision("event", normalizedEventId);
+
+    const guardResult = this.beginEventJoin(socket.id, normalizedEventId);
+    if (guardResult) {
+      acknowledge?.({ ok: false, code: guardResult });
+      return;
+    }
+
+    try {
+      const freshUser = await User.findById(
+        socket.userId,
+        "_id role isActive isVerified",
+      );
+
+      if (!freshUser || !freshUser.isActive || !freshUser.isVerified) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+
+      const principal = createUserAuthorizationPrincipal(freshUser);
+      if (!principal) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+
+      const authorizationRequest = {
+        source: "socket",
+        principal,
+        action: AUTHORIZATION_ACTIONS.EVENT_SUBSCRIBE_REALTIME,
+        resource: { type: "event", id: normalizedEventId },
+      } as const;
+      const decision = await authorizationService.authorize(
+        authorizationRequest,
+      );
+      if (!decision.allowed) {
+        recordAuthorizationDenial(authorizationRequest, decision, socket.id);
+        acknowledge?.({
+          ok: false,
+          code:
+            decision.reasonCode === "authorization_error"
+              ? "AUTHORIZATION_FAILED"
+              : decision.reasonCode === "resource_not_found" ||
+                  decision.concealExistence
+              ? "EVENT_NOT_FOUND"
+              : "AUTHORIZATION_FAILED",
+        });
+        return;
+      }
+
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision("event", normalizedEventId) ||
+        socket.disconnected
+      ) {
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+
+      await socket.join(buildResourceRoom("event", normalizedEventId));
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision("event", normalizedEventId) ||
+        socket.disconnected
+      ) {
+        await socket.leave(buildResourceRoom("event", normalizedEventId));
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+      this.log.debug("Joined event room", undefined, {
+        userId: socket.userId,
+        eventId: normalizedEventId,
+        socketId: socket.id,
+      });
+      acknowledge?.({ ok: true, eventId: normalizedEventId });
+    } catch (error) {
+      this.log.error(
+        "Failed to authorize event room subscription",
+        error instanceof Error ? error : undefined,
+        undefined,
+        { userId: socket.userId, eventId: normalizedEventId },
+      );
+      acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+    } finally {
+      this.finishEventJoin(socket.id, normalizedEventId);
+    }
+  }
+
+  private beginEventJoin(
+    socketId: string,
+    eventId: string,
+  ): "RATE_LIMITED" | "REQUEST_IN_PROGRESS" | null {
+    const now = Date.now();
+    const guard = this.eventJoinGuards.get(socketId) ?? {
+      attempts: [],
+      inFlight: new Set<string>(),
+    };
+    guard.attempts = guard.attempts.filter(
+      (timestamp) => now - timestamp < EVENT_JOIN_WINDOW_MS,
+    );
+
+    if (guard.inFlight.has(eventId)) return "REQUEST_IN_PROGRESS";
+    if (guard.attempts.length >= MAX_EVENT_JOINS_PER_WINDOW) {
+      return "RATE_LIMITED";
+    }
+
+    guard.attempts.push(now);
+    guard.inFlight.add(eventId);
+    this.eventJoinGuards.set(socketId, guard);
+    return null;
+  }
+
+  private finishEventJoin(socketId: string, eventId: string): void {
+    this.eventJoinGuards.get(socketId)?.inFlight.delete(eventId);
   }
 
   /**
    * Handle user leaving event room
    */
-  handleLeaveEventRoom(socket: AuthenticatedSocket, eventId: string): void {
-    socket.leave(`event:${eventId}`);
+  handleLeaveEventRoom(
+    socket: AuthenticatedSocket,
+    eventId: unknown,
+    ack?: SocketRoomAck,
+  ): void {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedEventId = normalizeObjectId(eventId);
+    if (!normalizedEventId) {
+      acknowledge?.({ ok: false, code: "INVALID_EVENT_ID" });
+      return;
+    }
+
+    socket.leave(buildResourceRoom("event", normalizedEventId));
     this.log.debug("Left event room", undefined, {
       userId: socket.userId,
-      eventId,
+      eventId: normalizedEventId,
       socketId: socket.id,
     });
+    acknowledge?.({ ok: true, eventId: normalizedEventId });
   }
+
+  /** Authorize and join a private chat Room using fresh account/member state. */
+  async handleJoinConversationRoom(
+    socket: AuthenticatedSocket,
+    conversationId: unknown,
+    ack?: ConversationRoomAck,
+  ): Promise<void> {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedConversationId = normalizeObjectId(conversationId);
+    if (!normalizedConversationId) {
+      acknowledge?.({ ok: false, code: "INVALID_CONVERSATION_ID" });
+      return;
+    }
+    const authorizationRevision = this.getUserAuthorizationRevision(
+      socket.userId,
+    );
+    const resourceAuthorizationRevision =
+      this.getResourceAuthorizationRevision(
+        "conversation",
+        normalizedConversationId,
+      );
+    const guardResult = this.beginConversationJoin(
+      socket.id,
+      normalizedConversationId,
+    );
+    if (guardResult) {
+      acknowledge?.({ ok: false, code: guardResult });
+      return;
+    }
+
+    try {
+      const runtime = await featureControlService.getRuntimeConfig();
+      if (
+        runtime.data.alumniNetwork.readable !== true ||
+        (runtime.data.alumniNetwork.mode !== "on" &&
+          runtime.data.alumniNetwork.mode !== "read_only")
+      ) {
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+
+      const freshUser = await User.findById(
+        socket.userId,
+        "_id role isActive isVerified",
+      );
+      if (!freshUser || !freshUser.isActive || !freshUser.isVerified) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+      const principal = createUserAuthorizationPrincipal(freshUser);
+      if (!principal) {
+        acknowledge?.({ ok: false, code: "ACCOUNT_UNAVAILABLE" });
+        socket.disconnect(true);
+        return;
+      }
+
+      const authorizationRequest = {
+        source: "socket",
+        principal,
+        action: "conversation.subscribe_realtime",
+        resource: { type: "conversation", id: normalizedConversationId },
+      } as const;
+      const decision = await authorizationService.authorize(
+        authorizationRequest,
+      );
+      if (!decision.allowed) {
+        recordAuthorizationDenial(authorizationRequest, decision, socket.id);
+        acknowledge?.({
+          ok: false,
+          code:
+            decision.reasonCode === "resource_not_found" ||
+            decision.concealExistence
+              ? "CONVERSATION_NOT_FOUND"
+              : "AUTHORIZATION_FAILED",
+        });
+        return;
+      }
+
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision(
+            "conversation",
+            normalizedConversationId,
+          ) ||
+        socket.disconnected
+      ) {
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+
+      const room = buildResourceRoom(
+        "conversation",
+        normalizedConversationId,
+      );
+      await socket.join(room);
+      if (
+        authorizationRevision !==
+          this.getUserAuthorizationRevision(socket.userId) ||
+        resourceAuthorizationRevision !==
+          this.getResourceAuthorizationRevision(
+            "conversation",
+            normalizedConversationId,
+          ) ||
+        socket.disconnected
+      ) {
+        await socket.leave(room);
+        acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+        return;
+      }
+      acknowledge?.({ ok: true, conversationId: normalizedConversationId });
+    } catch (error) {
+      this.log.error(
+        "Failed to authorize conversation room subscription",
+        error instanceof Error ? error : undefined,
+        undefined,
+        { userId: socket.userId, conversationId: normalizedConversationId },
+      );
+      acknowledge?.({ ok: false, code: "AUTHORIZATION_FAILED" });
+    } finally {
+      this.finishConversationJoin(socket.id, normalizedConversationId);
+    }
+  }
+
+  private beginConversationJoin(
+    socketId: string,
+    conversationId: string,
+  ): "RATE_LIMITED" | "REQUEST_IN_PROGRESS" | null {
+    const now = Date.now();
+    const guard = this.conversationJoinGuards.get(socketId) ?? {
+      attempts: [],
+      inFlight: new Set<string>(),
+    };
+    guard.attempts = guard.attempts.filter(
+      (timestamp) => now - timestamp < CONVERSATION_JOIN_WINDOW_MS,
+    );
+    if (guard.inFlight.has(conversationId)) return "REQUEST_IN_PROGRESS";
+    if (guard.attempts.length >= MAX_CONVERSATION_JOINS_PER_WINDOW) {
+      return "RATE_LIMITED";
+    }
+    guard.attempts.push(now);
+    guard.inFlight.add(conversationId);
+    this.conversationJoinGuards.set(socketId, guard);
+    return null;
+  }
+
+  private finishConversationJoin(
+    socketId: string,
+    conversationId: string,
+  ): void {
+    this.conversationJoinGuards.get(socketId)?.inFlight.delete(conversationId);
+  }
+
+  handleLeaveConversationRoom(
+    socket: AuthenticatedSocket,
+    conversationId: unknown,
+    ack?: ConversationRoomAck,
+  ): void {
+    const acknowledge = typeof ack === "function" ? ack : undefined;
+    const normalizedConversationId = normalizeObjectId(conversationId);
+    if (!normalizedConversationId) {
+      acknowledge?.({ ok: false, code: "INVALID_CONVERSATION_ID" });
+      return;
+    }
+    socket.leave(buildResourceRoom("conversation", normalizedConversationId));
+    acknowledge?.({ ok: true, conversationId: normalizedConversationId });
+  }
+
+  /** Disconnect all live sockets for a canonical user. */
+  disconnectUser(userId: string): boolean {
+    const normalizedUserId = normalizeObjectId(userId);
+    if (!normalizedUserId) return false;
+    this.bumpUserAuthorizationRevision(normalizedUserId);
+    if (!this.io) return false;
+    this.io.in(`user:${normalizedUserId}`).disconnectSockets(true);
+    return true;
+  }
+
+  /** Remove all live sockets for a user from a server-defined resource room. */
+  ejectUserFromResourceRoom(
+    userId: string,
+    resourceType: SocketResourceType,
+    resourceId: string,
+  ): boolean {
+    const normalizedUserId = normalizeObjectId(userId);
+    const normalizedResourceId = normalizeObjectId(resourceId);
+    if (
+      !normalizedUserId ||
+      !normalizedResourceId ||
+      !VALID_RESOURCE_TYPES.has(resourceType)
+    ) {
+      return false;
+    }
+    // Invalidate any authorization decision currently awaiting I/O before the
+    // room removal. Otherwise a stale allowed join could land after the eject.
+    this.bumpUserAuthorizationRevision(normalizedUserId);
+    if (!this.io) return false;
+
+    this.io
+      .in(`user:${normalizedUserId}`)
+      .socketsLeave(buildResourceRoom(resourceType, normalizedResourceId));
+    return true;
+  }
+
+  /**
+   * Invalidate every live authorization decision for a resource. Connected
+   * members are forced to reconnect and re-authorize; in-flight joins are
+   * rejected by the resource revision checks above.
+   */
+  invalidateResourceRoom(
+    resourceType: SocketResourceType,
+    resourceId: string,
+  ): boolean {
+    const normalizedResourceId = normalizeObjectId(resourceId);
+    if (
+      !normalizedResourceId ||
+      !VALID_RESOURCE_TYPES.has(resourceType)
+    ) {
+      return false;
+    }
+
+    const room = buildResourceRoom(resourceType, normalizedResourceId);
+    this.resourceAuthorizationRevisions.set(
+      room,
+      this.getResourceAuthorizationRevision(
+        resourceType,
+        normalizedResourceId,
+      ) + 1,
+    );
+    if (!this.io) return false;
+
+    this.io.in(room).disconnectSockets(true);
+    return true;
+  }
+
+  /** Apply a persisted account/role change to every live socket immediately. */
+  syncUserAuthorization(
+    userId: string,
+    state: { role?: string; isActive?: boolean },
+  ): boolean {
+    const normalizedUserId = normalizeObjectId(userId);
+    if (!normalizedUserId) return false;
+    this.bumpUserAuthorizationRevision(normalizedUserId);
+    if (!this.io) return false;
+
+    const userRoom = this.io.in(`user:${normalizedUserId}`);
+    if (state.isActive === false) {
+      userRoom.socketsLeave(ADMIN_USERS_ROOM);
+      userRoom.disconnectSockets(true);
+      return true;
+    }
+
+    if (typeof state.role === "string") {
+      // A role change can revoke access to any number of resource rooms.
+      // Disconnect all sockets so the client re-authenticates and rejoins only
+      // rooms allowed by the freshly persisted role.
+      userRoom.disconnectSockets(true);
+    }
+    return true;
+  }
+
+  private getUserAuthorizationRevision(userId: string): number {
+    return this.userAuthorizationRevisions.get(userId) ?? 0;
+  }
+
+  private bumpUserAuthorizationRevision(userId: string): void {
+    this.userAuthorizationRevisions.set(
+      userId,
+      this.getUserAuthorizationRevision(userId) + 1,
+    );
+  }
+
+  private getResourceAuthorizationRevision(
+    resourceType: SocketResourceType,
+    resourceId: string,
+  ): number {
+    return (
+      this.resourceAuthorizationRevisions.get(
+        buildResourceRoom(resourceType, resourceId),
+      ) ?? 0
+    );
+  }
+
 }
 
 // Export singleton instance

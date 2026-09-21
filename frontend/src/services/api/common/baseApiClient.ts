@@ -1,6 +1,71 @@
 import { handleSessionExpired } from "../../session";
 import type { ApiResponse, AuthTokens } from "./types";
 import { sanitizeBaseURL, API_BASE_URL } from "./config";
+import { socketService } from "../../socketService";
+
+type HttpError = Error & { status?: number };
+
+function httpError(message: string, status: number): HttpError {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
+
+function errorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return null;
+  }
+  const status = Number((error as { status?: unknown }).status);
+  return Number.isInteger(status) ? status : null;
+}
+
+let refreshInFlight: Promise<AuthTokens> | null = null;
+
+type NavigatorWithLocks = Navigator & {
+  readonly locks?: {
+    request<T>(name: string, callback: () => Promise<T>): Promise<T>;
+  };
+};
+
+function currentAccessToken(): string | null {
+  return localStorage.getItem("authToken");
+}
+
+async function coordinateRefresh(
+  observedAccessToken: string | null,
+  refresh: () => Promise<AuthTokens>,
+): Promise<AuthTokens> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const coordinated = async (): Promise<AuthTokens> => {
+    const locks = (globalThis.navigator as NavigatorWithLocks | undefined)
+      ?.locks;
+    if (!locks) return refresh();
+
+    return locks.request("atcloud-refresh-token", async () => {
+      // Another tab may have completed rotation while this tab waited for the
+      // browser-wide lock. Reuse its access token instead of replaying the
+      // now-consumed HttpOnly refresh cookie.
+      const currentToken = currentAccessToken();
+      if (currentToken && currentToken !== observedAccessToken) {
+        socketService.updateAuthenticationToken(currentToken);
+        return {
+          accessToken: currentToken,
+          expiresAt: new Date(Date.now() + 55 * 60 * 1000).toISOString(),
+        };
+      }
+      return refresh();
+    });
+  };
+
+  const pending = coordinated();
+  refreshInFlight = pending;
+  try {
+    return await pending;
+  } finally {
+    if (refreshInFlight === pending) refreshInFlight = null;
+  }
+}
 
 /**
  * Base API client with core request handling, authentication, and error management.
@@ -120,21 +185,33 @@ export class BaseApiClient {
             }
 
             if (response.ok) return data;
-          } catch {
-            // Refresh failed; clear token
-            localStorage.removeItem("authToken");
-            // Only show session-expired modal if user was previously authenticated.
-            // Guests (no token before request) should get a silent rejection.
-            if (hadTokenBeforeRequest) {
-              handleSessionExpired();
+          } catch (refreshError) {
+            const refreshStatus = errorStatus(refreshError);
+            if (refreshStatus === 401 || refreshStatus === 403) {
+              localStorage.removeItem("authToken");
+              // Only show session-expired modal if user was previously authenticated.
+              // Guests (no token before request) should get a silent rejection.
+              if (hadTokenBeforeRequest) {
+                handleSessionExpired();
+              }
+              return Promise.reject(
+                httpError(
+                  hadTokenBeforeRequest
+                    ? "Session expired"
+                    : "Authentication required",
+                  refreshStatus,
+                ),
+              );
             }
-            return Promise.reject(
-              new Error(
-                hadTokenBeforeRequest
-                  ? "Session expired"
-                  : "Authentication required",
-              ),
-            );
+
+            // A refresh transport failure or 5xx does not prove the refresh
+            // credential is invalid. Keep the access token so startup can
+            // present an offline/retry state instead of forcing a new login.
+            const retryError = new Error(
+              "Unable to verify your session. Check your connection and try again.",
+            ) as HttpError;
+            if (refreshStatus !== null) retryError.status = refreshStatus;
+            return Promise.reject(retryError);
           }
         }
 
@@ -202,10 +279,11 @@ export class BaseApiClient {
             handleSessionExpired();
           }
           return Promise.reject(
-            new Error(
+            httpError(
               hadTokenBeforeRequest
                 ? "Session expired"
                 : "Authentication required",
+              401,
             ),
           );
         }
@@ -227,29 +305,44 @@ export class BaseApiClient {
    * Protected so it can be overridden or exposed by subclasses
    */
   protected async refreshToken(): Promise<AuthTokens> {
-    const url = `${this.baseURL}/auth/refresh-token`;
-    const resp = await fetch(url, {
-      method: "POST",
-      credentials: "include",
+    const observedAccessToken = currentAccessToken();
+    return coordinateRefresh(observedAccessToken, async () => {
+      const url = `${this.baseURL}/auth/refresh-token`;
+      const resp = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+      });
+      let raw: unknown;
+      try {
+        raw = await resp.json();
+      } catch {
+        if (!resp.ok) {
+          throw httpError(
+            resp.statusText || `HTTP ${resp.status}`,
+            resp.status,
+          );
+        }
+        throw new Error("Token refresh returned an invalid response");
+      }
+      const data = raw as Partial<ApiResponse<AuthTokens>> &
+        Partial<AuthTokens> & {
+          data?: Partial<AuthTokens>;
+          message?: string;
+        };
+      if (!resp.ok) {
+        throw httpError(data?.message || `HTTP ${resp.status}`, resp.status);
+      }
+      const token = data.accessToken || data?.data?.accessToken;
+      if (token) {
+        localStorage.setItem("authToken", token);
+        socketService.updateAuthenticationToken(token);
+        const expiresAt =
+          data.expiresAt ||
+          data?.data?.expiresAt ||
+          new Date(Date.now() + 55 * 60 * 1000).toISOString();
+        return { accessToken: token, expiresAt };
+      }
+      throw new Error(data?.message || "Token refresh failed");
     });
-    const raw: unknown = await resp.json();
-    const data = raw as Partial<ApiResponse<AuthTokens>> &
-      Partial<AuthTokens> & {
-        data?: Partial<AuthTokens>;
-        message?: string;
-      };
-    if (!resp.ok) {
-      throw new Error(data?.message || `HTTP ${resp.status}`);
-    }
-    const token = data.accessToken || data?.data?.accessToken;
-    if (token) {
-      localStorage.setItem("authToken", token);
-      const expiresAt =
-        data.expiresAt ||
-        data?.data?.expiresAt ||
-        new Date(Date.now() + 55 * 60 * 1000).toISOString();
-      return { accessToken: token, expiresAt };
-    }
-    throw new Error(data?.message || "Token refresh failed");
   }
 }

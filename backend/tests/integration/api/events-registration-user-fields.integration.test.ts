@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import app from "../../../src/app";
@@ -23,6 +24,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
     const regAdmin = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Admin",
         lastName: "User",
         email: adminEmail,
@@ -32,6 +34,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -49,6 +52,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
     const regLeader = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Leda",
         lastName: "Er",
         email: leaderEmail,
@@ -59,6 +63,7 @@ describe("Event registration user fields (role + systemAuthorizationLevel)", () 
         // Not an @Cloud co-worker to avoid requiring roleInAtCloud in validation
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     leaderId = regLeader.body.data.user.id;

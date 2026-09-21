@@ -20,27 +20,13 @@ import { useProgramCreation } from "../hooks/useProgramCreation";
 import ValidationIndicator from "../components/events/ValidationIndicator";
 import RestrictedAccessOverlay from "../components/common/RestrictedAccessOverlay";
 import ProgramFormFields from "../components/EditProgram/ProgramFormFields";
+import type { Organizer as Mentor } from "../components/events/OrganizerSelection";
 import PricingSection from "../components/EditProgram/PricingSection";
 import type { ProgramStudentRoleForm } from "../types/program";
 import {
   DEFAULT_STUDENT_ROLES,
   DEFAULT_TEACHER_ROLE_NAME,
 } from "../utils/programRoles";
-
-/**
- * Mentor interface - represents a program mentor/instructor
- */
-interface Mentor {
-  id: string;
-  firstName: string;
-  lastName: string;
-  systemAuthorizationLevel: string;
-  roleInAtCloud?: string;
-  gender: "male" | "female";
-  avatar: string | null;
-  email: string;
-  phone?: string;
-}
 
 /**
  * Program form data interface - matches react-hook-form structure

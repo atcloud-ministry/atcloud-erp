@@ -5,10 +5,16 @@
  */
 
 import { Request, Response } from "express";
-import { UserDocLike } from "./types";
+import { User } from "../../models";
+import {
+  SELF_USER_QUERY_PROJECTION,
+  serializeSelfUser,
+} from "../../serializers/userReadSerializers";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
 
 export default class ProfileController {
   static async getProfile(req: Request, res: Response): Promise<void> {
+    let userId: string | undefined;
     try {
       if (!req.user) {
         res.status(401).json({
@@ -17,40 +23,31 @@ export default class ProfileController {
         });
         return;
       }
+      userId = String(req.user._id);
 
-      const u = req.user as unknown as UserDocLike & {
-        createdAt?: Date | string;
-        isActive?: boolean;
-      };
+      const user = await User.findById(userId).select(
+        SELF_USER_QUERY_PROJECTION,
+      );
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: "User not found.",
+        });
+        return;
+      }
+
       res.status(200).json({
         success: true,
         data: {
-          user: {
-            id: u._id,
-            username: u.username,
-            email: u.email,
-            phone: u.phone,
-            firstName: u.firstName,
-            lastName: u.lastName,
-            gender: u.gender,
-            avatar: u.avatar,
-            role: u.role,
-            isAtCloudLeader: u.isAtCloudLeader,
-            roleInAtCloud: u.roleInAtCloud,
-            occupation: u.occupation,
-            company: u.company,
-            weeklyChurch: u.weeklyChurch,
-            homeAddress: u.homeAddress,
-            churchAddress: u.churchAddress,
-            lastLogin: u.lastLogin,
-            createdAt: u.createdAt,
-            isVerified: u.isVerified,
-            isActive: u.isActive,
-          },
+          user: serializeSelfUser(user),
         },
       });
     } catch (error: unknown) {
-      console.error("Get profile error:", error);
+      logSafeErrorEvent(
+        "AUTH_PROFILE_READ_FAILED",
+        error,
+        userId,
+      );
       res.status(500).json({
         success: false,
         message: "Failed to retrieve profile.",

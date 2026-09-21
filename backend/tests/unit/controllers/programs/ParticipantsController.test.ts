@@ -488,10 +488,11 @@ describe("ParticipantsController", () => {
 
         const response = jsonMock.mock.calls[0][0];
         expect(response.data.mentees[0].user.email).toBe("paid@example.com");
-        expect(response.data.mentees[0].user.phone).toBe("555-0101");
+        expect(response.data.mentees[0].user.phone).toBeUndefined();
         expect(response.data.classReps[0].user.email).toBe(
           "admin.classrep@example.com",
         );
+        expect(response.data.classReps[0].user.phone).toBe("555-0104");
       });
 
       it("should sort purchases by purchaseDate ascending", async () => {

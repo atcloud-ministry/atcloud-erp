@@ -20,16 +20,16 @@ export const FORM_SECTIONS = {
     description: "Tell us about yourself",
   },
   contact: {
-    title: "Other Contact Information",
-    description: "How can we reach you",
+    title: "Contact and Residence",
+    description: "How we can reach you and where you live",
   },
   ministry: {
     title: "Ministry Information",
     description: "Your role and involvement",
   },
   optional: {
-    title: "Additional Information",
-    description: "Optional details",
+    title: "Work and Community",
+    description: "Your current work status and optional church information",
   },
 } as const;
 

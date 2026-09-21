@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { AnnualMembership, Program, Purchase } from "../models";
 import { lockService } from "../services/LockService";
 import { createMembershipCheckoutSession } from "../services/stripeService";
+import { resourceAuthorizationInvalidationService } from "../services/authorization/ResourceAuthorizationInvalidationService";
 
 const ADMIN_ROLES = ["Super Admin", "Administrator"];
 
@@ -253,6 +254,12 @@ export class AnnualMembershipController {
         return;
       }
 
+      const priorProgramIds = (membership.programs || []).map((programId) =>
+        String(programId),
+      );
+      const realtimeAccessInputsProvided =
+        "programIds" in req.body || "isActive" in req.body;
+
       if ("title" in req.body) {
         const title = String(req.body.title || "").trim();
         if (!title) {
@@ -294,7 +301,38 @@ export class AnnualMembershipController {
         membership.isActive = req.body.isActive !== false;
       }
 
+      const affectedProgramIds = [
+        ...priorProgramIds,
+        ...(membership.programs || []),
+      ];
+      const affectedEventIdsBefore = realtimeAccessInputsProvided
+        ? await resourceAuthorizationInvalidationService.findEventIdsForPrograms(
+            affectedProgramIds,
+          )
+        : [];
       await membership.save();
+      resourceAuthorizationInvalidationService.invalidateEventRooms(
+        affectedEventIdsBefore,
+      );
+      if (realtimeAccessInputsProvided) {
+        try {
+          const affectedEventIdsAfter =
+            await resourceAuthorizationInvalidationService.findEventIdsForPrograms(
+              affectedProgramIds,
+            );
+          const previouslyInvalidated = new Set(affectedEventIdsBefore);
+          resourceAuthorizationInvalidationService.invalidateEventRooms(
+            affectedEventIdsAfter.filter(
+              (eventId) => !previouslyInvalidated.has(eventId),
+            ),
+          );
+        } catch (error) {
+          console.error(
+            "Failed to reconcile annual membership event-room invalidation:",
+            error,
+          );
+        }
+      }
       await membership.populate(
         "programs",
         "title programType period isFree fullPriceTicket",

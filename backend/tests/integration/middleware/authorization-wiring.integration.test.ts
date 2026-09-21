@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
 import User from "../../../src/models/User";
+import AuditLog from "../../../src/models/AuditLog";
 
 describe("Authorization wiring integration", () => {
   let participantToken: string;
@@ -11,10 +13,11 @@ describe("Authorization wiring integration", () => {
   let participantId: string;
 
   beforeEach(async () => {
-    await User.deleteMany({});
+    await Promise.all([User.deleteMany({}), AuditLog.deleteMany({})]);
 
     // Create participant
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_participant",
       email: "aw_participant@example.com",
       password: "TestPass123!",
@@ -24,6 +27,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     const regRes = await request(app)
       .post("/api/auth/register")
@@ -42,6 +46,7 @@ describe("Authorization wiring integration", () => {
 
     // Create admin
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_admin",
       email: "aw_admin@example.com",
       password: "AdminPass123!",
@@ -51,6 +56,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(adminData).expect(201);
     await User.findOneAndUpdate(
@@ -65,6 +71,7 @@ describe("Authorization wiring integration", () => {
 
     // Create super admin
     const saData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "aw_super",
       email: "aw_super@example.com",
       password: "SuperPass123!",
@@ -74,6 +81,7 @@ describe("Authorization wiring integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(saData).expect(201);
     await User.findOneAndUpdate(
@@ -88,7 +96,7 @@ describe("Authorization wiring integration", () => {
   });
 
   afterEach(async () => {
-    await User.deleteMany({});
+    await Promise.all([User.deleteMany({}), AuditLog.deleteMany({})]);
   });
 
   describe("/api/users/stats (permission-protected)", () => {
@@ -97,11 +105,44 @@ describe("Authorization wiring integration", () => {
     });
 
     it("returns 403 for participant token", async () => {
+      const correlationId = "auth-wiring-denial-001";
       const res = await request(app)
         .get("/api/users/stats")
         .set("Authorization", `Bearer ${participantToken}`)
+        .set("x-correlation-id", correlationId)
         .expect(403);
       expect(res.body).toMatchObject({ success: false });
+
+      await vi.waitFor(
+        async () => {
+          expect(
+            await AuditLog.exists({
+              version: 2,
+              action: "authorization.denied",
+              correlationId,
+            }),
+          ).toBeTruthy();
+        },
+        { timeout: 2_000, interval: 20 },
+      );
+
+      const denial = await AuditLog.findOne({
+        version: 2,
+        action: "authorization.denied",
+        correlationId,
+      }).lean();
+      expect(denial).toMatchObject({
+        actorType: "user",
+        actorKey: participantId,
+        source: "http",
+        outcome: "denied",
+        reasonCode: "insufficient_permission",
+        details: {
+          authorizationAction: "platform.has_permission",
+        },
+      });
+      expect(denial?.actor?.email).toBeUndefined();
+      expect(JSON.stringify(denial)).not.toContain("aw_participant@example.com");
     });
 
     it("returns 200 for admin token", async () => {
@@ -151,6 +192,68 @@ describe("Authorization wiring integration", () => {
         .set("Authorization", `Bearer ${superAdminToken}`)
         .expect(200);
       expect(res.body).toMatchObject({ success: true });
+    });
+  });
+
+  describe("/api/system/recovery (MANAGE_SYSTEM_SETTINGS)", () => {
+    it("returns 401 without a token", async () => {
+      const res = await request(app).get("/api/system/recovery").expect(401);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it.each([
+      { role: "Participant", token: () => participantToken },
+      { role: "Administrator", token: () => adminToken },
+    ])("returns 403 for $role", async ({ token }) => {
+      const res = await request(app)
+        .get("/api/system/recovery")
+        .set("Authorization", `Bearer ${token()}`)
+        .expect(403);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 200 for Super Admin", async () => {
+      const res = await request(app)
+        .get("/api/system/recovery")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .expect(200);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.body).toMatchObject({
+        success: true,
+        data: { operation: "notification_outbox_reconcile" },
+      });
+    });
+  });
+
+  describe("/api/system/feature-controls (MANAGE_SYSTEM_SETTINGS)", () => {
+    it("returns 401 without a token", async () => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .expect(401);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it.each([
+      { role: "Participant", token: () => participantToken },
+      { role: "Administrator", token: () => adminToken },
+    ])("returns 403 for $role", async ({ token }) => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .set("Authorization", `Bearer ${token()}`)
+        .expect(403);
+      expect(res.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 200 for Super Admin", async () => {
+      const res = await request(app)
+        .get("/api/system/feature-controls")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .expect(200);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(res.body).toMatchObject({
+        success: true,
+        data: { version: 1, alumniNetwork: { mode: "off" } },
+      });
     });
   });
 });

@@ -142,7 +142,7 @@ describe("EventDetail realtime auto-unpublish toast", () => {
     socketMock.emit({
       eventId: "e1",
       updateType: "guest_registration", // triggers refetch path without requiring embedded event shape
-      data: { roleId: "r1", guestName: "Temp" },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 
@@ -160,7 +160,7 @@ describe("EventDetail realtime auto-unpublish toast", () => {
     socketMock.emit({
       eventId: "e1",
       updateType: "guest_cancellation",
-      data: { roleId: "r1", guestName: "Temp" },
+      data: null,
       timestamp: new Date().toISOString(),
     });
 

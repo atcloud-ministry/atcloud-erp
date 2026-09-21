@@ -39,7 +39,7 @@ describe("Role Assignment ICS Integration Test", () => {
     };
 
     const mockTargetUser = {
-      id: "user-456",
+      id: "507f1f77bcf86cd799439011",
       email: "testuser@example.com",
       firstName: "John",
       lastName: "Doe",
@@ -106,7 +106,7 @@ describe("Role Assignment ICS Integration Test", () => {
     };
 
     const mockTargetUser = {
-      id: "user-456",
+      id: "507f1f77bcf86cd799439011",
       email: "testuser@example.com",
       firstName: "John",
       lastName: "Doe",

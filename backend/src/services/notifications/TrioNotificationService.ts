@@ -23,6 +23,7 @@ import { NotificationErrorHandler } from "./NotificationErrorHandler";
 import { findUtcInstantFromLocal } from "@atcloud/shared-time";
 import { TrioTransaction } from "./TrioTransaction";
 import { Logger } from "../LoggerService";
+import { serializeSystemMessageForRecipient } from "../../serializers/systemMessageRealtimeSerializer";
 
 // Types for trio operations
 export interface TrioRequest {
@@ -157,7 +158,7 @@ export class TrioNotificationService {
       const socketStart = Date.now();
       const socketResult = await this.emitWebSocketEvents(
         messageResult,
-        request.recipients,
+        this.getPersistedRecipientIds(messageResult),
         transaction
       );
       const socketTime = Date.now() - socketStart;
@@ -372,7 +373,8 @@ export class TrioNotificationService {
         await UnifiedMessageController.createTargetedSystemMessage(
           messageData,
           recipients,
-          creator
+          creator,
+          { emitMessageCreatedEvent: false },
         );
 
       transaction.addOperation("message", {
@@ -437,6 +439,21 @@ export class TrioNotificationService {
     return { count: successCount };
   }
 
+  private static getPersistedRecipientIds(
+    message: {
+      userStates?: Map<string, unknown> | Record<string, unknown>;
+    },
+  ): string[] {
+    if (message.userStates instanceof Map) {
+      return Array.from(message.userStates.keys());
+    }
+    if (message.userStates && typeof message.userStates === "object") {
+      return Object.keys(message.userStates);
+    }
+
+    throw new Error("TRIO_MESSAGE_RECIPIENT_STATE_MISSING");
+  }
+
   /**
    * Emit WebSocket event with retry logic
    */
@@ -452,7 +469,7 @@ export class TrioNotificationService {
         const emitPromise = new Promise<void>((resolve, reject) => {
           try {
             socketService.emitSystemMessageUpdate(userId, "message_created", {
-              message: message.toJSON(),
+              message: serializeSystemMessageForRecipient(message, userId),
             });
             resolve();
           } catch (error) {

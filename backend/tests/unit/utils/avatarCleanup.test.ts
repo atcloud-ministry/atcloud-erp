@@ -1,20 +1,35 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { unlink, log } = vi.hoisted(() => ({
-  unlink: vi.fn(),
+const { enqueueStandalone, processTargets, log } = vi.hoisted(() => ({
+  enqueueStandalone: vi.fn(),
+  processTargets: vi.fn(),
   log: {
     debug: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-vi.mock("fs", () => ({
-  default: { promises: { unlink } },
-}));
 vi.mock("../../../src/services/LoggerService", () => ({
   createLogger: vi.fn(() => log),
+  Logger: {
+    getInstance: vi.fn(() => ({ child: vi.fn(() => log) })),
+  },
 }));
+vi.mock(
+  "../../../src/services/privacy/FileCleanupService",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../src/services/privacy/FileCleanupService")
+      >();
+    return {
+      ...actual,
+      fileCleanupService: { enqueueStandalone, processTargets },
+    };
+  },
+);
 
 import {
   cleanupOldAvatar,
@@ -22,82 +37,110 @@ import {
   isUploadedAvatar,
 } from "../../../src/utils/avatarCleanup";
 
-describe("avatarCleanup", () => {
-  const originalEnvironment = { ...process.env };
+const QUEUED_AVATAR = {
+  jobKey: "a".repeat(64),
+  storageArea: "avatars" as const,
+  filename: "old.jpg",
+};
 
+describe("avatarCleanup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env = { ...originalEnvironment, NODE_ENV: "test" };
-    delete process.env.UPLOAD_DESTINATION;
-    unlink.mockResolvedValue(undefined);
+    vi.stubEnv("BACKEND_URL", "https://app.test/api");
+    vi.stubEnv("RENDER_EXTERNAL_URL", "");
+    vi.stubEnv("API_BASE_URL", "");
+    enqueueStandalone.mockResolvedValue([QUEUED_AVATAR]);
+    processTargets.mockResolvedValue([
+      { target: QUEUED_AVATAR, outcome: "deleted" },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it.each([
     ["/uploads/avatars/user.jpg", true],
-    ["https://example.com/uploads/avatars/user.jpg", true],
+    ["https://app.test/uploads/avatars/user.jpg", true],
+    ["https://external.test/uploads/avatars/user.jpg", false],
     ["/default-avatar-male.jpg", false],
     [undefined, false],
     [null, false],
-  ])("identifies uploaded avatars", (value, expected) => {
+  ])("identifies approved local avatars", (value, expected) => {
     expect(isUploadedAvatar(value)).toBe(expected);
   });
 
-  it("does not touch the filesystem for default avatars", async () => {
+  it("does not queue default or untrusted avatars", async () => {
     await expect(deleteOldAvatarFile("/default-avatar-male.jpg")).resolves.toBe(
       false,
     );
-    expect(unlink).not.toHaveBeenCalled();
+    await expect(
+      deleteOldAvatarFile(
+        "https://external.test/uploads/avatars/do-not-delete.jpg",
+      ),
+    ).resolves.toBe(false);
+    expect(enqueueStandalone).not.toHaveBeenCalled();
   });
 
-  it("deletes an uploaded avatar asynchronously from the configured directory", async () => {
-    process.env.UPLOAD_DESTINATION = "/data/uploads/";
-
+  it("queues an old avatar durably and uses the guarded processor", async () => {
     await expect(
-      deleteOldAvatarFile("https://app.test/uploads/avatars/old.jpg?version=2"),
+      deleteOldAvatarFile(
+        "https://app.test/uploads/avatars/old.jpg?version=2",
+      ),
     ).resolves.toBe(true);
 
-    expect(unlink).toHaveBeenCalledWith("/data/uploads/avatars/old.jpg");
+    expect(enqueueStandalone).toHaveBeenCalledWith([
+      { storageArea: "avatars", filename: "old.jpg" },
+    ]);
+    expect(processTargets).toHaveBeenCalledWith([QUEUED_AVATAR]);
   });
 
-  it("uses the local upload directory outside production", async () => {
-    await deleteOldAvatarFile("/uploads/avatars/local.png");
+  it("queues a relative legacy avatar path through the same durable path", async () => {
+    await expect(
+      deleteOldAvatarFile("/uploads/avatars/old.jpg#cached"),
+    ).resolves.toBe(true);
 
-    expect(unlink).toHaveBeenCalledWith(
-      expect.stringMatching(/uploads\/avatars\/local\.png$/),
-    );
+    expect(enqueueStandalone).toHaveBeenCalledWith([
+      { storageArea: "avatars", filename: "old.jpg" },
+    ]);
   });
 
-  it("treats an already-missing avatar as successfully cleaned state", async () => {
-    unlink.mockRejectedValue(
-      Object.assign(new Error("missing"), { code: "ENOENT" }),
-    );
+  it("reports an already-absent avatar without direct filesystem access", async () => {
+    processTargets.mockResolvedValue([
+      { target: QUEUED_AVATAR, outcome: "already_absent" },
+    ]);
 
     await expect(
-      deleteOldAvatarFile("/uploads/avatars/missing.jpg"),
+      deleteOldAvatarFile("/uploads/avatars/old.jpg"),
+    ).resolves.toBe(false);
+    expect(enqueueStandalone).toHaveBeenCalledOnce();
+    expect(processTargets).toHaveBeenCalledOnce();
+  });
+
+  it("leaves failed or referenced cleanup in the durable queue", async () => {
+    processTargets.mockResolvedValue([
+      { target: QUEUED_AVATAR, outcome: "still_referenced" },
+    ]);
+
+    await expect(
+      deleteOldAvatarFile("/uploads/avatars/old.jpg"),
     ).resolves.toBe(false);
     expect(log.error).not.toHaveBeenCalled();
   });
 
-  it("isolates other filesystem failures", async () => {
-    unlink.mockRejectedValue(
-      Object.assign(new Error("denied"), { code: "EACCES" }),
-    );
+  it("uses the same durable path through cleanupOldAvatar without logging the old URL", async () => {
+    const oldUrl = "/uploads/avatars/old.jpg?private=reference";
 
-    await expect(
-      deleteOldAvatarFile("/uploads/avatars/protected.jpg"),
-    ).resolves.toBe(false);
-    expect(log.error).toHaveBeenCalled();
-  });
+    await expect(cleanupOldAvatar("user-1", oldUrl)).resolves.toBe(true);
 
-  it("uses the same asynchronous deletion path through cleanupOldAvatar", async () => {
-    await expect(
-      cleanupOldAvatar("user-1", "/uploads/avatars/old.webp"),
-    ).resolves.toBe(true);
-    expect(unlink).toHaveBeenCalledOnce();
+    expect(enqueueStandalone).toHaveBeenCalledOnce();
     expect(log.info).toHaveBeenCalledWith(
       "Cleaning up old avatar for user",
       undefined,
-      expect.objectContaining({ userId: "user-1" }),
+      { userId: "user-1" },
     );
+    expect(JSON.stringify(log.info.mock.calls)).not.toContain(oldUrl);
+    expect(JSON.stringify(log.debug.mock.calls)).not.toContain(oldUrl);
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain(oldUrl);
   });
 });

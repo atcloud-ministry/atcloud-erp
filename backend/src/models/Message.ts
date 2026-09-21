@@ -1,4 +1,28 @@
 import mongoose, { Schema, Document } from "mongoose";
+import {
+  buildMessageRoleVisibilityClauses,
+  isMessageRoleVisible,
+} from "../utils/messageAuthorization";
+
+export class MessageRecipientStateNotFoundError extends Error {
+  readonly code = "MESSAGE_RECIPIENT_STATE_NOT_FOUND";
+
+  constructor() {
+    super("Message recipient state does not exist");
+    this.name = "MessageRecipientStateNotFoundError";
+  }
+}
+
+function hasRecipientState(
+  userStates: Map<string, unknown> | Record<string, unknown> | undefined,
+  userId: string
+): boolean {
+  if (!userStates) return false;
+  if (typeof (userStates as Map<string, unknown>).has === "function") {
+    return (userStates as Map<string, unknown>).has(userId);
+  }
+  return Object.prototype.hasOwnProperty.call(userStates, userId);
+}
 
 /**
  * Unified Message System - Single Source of Truth
@@ -108,15 +132,15 @@ export interface IMessage extends Document {
   markAsReadEverywhere(userId: string): void;
   removeFromBell(userId: string): void;
   deleteFromSystem(userId: string): void;
-  shouldShowInBell(userId: string): boolean;
-  shouldShowInSystem(userId: string): boolean;
+  shouldShowInBell(userId: string, userRole: string): boolean;
+  shouldShowInSystem(userId: string, userRole: string): boolean;
   getBellDisplayTitle(): string;
   canRemoveFromBell(userId: string): boolean;
 }
 
 // Interface for the Message model with static methods
 export interface IMessageModel extends mongoose.Model<IMessage> {
-  getBellNotificationsForUser(userId: string): Promise<
+  getBellNotificationsForUser(userId: string, userRole: string): Promise<
     Array<{
       id: mongoose.Types.ObjectId;
       title: string;
@@ -138,6 +162,7 @@ export interface IMessageModel extends mongoose.Model<IMessage> {
   >;
   getSystemMessagesForUser(
     userId: string,
+    userRole: string,
     page?: number,
     limit?: number
   ): Promise<{
@@ -161,7 +186,7 @@ export interface IMessageModel extends mongoose.Model<IMessage> {
       hasPrev: boolean;
     };
   }>;
-  getUnreadCountsForUser(userId: string): Promise<{
+  getUnreadCountsForUser(userId: string, userRole: string): Promise<{
     bellNotifications: number;
     systemMessages: number;
     total: number;
@@ -321,12 +346,10 @@ const messageSchema: Schema = new Schema(
     toJSON: {
       virtuals: true,
       transform: function (_doc: unknown, ret: Record<string, unknown>) {
-        // Convert Map to Object for JSON serialization
-        if (ret.userStates instanceof Map) {
-          (ret as Record<string, unknown>).userStates = Object.fromEntries(
-            ret.userStates as Map<string, unknown>
-          );
-        }
+        delete ret.userStates;
+        delete ret.targetRoles;
+        delete ret.createdBy;
+        delete ret.targetUserId;
         // Enforce hideCreator flag at serialization layer
         if ((ret as { hideCreator?: boolean }).hideCreator) {
           (ret as Record<string, unknown>).creator = undefined;
@@ -356,6 +379,15 @@ const messageSchema: Schema = new Schema(
 messageSchema.index({ isActive: 1, createdAt: -1 });
 messageSchema.index({ type: 1, isActive: 1 });
 messageSchema.index({ priority: 1, isActive: 1 });
+messageSchema.index(
+  { "metadata.workflowDeliveryId": 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      "metadata.workflowDeliveryId": { $type: "string" },
+    },
+  },
+);
 messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
 
 // Instance Methods
@@ -405,6 +437,10 @@ messageSchema.methods = {
       lastInteractionAt?: Date;
     }>
   ) {
+    if (!hasRecipientState(this.userStates, userId)) {
+      throw new MessageRecipientStateNotFoundError();
+    }
+
     const currentState = this.getUserState(userId);
     const newState = {
       ...currentState,
@@ -474,7 +510,13 @@ messageSchema.methods = {
   /**
    * Check if message should appear in bell notifications for user
    */
-  shouldShowInBell(userId: string): boolean {
+  shouldShowInBell(userId: string, userRole: string): boolean {
+    if (!hasRecipientState(this.userStates, userId)) {
+      return false;
+    }
+    if (!isMessageRoleVisible(this.targetRoles, userRole)) {
+      return false;
+    }
     const state = this.getUserState(userId);
     return this.isActive && !state.isRemovedFromBell;
   },
@@ -482,7 +524,13 @@ messageSchema.methods = {
   /**
    * Check if message should appear in system messages for user
    */
-  shouldShowInSystem(userId: string): boolean {
+  shouldShowInSystem(userId: string, userRole: string): boolean {
+    if (!hasRecipientState(this.userStates, userId)) {
+      return false;
+    }
+    if (!isMessageRoleVisible(this.targetRoles, userRole)) {
+      return false;
+    }
     const state = this.getUserState(userId);
     return this.isActive && !state.isDeletedFromSystem;
   },
@@ -506,12 +554,14 @@ messageSchema.methods = {
 
 // Static Methods
 messageSchema.statics.getBellNotificationsForUser = async function (
-  userId: string
+  userId: string,
+  userRole: string
 ) {
   const messages = await this.find({
     isActive: true,
     [`userStates.${userId}`]: { $exists: true }, // Only messages where user exists in userStates
     [`userStates.${userId}.isRemovedFromBell`]: { $ne: true },
+    $or: buildMessageRoleVisibilityClauses(userRole),
   }).sort({ createdAt: -1 });
 
   return messages.map((message: IMessage) => {
@@ -542,23 +592,25 @@ messageSchema.statics.getBellNotificationsForUser = async function (
 
 messageSchema.statics.getSystemMessagesForUser = async function (
   userId: string,
+  userRole: string,
   page = 1,
   limit = 20
 ) {
   const skip = (page - 1) * limit;
 
-  const messages = await this.find({
+  const visibilityFilter = {
     isActive: true,
+    [`userStates.${userId}`]: { $exists: true },
     [`userStates.${userId}.isDeletedFromSystem`]: { $ne: true },
-  })
+    $or: buildMessageRoleVisibilityClauses(userRole),
+  };
+
+  const messages = await this.find(visibilityFilter)
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
 
-  const total = await this.countDocuments({
-    isActive: true,
-    [`userStates.${userId}.isDeletedFromSystem`]: { $ne: true },
-  });
+  const total = await this.countDocuments(visibilityFilter);
 
   return {
     messages: messages.map((message: IMessage) => {
@@ -588,12 +640,17 @@ messageSchema.statics.getSystemMessagesForUser = async function (
   };
 };
 
-messageSchema.statics.getUnreadCountsForUser = async function (userId: string) {
+messageSchema.statics.getUnreadCountsForUser = async function (
+  userId: string,
+  userRole: string
+) {
+  const roleVisibility = buildMessageRoleVisibilityClauses(userRole);
   const bellNotificationsCount = await this.countDocuments({
     isActive: true,
     [`userStates.${userId}`]: { $exists: true }, // Only messages where user exists in userStates
     [`userStates.${userId}.isRemovedFromBell`]: { $ne: true },
     [`userStates.${userId}.isReadInBell`]: { $ne: true },
+    $or: roleVisibility,
   });
 
   const systemMessagesCount = await this.countDocuments({
@@ -601,6 +658,7 @@ messageSchema.statics.getUnreadCountsForUser = async function (userId: string) {
     [`userStates.${userId}`]: { $exists: true }, // Only messages where user exists in userStates
     [`userStates.${userId}.isDeletedFromSystem`]: { $ne: true },
     [`userStates.${userId}.isReadInSystem`]: { $ne: true },
+    $or: roleVisibility,
   });
 
   return {

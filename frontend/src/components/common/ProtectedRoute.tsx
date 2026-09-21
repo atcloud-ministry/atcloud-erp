@@ -3,6 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import type { SystemAuthorizationLevel } from "../../types";
 import LoadingSpinner from "./LoadingSpinner";
+import AuthInitializationError from "./AuthInitializationError";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -15,12 +16,26 @@ export function ProtectedRoute({
   requiredRole,
   allowedRoles,
 }: ProtectedRouteProps) {
-  const { currentUser, isLoading } = useAuth();
+  const {
+    currentUser,
+    isLoading,
+    initializationError,
+    retryInitialization,
+  } = useAuth();
   const location = useLocation();
 
   // Show loading spinner while checking authentication
   if (isLoading) {
     return <LoadingSpinner />;
+  }
+
+  if (initializationError) {
+    return (
+      <AuthInitializationError
+        message={initializationError}
+        onRetry={retryInitialization}
+      />
+    );
   }
 
   // Redirect to login if user is not authenticated

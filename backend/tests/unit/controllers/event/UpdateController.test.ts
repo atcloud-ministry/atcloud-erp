@@ -121,6 +121,15 @@ vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
   },
 }));
 
+vi.mock(
+  "../../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      invalidateEventRoom: vi.fn(),
+    },
+  }),
+);
+
 vi.mock("../../../../src/services/ResponseBuilderService", () => ({
   ResponseBuilderService: {
     buildEventWithRegistrations: vi
@@ -161,6 +170,7 @@ import { CoOrganizerNotificationService } from "../../../../src/services/event/C
 import { ParticipantNotificationService } from "../../../../src/services/event/ParticipantNotificationService";
 import { ResponseBuilderService } from "../../../../src/services/ResponseBuilderService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
+import { resourceAuthorizationInvalidationService } from "../../../../src/services/authorization/ResourceAuthorizationInvalidationService";
 
 import AuditLog from "../../../../src/models/AuditLog";
 import Program from "../../../../src/models/Program";
@@ -730,6 +740,34 @@ describe("UpdateController", () => {
         "507f1f77bcf86cd799439011",
       );
       expect(CachePatterns.invalidateAnalyticsCache).toHaveBeenCalled();
+    });
+
+    it("invalidates live room authorization after an access input is persisted", async () => {
+      vi.mocked(
+        FieldNormalizationService.normalizeAndValidate,
+      ).mockResolvedValue({
+        title: "Updated Event",
+        pricing: { isFree: false, price: 1000 },
+      } as any);
+
+      await UpdateController.updateEvent(req as Request, res as Response);
+
+      expect(
+        resourceAuthorizationInvalidationService.invalidateEventRoom,
+      ).toHaveBeenCalledWith("507f1f77bcf86cd799439011");
+      expect(mockEvent.save.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(
+          resourceAuthorizationInvalidationService.invalidateEventRoom,
+        ).mock.invocationCallOrder[0],
+      );
+    });
+
+    it("keeps live room authorization for a non-access field update", async () => {
+      await UpdateController.updateEvent(req as Request, res as Response);
+
+      expect(
+        resourceAuthorizationInvalidationService.invalidateEventRoom,
+      ).not.toHaveBeenCalled();
     });
 
     it("should return 200 with updated event on success", async () => {

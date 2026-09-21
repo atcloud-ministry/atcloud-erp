@@ -26,8 +26,8 @@ import {
 } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
-import mongoose from "mongoose";
-import { User } from "../../../src/models";
+import crypto from "crypto";
+import { RefreshSession, User } from "../../../src/models";
 import { ensureIntegrationDB } from "../setup/connect";
 import { createAndLoginTestUser } from "../../test-utils/createTestUser";
 import { ROLES } from "../../../src/utils/roleUtils";
@@ -44,7 +44,7 @@ describe("Token Refresh API Integration Tests", () => {
 
   beforeEach(async () => {
     // Clean up
-    await User.deleteMany({});
+    await Promise.all([User.deleteMany({}), RefreshSession.deleteMany({})]);
 
     // Create test user and get tokens
     const result = await createAndLoginTestUser({
@@ -54,19 +54,17 @@ describe("Token Refresh API Integration Tests", () => {
       role: ROLES.PARTICIPANT,
       verified: true,
     });
-
     testUserToken = result.token;
 
     // Get user from database
     testUser = await User.findOne({ email: "token@test.com" });
 
-    // Generate valid refresh token
-    const tokens = TokenService.generateTokenPair(testUser);
-    validRefreshToken = tokens.refreshToken;
+    validRefreshToken = result.refreshToken!;
   });
 
   afterEach(async () => {
-    await User.deleteMany({});
+    vi.restoreAllMocks();
+    await Promise.all([User.deleteMany({}), RefreshSession.deleteMany({})]);
   });
 
   afterAll(async () => {
@@ -85,9 +83,8 @@ describe("Token Refresh API Integration Tests", () => {
         expect(response.body.message).toMatch(/token refreshed successfully/i);
         expect(response.body.data).toBeDefined();
         expect(response.body.data.accessToken).toBeDefined();
-        expect(response.body.data.refreshToken).toBeDefined();
         expect(typeof response.body.data.accessToken).toBe("string");
-        expect(typeof response.body.data.refreshToken).toBe("string");
+        expect(response.body.data).not.toHaveProperty("refreshToken");
       });
 
       it("should set new refresh token cookie", async () => {
@@ -106,7 +103,97 @@ describe("Token Refresh API Integration Tests", () => {
 
           expect(cookieString).toMatch(/refreshToken/);
           expect(cookieString).toMatch(/httponly/i);
+          expect(cookieString).toMatch(/path=\/api\/auth/i);
         }
+      });
+
+      it("keeps a non-remembered family at its fixed one-day expiry after rotation", async () => {
+        const original = TokenService.verifyRefreshToken(validRefreshToken);
+        expect((original.exp! - original.iat!) * 1_000).toBe(86_400_000);
+
+        const response = await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(200);
+        const rotatedCookie = response.headers["set-cookie"]?.[0]?.split(";")[0];
+        const rotatedToken = rotatedCookie?.slice("refreshToken=".length);
+        const rotated = TokenService.verifyRefreshToken(rotatedToken!);
+        expect(rotated.exp).toBe(original.exp);
+
+        const session = await RefreshSession.findOne({ familyId: rotated.sid });
+        expect(session?.refreshLifetimeMs).toBe(86_400_000);
+        expect(session?.expiresAt.getTime()).toBe(original.exp! * 1_000);
+      });
+
+      it("uses the configured lifetime for remembered families", async () => {
+        const previous = process.env.JWT_REFRESH_EXPIRE;
+        process.env.JWT_REFRESH_EXPIRE = "9d";
+        try {
+          const response = await request(app)
+            .post("/api/auth/login")
+            .send({
+              emailOrUsername: "token@test.com",
+              password: "Password123!",
+              rememberMe: true,
+            })
+            .expect(200);
+          const cookie = response.headers["set-cookie"]?.[0]?.split(";")[0];
+          const token = cookie?.slice("refreshToken=".length);
+          const claims = TokenService.verifyRefreshToken(token!);
+          expect((claims.exp! - claims.iat!) * 1_000).toBe(9 * 86_400_000);
+          await expect(
+            RefreshSession.findOne({ familyId: claims.sid }).lean(),
+          ).resolves.toMatchObject({ refreshLifetimeMs: 9 * 86_400_000 });
+        } finally {
+          if (previous === undefined) delete process.env.JWT_REFRESH_EXPIRE;
+          else process.env.JWT_REFRESH_EXPIRE = previous;
+        }
+      });
+
+      it("stores a JTI hash rather than the raw identifier or JWT", async () => {
+        const claims = TokenService.verifyRefreshToken(validRefreshToken);
+        const session = await RefreshSession.findOne({ familyId: claims.sid })
+          .select("+currentJtiHash")
+          .lean();
+        expect(session?.currentJtiHash).toBe(
+          crypto.createHash("sha256").update(claims.jti).digest("hex"),
+        );
+        expect(JSON.stringify(session)).not.toContain(claims.jti);
+        expect(JSON.stringify(session)).not.toContain(validRefreshToken);
+      });
+
+      it("issues immediately usable tokens after a password-change marker", async () => {
+        const changedAt = new Date();
+        await User.updateOne({ _id: testUser._id }, { passwordChangedAt: changedAt });
+
+        const login = await request(app)
+          .post("/api/auth/login")
+          .send({
+            emailOrUsername: "token@test.com",
+            password: "Password123!",
+            rememberMe: false,
+          })
+          .expect(200);
+        const accessToken = login.body.data.accessToken as string;
+        const cookie = login.headers["set-cookie"]?.[0]?.split(";")[0];
+        const refreshToken = cookie?.slice("refreshToken=".length);
+        const accessClaims = TokenService.decodeToken(accessToken) as { iat: number };
+        const refreshClaims = TokenService.verifyRefreshToken(refreshToken!);
+
+        expect(accessClaims.iat).toBeGreaterThan(
+          Math.floor(changedAt.getTime() / 1_000),
+        );
+        expect(refreshClaims.iat).toBeGreaterThan(
+          Math.floor(changedAt.getTime() / 1_000),
+        );
+        await request(app)
+          .get("/api/auth/profile")
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200);
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", cookie!)
+          .expect(200);
       });
 
       it("should return valid access token that can be used", async () => {
@@ -136,6 +223,9 @@ describe("Token Refresh API Integration Tests", () => {
 
         expect(response.body.success).toBe(false);
         expect(response.body.message).toMatch(/refresh token not provided/i);
+        expect(response.headers["set-cookie"]?.join(";")).toMatch(
+          /refreshToken=;/,
+        );
       });
 
       it("should return 401 when cookie header is empty", async () => {
@@ -244,6 +334,91 @@ describe("Token Refresh API Integration Tests", () => {
           /user not found|inactive|token refresh failed/i
         );
       });
+
+      it("should return 401 when user is unverified", async () => {
+        await User.updateOne({ _id: testUser._id }, { isVerified: false });
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(401);
+      });
+
+      it("revokes a refresh token issued before passwordChangedAt", async () => {
+        const decoded = TokenService.decodeToken(validRefreshToken) as {
+          iat: number;
+        };
+        await User.updateOne(
+          { _id: testUser._id },
+          { passwordChangedAt: new Date((decoded.iat + 1) * 1_000) },
+        );
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(401);
+      });
+
+      it("fails closed for a refresh token in the password-change second", async () => {
+        const decoded = TokenService.decodeToken(validRefreshToken) as {
+          iat: number;
+        };
+        await User.updateOne(
+          { _id: testUser._id },
+          { passwordChangedAt: new Date(decoded.iat * 1_000 + 750) },
+        );
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(401);
+      });
+
+      it("accepts a refresh token issued in a later second", async () => {
+        const decoded = TokenService.decodeToken(validRefreshToken) as {
+          iat: number;
+        };
+        await User.updateOne(
+          { _id: testUser._id },
+          { passwordChangedAt: new Date((decoded.iat - 1) * 1_000 + 750) },
+        );
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(200);
+      });
+
+      it("does not revive pre-deactivation access or refresh tokens after reactivation", async () => {
+        const securityStamp = new Date();
+        await User.updateOne(
+          { _id: testUser._id },
+          { isActive: false, passwordChangedAt: securityStamp },
+        );
+        await User.updateOne({ _id: testUser._id }, { isActive: true });
+
+        await request(app)
+          .get("/api/auth/profile")
+          .set("Authorization", `Bearer ${testUserToken}`)
+          .expect(401);
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(401);
+
+        const login = await request(app)
+          .post("/api/auth/login")
+          .send({
+            emailOrUsername: "token@test.com",
+            password: "Password123!",
+            rememberMe: false,
+          })
+          .expect(200);
+        await request(app)
+          .get("/api/auth/profile")
+          .set("Authorization", `Bearer ${login.body.data.accessToken}`)
+          .expect(200);
+      });
     });
 
     describe("Cookie Security Settings", () => {
@@ -297,7 +472,7 @@ describe("Token Refresh API Integration Tests", () => {
     });
 
     describe("Multiple Refresh Operations", () => {
-      it("should handle concurrent refresh requests", async () => {
+      it("allows only one concurrent rotation and revokes the raced family", async () => {
         const promises = Array(3)
           .fill(null)
           .map(() =>
@@ -308,11 +483,64 @@ describe("Token Refresh API Integration Tests", () => {
 
         const responses = await Promise.all(promises);
 
-        // All should succeed (since we're using the same valid token)
-        responses.forEach((response) => {
-          expect(response.status).toBe(200);
-          expect(response.body.success).toBe(true);
-        });
+        expect(responses.filter((response) => response.status === 200)).toHaveLength(1);
+        expect(responses.filter((response) => response.status === 401)).toHaveLength(2);
+
+        const winner = responses.find((response) => response.status === 200)!;
+        const winnerCookie = winner.headers["set-cookie"]?.[0]?.split(";")[0];
+        expect(winnerCookie).toBeDefined();
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", winnerCookie!)
+          .expect(401);
+      });
+
+      it("keeps separately logged-in device families independent", async () => {
+        const secondLogin = await request(app)
+          .post("/api/auth/login")
+          .send({
+            emailOrUsername: "token@test.com",
+            password: "Password123!",
+            rememberMe: false,
+          })
+          .expect(200);
+        const secondCookie = secondLogin.headers["set-cookie"]?.[0]?.split(";")[0];
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(200);
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", secondCookie!)
+          .expect(200);
+      });
+
+      it("revokes only the family presented on logout", async () => {
+        const secondLogin = await request(app)
+          .post("/api/auth/login")
+          .send({
+            emailOrUsername: "token@test.com",
+            password: "Password123!",
+            rememberMe: false,
+          })
+          .expect(200);
+        const secondCookie = secondLogin.headers["set-cookie"]?.[0]?.split(";")[0];
+
+        await request(app)
+          .post("/api/auth/logout")
+          .set("Authorization", `Bearer ${testUserToken}`)
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(200);
+
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", `refreshToken=${validRefreshToken}`)
+          .expect(401);
+        await request(app)
+          .post("/api/auth/refresh-token")
+          .set("Cookie", secondCookie!)
+          .expect(200);
       });
     });
 
@@ -326,12 +554,9 @@ describe("Token Refresh API Integration Tests", () => {
           verified: true,
         });
 
-        const adminUser = await User.findOne({ email: "admin@test.com" });
-        const adminTokens = TokenService.generateTokenPair(adminUser);
-
         const response = await request(app)
           .post("/api/auth/refresh-token")
-          .set("Cookie", `refreshToken=${adminTokens.refreshToken}`)
+          .set("Cookie", `refreshToken=${adminResult.refreshToken}`)
           .expect(200);
 
         expect(response.body.success).toBe(true);
@@ -346,12 +571,9 @@ describe("Token Refresh API Integration Tests", () => {
           verified: true,
         });
 
-        const leaderUser = await User.findOne({ email: "leader@test.com" });
-        const leaderTokens = TokenService.generateTokenPair(leaderUser);
-
         const response = await request(app)
           .post("/api/auth/refresh-token")
-          .set("Cookie", `refreshToken=${leaderTokens.refreshToken}`)
+          .set("Cookie", `refreshToken=${leaderResult.refreshToken}`)
           .expect(200);
 
         expect(response.body.success).toBe(true);
@@ -375,18 +597,15 @@ describe("Token Refresh API Integration Tests", () => {
     describe("Error Handling", () => {
       it("should handle database errors gracefully", async () => {
         // Temporarily break User.findById
-        const originalFindById = User.findById;
-        User.findById = vi.fn().mockRejectedValue(new Error("DB Error"));
+        vi.spyOn(User, "findById").mockRejectedValue(new Error("DB Error"));
 
         const response = await request(app)
           .post("/api/auth/refresh-token")
           .set("Cookie", `refreshToken=${validRefreshToken}`)
-          .expect(401);
+          .expect(503);
 
         expect(response.body.success).toBe(false);
 
-        // Restore
-        User.findById = originalFindById;
       });
 
       it("should handle TokenService errors gracefully", async () => {

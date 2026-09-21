@@ -1,7 +1,9 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import Message from "../../models/Message";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { buildRecipientMessageFilter } from "./MessageRecipientAuthorization";
 
 /**
  * Bell Notifications Removal Controller
@@ -18,9 +20,10 @@ export default class BellNotificationsRemovalController {
   ): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userRole = req.user?.role;
       const { messageId } = req.params;
 
-      if (!userId) {
+      if (!userId || !userRole) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
@@ -28,7 +31,17 @@ export default class BellNotificationsRemovalController {
         return;
       }
 
-      const message = await Message.findById(messageId);
+      if (!Types.ObjectId.isValid(messageId)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid message ID",
+        });
+        return;
+      }
+
+      const message = await Message.findOne(
+        buildRecipientMessageFilter(messageId, userId, userRole)
+      );
       if (!message) {
         res.status(404).json({
           success: false,

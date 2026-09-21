@@ -1,9 +1,9 @@
-import { Request, Response } from "express";
 import Message from "../../models/Message";
 import type { IMessage } from "../../models/Message";
 import User from "../../models/User";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { serializeSystemMessageForRecipient } from "../../serializers/systemMessageRealtimeSerializer";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UnreadCounts = {
@@ -12,8 +12,21 @@ type UnreadCounts = {
   total: number;
 };
 
+export type TargetedSystemMessageDeliveryOptions = {
+  /** A caller that owns delivery can suppress only this message-created emit. */
+  emitMessageCreatedEvent?: boolean;
+};
+
 const MessageModel = Message as unknown as {
-  getUnreadCountsForUser: (userId: string) => Promise<UnreadCounts>;
+  getUnreadCountsForUser: (
+    userId: string,
+    userRole: string,
+  ) => Promise<UnreadCounts>;
+};
+
+type TargetRecipient = {
+  id: string;
+  role: string;
 };
 
 /**
@@ -34,6 +47,7 @@ export default class TargetedSystemMessagesController {
       hideCreator?: boolean;
       targetRoles?: string[];
       metadata?: Record<string, unknown>;
+      expiresAt?: Date;
     },
     targetUserIds: string[],
     creator?: {
@@ -45,7 +59,8 @@ export default class TargetedSystemMessagesController {
       gender: string;
       authLevel: string;
       roleInAtCloud?: string;
-    }
+    },
+    deliveryOptions: TargetedSystemMessageDeliveryOptions = {},
   ): Promise<IMessage> {
     try {
       // Use system creator if none provided
@@ -60,13 +75,13 @@ export default class TargetedSystemMessagesController {
         roleInAtCloud: "System",
       };
 
-      const targetUserIdsForMessage =
-        messageData.targetRoles && messageData.targetRoles.length > 0
-          ? await TargetedSystemMessagesController.filterTargetUsersByRole(
-              targetUserIds,
-              messageData.targetRoles
-            )
-          : targetUserIds;
+      const uniqueTargetUserIds = Array.from(new Set(targetUserIds));
+      const targetRecipients =
+        await TargetedSystemMessagesController.resolveTargetRecipients(
+          uniqueTargetUserIds,
+          messageData.targetRoles,
+        );
+      const targetUserIdsForMessage = targetRecipients.map(({ id }) => id);
 
       // Create targeted message
       const targetedMessage = new Message({
@@ -79,6 +94,7 @@ export default class TargetedSystemMessagesController {
         isActive: true,
         targetRoles: messageData.targetRoles,
         metadata: messageData.metadata,
+        expiresAt: messageData.expiresAt,
         // For single-recipient messages that target specific users, persist the target for frontend filtering
         targetUserId:
           (messageData.type === "auth_level_change" ||
@@ -90,7 +106,7 @@ export default class TargetedSystemMessagesController {
       });
 
       // Initialize user states for target users only
-      for (const userId of targetUserIdsForMessage) {
+      for (const { id: userId } of targetRecipients) {
         const userState = {
           isReadInSystem: false,
           isReadInBell: false,
@@ -108,31 +124,30 @@ export default class TargetedSystemMessagesController {
       await targetedMessage.save();
 
       // Invalidate user caches for targeted message recipients
-      for (const userId of targetUserIdsForMessage) {
+      for (const { id: userId } of targetRecipients) {
         await CachePatterns.invalidateUserCache(userId);
       }
 
       // Emit real-time notifications only to target users
-      for (const userId of targetUserIdsForMessage) {
-        socketService.emitSystemMessageUpdate(userId, "message_created", {
-          message: {
-            ...targetedMessage.toJSON(),
-            metadata: targetedMessage.metadata,
-          },
-        });
+      for (const { id: userId, role: userRole } of targetRecipients) {
+        if (deliveryOptions.emitMessageCreatedEvent !== false) {
+          socketService.emitSystemMessageUpdate(userId, "message_created", {
+            message: serializeSystemMessageForRecipient(
+              targetedMessage,
+              userId,
+            ),
+          });
 
-        // ✅ REMOVED: Redundant bell_notification_update emission
-        // Bell notifications are now created by frontend from system_message_update events
-        // This eliminates duplicate processing and simplifies the architecture
-
-        console.log(
-          `🔔 Emitted system_message_update for user ${userId}: "${targetedMessage.getBellDisplayTitle()}"`
-        );
+          console.log(
+            `🔔 Emitted system_message_update for user ${userId}: "${targetedMessage.getBellDisplayTitle()}"`,
+          );
+        }
 
         // Update unread counts for target user
         try {
           const updatedCounts = await MessageModel.getUnreadCountsForUser(
-            userId
+            userId,
+            userRole,
           );
           socketService.emitUnreadCountUpdate(userId, updatedCounts);
         } catch (error) {
@@ -150,22 +165,32 @@ export default class TargetedSystemMessagesController {
     }
   }
 
-  private static async filterTargetUsersByRole(
+  private static async resolveTargetRecipients(
     targetUserIds: string[],
-    targetRoles: string[]
-  ): Promise<string[]> {
+    targetRoles?: string[],
+  ): Promise<TargetRecipient[]> {
     if (targetUserIds.length === 0) {
       return [];
     }
 
-    const allowedUsers = await User.find({
+    const query: Record<string, unknown> = {
       _id: { $in: targetUserIds },
-      role: { $in: targetRoles },
-    }).select("_id");
-    const allowedUserIds = new Set(
-      allowedUsers.map((user) => user._id.toString())
+    };
+    if (targetRoles && targetRoles.length > 0) {
+      query.role = { $in: targetRoles };
+    }
+
+    const allowedUsers = await User.find(query).select("_id role");
+    const allowedUsersById = new Map(
+      allowedUsers.map((user) => [
+        user._id.toString(),
+        { id: user._id.toString(), role: user.role },
+      ]),
     );
 
-    return targetUserIds.filter((userId) => allowedUserIds.has(userId));
+    return targetUserIds.flatMap((userId) => {
+      const recipient = allowedUsersById.get(userId);
+      return recipient ? [recipient] : [];
+    });
   }
 }

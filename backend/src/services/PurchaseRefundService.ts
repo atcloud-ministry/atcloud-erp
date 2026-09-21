@@ -1,6 +1,8 @@
 import Program from "../models/Program";
 import type { IPurchase } from "../models/Purchase";
 import { buildDiscountRoleCountIncrement } from "../utils/programRoles";
+import { socketService } from "./infrastructure/SocketService";
+import { programMembershipMutationSyncTrigger } from "./programs/ProgramMembershipMutationSyncTrigger";
 
 export const REFUND_WINDOW_DAYS = 30;
 
@@ -183,7 +185,7 @@ export function calculateRefundEligibility(purchase: {
   };
 }
 
-export async function markProgramPurchaseUnenrolled(
+async function markProgramPurchaseUnenrolled(
   purchase: IPurchase,
   reason: ProgramUnenrollReason,
   unenrolledAt = new Date(),
@@ -219,4 +221,35 @@ export async function markProgramPurchaseUnenrolled(
   return true;
 }
 
-export const markPurchaseUnenrolled = markProgramPurchaseUnenrolled;
+/**
+ * Persist an entitlement revocation, then force every live connection for the
+ * purchaser to re-authenticate and rejoin only the resource rooms it can still
+ * access. The disconnect deliberately happens after the database write.
+ */
+export async function persistPurchaseUnenrollment(
+  purchase: IPurchase,
+  reason: ProgramUnenrollReason,
+  unenrolledAt = new Date(),
+): Promise<boolean> {
+  const changed = await markProgramPurchaseUnenrolled(
+    purchase,
+    reason,
+    unenrolledAt,
+  );
+  await purchase.save();
+
+  const programId = getReferenceId(purchase.programId);
+  if (purchase.purchaseType === "program" && programId) {
+    programMembershipMutationSyncTrigger.programPurchaseChanged({
+      purchaseType: "program",
+      programId: String(programId),
+    });
+  }
+
+  if (purchase.unenrolledAt) {
+    const userId = getReferenceId(purchase.userId);
+    if (userId) socketService.disconnectUser(String(userId));
+  }
+
+  return changed;
+}

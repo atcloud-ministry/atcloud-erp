@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { User } from "../../models";
 import { RoleUtils } from "../../utils/roleUtils";
+import { canViewExactPrivateProfileFields } from "../../utils/privacy";
 
 /**
  * UserQueryController
@@ -71,7 +72,13 @@ export default class UserQueryController {
             lastName: targetUser.lastName,
             gender: targetUser.gender,
             avatar: targetUser.avatar,
-            phone: targetUser.phone,
+            phone: canViewExactPrivateProfileFields(
+              req.user._id,
+              req.user.role,
+              targetUser._id,
+            )
+              ? targetUser.phone
+              : undefined,
             role: targetUser.role,
             isAtCloudLeader: targetUser.isAtCloudLeader,
             roleInAtCloud: targetUser.roleInAtCloud,

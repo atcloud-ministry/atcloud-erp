@@ -126,7 +126,7 @@ describe("Participant realtime guest_registration without PII leak", () => {
       capturedHandler?.({
         eventId: "e1",
         updateType: "guest_registration",
-        data: { roleId: "r1", guestName: "New Guest" },
+        data: null,
         timestamp: new Date().toISOString(),
       });
     });

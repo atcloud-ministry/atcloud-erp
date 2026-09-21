@@ -116,6 +116,7 @@ describe("app.ts branch coverage", () => {
 
       const res = await request(app).get("/metrics");
       expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toBe("no-store");
       expect(res.headers["content-type"]).toContain("text/plain");
       expect(res.text).toContain("test_counter");
     });

@@ -4,17 +4,20 @@ import type {
 } from "../../types/management";
 import StatisticsCards from "./StatisticsCards";
 import { PageHeader } from "../ui";
+import type { ManagementDirectoryScope } from "../../hooks/useManagementFilters";
 
 interface ManagementHeaderProps {
   currentUserRole: SystemAuthorizationLevel;
   roleStats: RoleStats;
   loadingStats?: boolean;
+  scope?: ManagementDirectoryScope;
 }
 
 export default function ManagementHeader({
   currentUserRole,
   roleStats,
   loadingStats = false,
+  scope,
 }: ManagementHeaderProps) {
   // Dynamic title and subtitle based on user role
   const getTitleForRole = (role: SystemAuthorizationLevel): string => {
@@ -50,8 +53,18 @@ export default function ManagementHeader({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={getTitleForRole(currentUserRole)}
-        subtitle={getSubtitleForRole(currentUserRole)}
+        title={
+          scope === "community"
+            ? "Community"
+            : scope === "admin"
+              ? "User Management"
+              : getTitleForRole(currentUserRole)
+        }
+        subtitle={
+          scope === "community"
+            ? "Browse and connect with active, verified members of @Cloud Marketplace Ministry."
+            : getSubtitleForRole(currentUserRole)
+        }
       />
 
       {/* Statistics Cards */}

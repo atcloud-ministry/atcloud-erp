@@ -64,6 +64,11 @@ describe("PurchaseRetryController", () => {
     // Mock console methods
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(Purchase.updateOne).mockResolvedValue({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 1,
+    } as any);
   });
 
   describe("retryPendingPurchase", () => {
@@ -293,6 +298,8 @@ describe("PurchaseRetryController", () => {
         classRepDiscount: 10,
         earlyBirdDiscount: 5,
         finalPrice: 85,
+        studentRoleId: undefined as string | undefined,
+        studentRoleName: undefined as string | undefined,
         isClassRep: true,
         isEarlyBird: true,
         stripeSessionId: "old_session_id",
@@ -330,10 +337,56 @@ describe("PurchaseRetryController", () => {
         finalPrice: 85,
         isClassRep: true,
         isEarlyBird: true,
+        purchaseId: purchaseId.toString(),
       });
 
       expect(mockPendingPurchase.stripeSessionId).toBe("cs_new_session_123");
-      expect(mockPendingPurchase.save).toHaveBeenCalled();
+      expect(mockPendingPurchase.studentRoleId).toBe("classRep");
+      expect(mockPendingPurchase.studentRoleName).toBe(
+        "Class Representative",
+      );
+      expect(Purchase.updateOne).toHaveBeenCalledTimes(2);
+      expect(
+        vi.mocked(Purchase.updateOne).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        vi.mocked(stripeService.createCheckoutSession).mock
+          .invocationCallOrder[0]!,
+      );
+      expect(Purchase.updateOne).toHaveBeenNthCalledWith(
+        1,
+        {
+          _id: purchaseId,
+          userId,
+          status: "pending",
+          __v: 0,
+        },
+        {
+          $unset: {
+            stripeSessionId: 1,
+            stripePaymentIntentId: 1,
+          },
+          $inc: { __v: 1 },
+          $set: {
+            studentRoleId: "classRep",
+            studentRoleName: "Class Representative",
+          },
+        },
+        { runValidators: true },
+      );
+      expect(Purchase.updateOne).toHaveBeenNthCalledWith(
+        2,
+        {
+          _id: purchaseId,
+          userId,
+          status: "pending",
+          __v: 1,
+        },
+        {
+          $set: { stripeSessionId: "cs_new_session_123" },
+          $inc: { __v: 1 },
+        },
+        { runValidators: true },
+      );
 
       expect(console.log).toHaveBeenCalledWith(
         "Created new checkout session for pending purchase ORDER-001",
@@ -347,6 +400,362 @@ describe("PurchaseRetryController", () => {
           sessionUrl: "https://checkout.stripe.com/new_session",
         },
       });
+    });
+
+    it("returns 409 before Stripe when another retry already reserved the observed version", async () => {
+      mockReq.user = { _id: userId, email: "user@example.com" };
+      mockReq.params = { id: purchaseId.toString() };
+      const mockPendingPurchase = {
+        _id: purchaseId,
+        __v: 4,
+        userId,
+        programId: { _id: programId, title: "Test Program" },
+        purchaseType: "program",
+        status: "pending",
+        fullPrice: 100,
+        classRepDiscount: 0,
+        earlyBirdDiscount: 0,
+        finalPrice: 100,
+        isClassRep: false,
+        isEarlyBird: false,
+      };
+      vi.mocked(Purchase.findById).mockReturnValue(
+        mockPurchaseFindByIdChain(mockPendingPurchase),
+      );
+      vi.mocked(Purchase.findOne).mockResolvedValue(null);
+      vi.mocked(Purchase.updateOne).mockResolvedValueOnce({
+        acknowledged: true,
+        matchedCount: 0,
+        modifiedCount: 0,
+      } as any);
+
+      await PurchaseRetryController.retryPendingPurchase(
+        mockReq as Request,
+        mockRes as Response,
+      );
+
+      expect(Purchase.updateOne).toHaveBeenCalledWith(
+        {
+          _id: purchaseId,
+          userId,
+          status: "pending",
+          __v: 4,
+        },
+        expect.objectContaining({
+          $unset: {
+            stripeSessionId: 1,
+            stripePaymentIntentId: 1,
+          },
+          $inc: { __v: 1 },
+        }),
+        { runValidators: true },
+      );
+      expect(stripeService.createCheckoutSession).not.toHaveBeenCalled();
+      expect(statusMock).toHaveBeenCalledWith(409);
+    });
+
+    it("allows only one of two concurrent retries to create a Stripe session", async () => {
+      const makePendingPurchase = () => ({
+        _id: purchaseId,
+        __v: 0,
+        userId,
+        programId: { _id: programId, title: "Test Program" },
+        purchaseType: "program",
+        status: "pending",
+        orderNumber: "ORDER-CONCURRENT",
+        fullPrice: 100,
+        classRepDiscount: 0,
+        earlyBirdDiscount: 0,
+        finalPrice: 100,
+        isClassRep: false,
+        isEarlyBird: false,
+      });
+      vi.mocked(Purchase.findById)
+        .mockReturnValueOnce(mockPurchaseFindByIdChain(makePendingPurchase()))
+        .mockReturnValueOnce(mockPurchaseFindByIdChain(makePendingPurchase()));
+      vi.mocked(Purchase.findOne).mockResolvedValue(null);
+
+      let reservationCalls = 0;
+      vi.mocked(Purchase.updateOne).mockImplementation(
+        async (_filter, update: any) => {
+          if (update.$unset) {
+            reservationCalls += 1;
+            return {
+              acknowledged: true,
+              matchedCount: reservationCalls === 1 ? 1 : 0,
+              modifiedCount: reservationCalls === 1 ? 1 : 0,
+            } as any;
+          }
+          return {
+            acknowledged: true,
+            matchedCount: 1,
+            modifiedCount: 1,
+          } as any;
+        },
+      );
+
+      let signalCreationStarted!: () => void;
+      const creationStarted = new Promise<void>((resolve) => {
+        signalCreationStarted = resolve;
+      });
+      let releaseSession!: (value: any) => void;
+      const pendingSession = new Promise<any>((resolve) => {
+        releaseSession = resolve;
+      });
+      vi.mocked(stripeService.createCheckoutSession).mockImplementationOnce(
+        async () => {
+          signalCreationStarted();
+          return pendingSession;
+        },
+      );
+
+      const makeResponse = () => {
+        const json = vi.fn();
+        const status = vi.fn().mockReturnValue({ json });
+        return { response: { status, json } as any, status };
+      };
+      const firstResponse = makeResponse();
+      const secondResponse = makeResponse();
+      const request = {
+        params: { id: purchaseId.toString() },
+        user: { _id: userId, email: "user@example.com" },
+      } as unknown as Request;
+
+      const first = PurchaseRetryController.retryPendingPurchase(
+        request,
+        firstResponse.response,
+      );
+      await creationStarted;
+      await PurchaseRetryController.retryPendingPurchase(
+        request,
+        secondResponse.response,
+      );
+      releaseSession({
+        id: "cs_concurrent_winner",
+        url: "https://checkout.stripe.com/concurrent",
+      });
+      await first;
+
+      expect(stripeService.createCheckoutSession).toHaveBeenCalledTimes(1);
+      expect(firstResponse.status).toHaveBeenCalledWith(200);
+      expect(secondResponse.status).toHaveBeenCalledWith(409);
+    });
+
+    it("accepts a bind CAS miss when this exact session completed by webhook in the create-bind window", async () => {
+      mockReq.user = { _id: userId, email: "user@example.com" };
+      mockReq.params = { id: purchaseId.toString() };
+      const mockPendingPurchase = {
+        _id: purchaseId,
+        __v: 0,
+        userId,
+        programId: { _id: programId, title: "Test Program" },
+        purchaseType: "program",
+        status: "pending",
+        orderNumber: "ORDER-WEBHOOK-WON",
+        fullPrice: 100,
+        classRepDiscount: 0,
+        earlyBirdDiscount: 0,
+        finalPrice: 100,
+        isClassRep: false,
+        isEarlyBird: false,
+      };
+      vi.mocked(Purchase.findById)
+        .mockReturnValueOnce(mockPurchaseFindByIdChain(mockPendingPurchase))
+        .mockResolvedValueOnce({
+          ...mockPendingPurchase,
+          status: "completed",
+          stripeSessionId: "cs_webhook_won",
+        } as any);
+      vi.mocked(Purchase.findOne).mockResolvedValue(null);
+      vi.mocked(Purchase.updateOne)
+        .mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 1,
+          modifiedCount: 1,
+        } as any)
+        .mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 0,
+          modifiedCount: 0,
+        } as any);
+      vi.mocked(stripeService.createCheckoutSession).mockResolvedValue({
+        id: "cs_webhook_won",
+        url: "https://checkout.stripe.com/webhook-won",
+      } as any);
+      const expire = vi.fn();
+      vi.mocked(stripeService).stripe = {
+        checkout: { sessions: { expire } },
+      } as any;
+
+      await PurchaseRetryController.retryPendingPurchase(
+        mockReq as Request,
+        mockRes as Response,
+      );
+
+      expect(expire).not.toHaveBeenCalled();
+      expect(statusMock).toHaveBeenCalledWith(200);
+    });
+
+    it.each([
+      "completed",
+      "failed",
+      "refunded",
+      "refund_processing",
+      "refund_failed",
+      null,
+    ])(
+      "expires the new session when bind loses to %s",
+      async (statusAfterCreate) => {
+        mockReq.user = { _id: userId, email: "user@example.com" };
+        mockReq.params = { id: purchaseId.toString() };
+        const mockPendingPurchase = {
+          _id: purchaseId,
+          __v: 0,
+          userId,
+          programId: { _id: programId, title: "Test Program" },
+          purchaseType: "program",
+          status: "pending",
+          orderNumber: "ORDER-BIND-LOST",
+          fullPrice: 100,
+          classRepDiscount: 0,
+          earlyBirdDiscount: 0,
+          finalPrice: 100,
+          isClassRep: false,
+          isEarlyBird: false,
+        };
+        vi.mocked(Purchase.findById)
+          .mockReturnValueOnce(mockPurchaseFindByIdChain(mockPendingPurchase))
+          .mockResolvedValueOnce(
+            statusAfterCreate == null
+              ? null
+              : ({
+                  ...mockPendingPurchase,
+                  status: statusAfterCreate,
+                } as any),
+          );
+        vi.mocked(Purchase.findOne).mockResolvedValue(null);
+        vi.mocked(Purchase.updateOne)
+          .mockResolvedValueOnce({
+            acknowledged: true,
+            matchedCount: 1,
+            modifiedCount: 1,
+          } as any)
+          .mockResolvedValueOnce({
+            acknowledged: true,
+            matchedCount: 0,
+            modifiedCount: 0,
+          } as any);
+        vi.mocked(stripeService.createCheckoutSession).mockResolvedValue({
+          id: "cs_must_expire",
+          url: "https://checkout.stripe.com/must-expire",
+        } as any);
+        const expire = vi.fn().mockResolvedValue({});
+        vi.mocked(stripeService).stripe = {
+          checkout: { sessions: { expire } },
+        } as any;
+
+        await PurchaseRetryController.retryPendingPurchase(
+          mockReq as Request,
+          mockRes as Response,
+        );
+
+        expect(expire).toHaveBeenCalledWith("cs_must_expire");
+        expect(statusMock).toHaveBeenCalledWith(409);
+      },
+    );
+
+    it("can retry again after Stripe creation fails following a successful reservation", async () => {
+      const staleSave = vi.fn();
+      const firstPendingPurchase = {
+        _id: purchaseId,
+        __v: 0,
+        userId,
+        programId: { _id: programId, title: "Test Program" },
+        purchaseType: "program",
+        status: "pending",
+        orderNumber: "ORDER-CREATE-RETRY",
+        fullPrice: 100,
+        classRepDiscount: 0,
+        earlyBirdDiscount: 0,
+        finalPrice: 100,
+        isClassRep: false,
+        isEarlyBird: false,
+        stripeSessionId: "cs_old_attempt",
+        stripePaymentIntentId: "pi_old_attempt",
+        save: staleSave,
+      };
+      const secondPendingPurchase = {
+        ...firstPendingPurchase,
+        __v: 1,
+        stripeSessionId: undefined,
+        stripePaymentIntentId: undefined,
+      };
+      vi.mocked(Purchase.findById)
+        .mockReturnValueOnce(mockPurchaseFindByIdChain(firstPendingPurchase))
+        .mockReturnValueOnce(mockPurchaseFindByIdChain(secondPendingPurchase));
+      vi.mocked(Purchase.findOne).mockResolvedValue(null);
+      vi.mocked(stripeService.createCheckoutSession)
+        .mockRejectedValueOnce(new Error("temporary Stripe failure"))
+        .mockResolvedValueOnce({
+          id: "cs_retry_after_failure",
+          url: "https://checkout.stripe.com/retry-after-failure",
+        } as any);
+
+      const makeResponse = () => {
+        const json = vi.fn();
+        const status = vi.fn().mockReturnValue({ json });
+        return { response: { status, json } as any, status };
+      };
+      const firstResponse = makeResponse();
+      const secondResponse = makeResponse();
+      const request = {
+        params: { id: purchaseId.toString() },
+        user: { _id: userId, email: "user@example.com" },
+      } as unknown as Request;
+
+      await PurchaseRetryController.retryPendingPurchase(
+        request,
+        firstResponse.response,
+      );
+      await PurchaseRetryController.retryPendingPurchase(
+        request,
+        secondResponse.response,
+      );
+
+      expect(firstResponse.status).toHaveBeenCalledWith(500);
+      expect(secondResponse.status).toHaveBeenCalledWith(200);
+      expect(stripeService.createCheckoutSession).toHaveBeenCalledTimes(2);
+      expect(firstPendingPurchase.status).toBe("pending");
+      expect(firstPendingPurchase.stripeSessionId).toBeUndefined();
+      expect(firstPendingPurchase.stripePaymentIntentId).toBeUndefined();
+      expect(staleSave).not.toHaveBeenCalled();
+      expect(Purchase.updateOne).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          _id: purchaseId,
+          status: "pending",
+          __v: 0,
+        }),
+        expect.objectContaining({
+          $unset: {
+            stripeSessionId: 1,
+            stripePaymentIntentId: 1,
+          },
+          $inc: { __v: 1 },
+        }),
+        { runValidators: true },
+      );
+      expect(Purchase.updateOne).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ __v: 1 }),
+        expect.objectContaining({
+          $unset: {
+            stripeSessionId: 1,
+            stripePaymentIntentId: 1,
+          },
+        }),
+        { runValidators: true },
+      );
     });
 
     it("should handle retry without discounts", async () => {
@@ -407,9 +816,62 @@ describe("PurchaseRetryController", () => {
         finalPrice: 100,
         isClassRep: false,
         isEarlyBird: false,
+        purchaseId: purchaseId.toString(),
       });
 
       expect(statusMock).toHaveBeenCalledWith(200);
+    });
+
+    it("fails closed before Stripe when a legacy pending Program role is ambiguous", async () => {
+      mockReq.user = {
+        _id: userId,
+        email: "user@example.com",
+      };
+      mockReq.params = { id: purchaseId.toString() };
+      const mockPendingPurchase = {
+        _id: purchaseId,
+        userId,
+        programId: {
+          _id: programId,
+          title: "Ambiguous Program",
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "participant",
+                name: "Participant",
+                discountEligible: false,
+              },
+              {
+                id: "observer",
+                name: "Observer",
+                discountEligible: false,
+              },
+            ],
+          },
+        },
+        purchaseType: "program",
+        status: "pending",
+        isClassRep: false,
+        save: vi.fn().mockResolvedValue({}),
+      };
+      vi.mocked(Purchase.findById).mockReturnValue(
+        mockPurchaseFindByIdChain(mockPendingPurchase),
+      );
+      vi.mocked(Purchase.findOne).mockResolvedValue(null);
+
+      await PurchaseRetryController.retryPendingPurchase(
+        mockReq as Request,
+        mockRes as Response,
+      );
+
+      expect(statusMock).toHaveBeenCalledWith(409);
+      expect(jsonMock).toHaveBeenCalledWith({
+        success: false,
+        message: "This purchase's Program role needs staff review before retry.",
+      });
+      expect(mockPendingPurchase.save).not.toHaveBeenCalled();
+      expect(stripeService.createCheckoutSession).not.toHaveBeenCalled();
     });
 
     it("should handle userId as ObjectId instance", async () => {
@@ -488,7 +950,6 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Database connection failed",
       });
     });
 
@@ -542,11 +1003,10 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Stripe API error",
       });
     });
 
-    it("should handle save error after creating session", async () => {
+    it("should expire the session and report a bind CAS error after creating it", async () => {
       mockReq.user = {
         _id: userId,
         email: "user@example.com",
@@ -571,7 +1031,7 @@ describe("PurchaseRetryController", () => {
         finalPrice: 100,
         isClassRep: false,
         isEarlyBird: false,
-        save: vi.fn().mockRejectedValue(saveError),
+        save: vi.fn(),
       };
 
       vi.mocked(Purchase.findById).mockReturnValue(
@@ -588,6 +1048,17 @@ describe("PurchaseRetryController", () => {
       vi.mocked(stripeService.createCheckoutSession).mockResolvedValue(
         mockSession as any,
       );
+      const expire = vi.fn().mockResolvedValue({});
+      vi.mocked(stripeService).stripe = {
+        checkout: { sessions: { expire } },
+      } as any;
+      vi.mocked(Purchase.updateOne)
+        .mockResolvedValueOnce({
+          acknowledged: true,
+          matchedCount: 1,
+          modifiedCount: 1,
+        } as any)
+        .mockRejectedValueOnce(saveError);
 
       await PurchaseRetryController.retryPendingPurchase(
         mockReq as Request,
@@ -602,8 +1073,8 @@ describe("PurchaseRetryController", () => {
       expect(jsonMock).toHaveBeenCalledWith({
         success: false,
         message: "Failed to retry purchase.",
-        error: "Save failed",
       });
+      expect(expire).toHaveBeenCalledWith("cs_session");
     });
 
     it("should handle non-Error exceptions", async () => {
@@ -749,7 +1220,7 @@ describe("PurchaseRetryController", () => {
 
       expect(EventModel.default.findById).toHaveBeenCalledWith(eventId);
       expect(mockPendingPurchase.stripeSessionId).toBe("cs_event_session_123");
-      expect(mockPendingPurchase.save).toHaveBeenCalled();
+      expect(Purchase.updateOne).toHaveBeenCalledTimes(2);
 
       expect(statusMock).toHaveBeenCalledWith(200);
       expect(jsonMock).toHaveBeenCalledWith({

@@ -75,6 +75,12 @@ export default class UserRoleController {
       targetUser.role = role;
       await targetUser.save();
 
+      // Apply the persisted role before cache/email work can delay revocation.
+      socketService.syncUserAuthorization(String(targetUser._id), {
+        role: targetUser.role,
+        isActive: targetUser.isActive !== false,
+      });
+
       // Invalidate user cache after role change
       await CachePatterns.invalidateUserCache(id);
 

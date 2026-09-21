@@ -3,6 +3,12 @@ import { Request, Response } from "express";
 import ProfileController from "../../../../src/controllers/auth/ProfileController";
 import mongoose from "mongoose";
 
+vi.mock("../../../../src/models", () => ({
+  User: { findById: vi.fn() },
+}));
+
+import { User } from "../../../../src/models";
+
 describe("ProfileController", () => {
   let mockReq: any;
   let mockRes: Partial<Response>;
@@ -20,6 +26,13 @@ describe("ProfileController", () => {
     mockReq = {
       user: undefined,
     };
+
+    vi.mocked(User.findById).mockImplementation(
+      () =>
+        ({
+          select: vi.fn().mockImplementation(async () => mockReq.user),
+        }) as never,
+    );
 
     mockRes = {
       status: statusMock as any,
@@ -70,11 +83,16 @@ describe("ProfileController", () => {
           username: "testuser",
           email: "test@example.com",
           phone: "1234567890",
+          birthYear: 1990,
+          residenceCity: "Seattle",
+          residenceRegion: "US-WA",
+          residenceCountryCode: "US",
+          employmentStatus: "employed",
           firstName: "Test",
           lastName: "User",
-          gender: "Male",
+          gender: "male",
           avatar: "avatar.jpg",
-          role: "Member",
+          role: "Participant",
           isAtCloudLeader: false,
           roleInAtCloud: "Member",
           occupation: "Software Engineer",
@@ -100,15 +118,20 @@ describe("ProfileController", () => {
           success: true,
           data: {
             user: {
-              id: userId,
+              id: userId.toString(),
               username: "testuser",
               email: "test@example.com",
               phone: "1234567890",
+              birthYear: 1990,
+              residenceCity: "Seattle",
+              residenceRegion: "US-WA",
+              residenceCountryCode: "US",
+              employmentStatus: "employed",
               firstName: "Test",
               lastName: "User",
-              gender: "Male",
+              gender: "male",
               avatar: "avatar.jpg",
-              role: "Member",
+              role: "Participant",
               isAtCloudLeader: false,
               roleInAtCloud: "Member",
               occupation: "Software Engineer",
@@ -130,7 +153,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "minimaluser",
           email: "minimal@example.com",
-          role: "Member",
+          role: "Participant",
         };
 
         mockReq.user = mockUser;
@@ -143,10 +166,10 @@ describe("ProfileController", () => {
         expect(statusMock).toHaveBeenCalledWith(200);
         const response = jsonMock.mock.calls[0][0];
         expect(response.success).toBe(true);
-        expect(response.data.user.id).toBe(userId);
+        expect(response.data.user.id).toBe(userId.toString());
         expect(response.data.user.username).toBe("minimaluser");
         expect(response.data.user.email).toBe("minimal@example.com");
-        expect(response.data.user.role).toBe("Member");
+        expect(response.data.user.role).toBe("Participant");
       });
 
       it("should handle user with optional fields as undefined", async () => {
@@ -154,7 +177,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "testuser",
           email: "test@example.com",
-          role: "Member",
+          role: "Participant",
           phone: undefined,
           firstName: undefined,
           lastName: undefined,
@@ -207,7 +230,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "testuser",
           email: "test@example.com",
-          role: "Member",
+          role: "Participant",
           createdAt: createdDate,
           lastLogin: loginDate,
         };
@@ -230,7 +253,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "inactiveuser",
           email: "inactive@example.com",
-          role: "Member",
+          role: "Participant",
           isActive: false,
         };
 
@@ -251,7 +274,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "unverified",
           email: "unverified@example.com",
-          role: "Member",
+          role: "Participant",
           isVerified: false,
         };
 
@@ -277,7 +300,7 @@ describe("ProfileController", () => {
           },
           username: "testuser",
           email: "test@example.com",
-          role: "Member",
+          role: "Participant",
         };
 
         mockReq.user = mockUser;
@@ -304,7 +327,7 @@ describe("ProfileController", () => {
           _id: userId,
           username: "testuser",
           email: "test@example.com",
-          role: "Member",
+          role: "Participant",
         };
 
         // Should not throw

@@ -8,10 +8,19 @@ import {
   GuestRegistration,
 } from "../../../src/models";
 import { CachePatterns } from "../../../src/services/infrastructure/CacheService";
+import { resourceAuthorizationInvalidationService } from "../../../src/services/authorization/ResourceAuthorizationInvalidationService";
 
 // Mock all dependencies
 vi.mock("../../../src/models");
 vi.mock("../../../src/services/infrastructure/CacheService");
+vi.mock(
+  "../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      invalidateEventRoom: vi.fn(),
+    },
+  }),
+);
 
 describe("EventCascadeService", () => {
   let testEventId: string;
@@ -82,6 +91,21 @@ describe("EventCascadeService", () => {
         await EventCascadeService.deleteEventFully(testEventId);
 
         expect(Event.findByIdAndDelete).toHaveBeenCalledWith(testEventId);
+      });
+
+      it("invalidates the live event room after deleting the event", async () => {
+        await EventCascadeService.deleteEventFully(testEventId);
+
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRoom,
+        ).toHaveBeenCalledWith(testEventId);
+        expect(
+          vi.mocked(Event.findByIdAndDelete).mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          vi.mocked(
+            resourceAuthorizationInvalidationService.invalidateEventRoom,
+          ).mock.invocationCallOrder[0],
+        );
       });
 
       it("should invalidate event cache", async () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { BrowserRouter, MemoryRouter } from "react-router-dom";
 import UserDropdown from "../../../layouts/dashboard/UserDropdown";
 
@@ -110,6 +111,48 @@ describe("UserDropdown", () => {
   });
 
   describe("Dropdown Toggle", () => {
+    it("names the trigger and supports menu-button keyboard navigation", async () => {
+      const user = userEvent.setup();
+      render(
+        <BrowserRouter>
+          <UserDropdown user={mockUser} />
+        </BrowserRouter>,
+      );
+
+      const trigger = screen.getByRole("button", {
+        name: "Account menu for John Doe",
+      });
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+      trigger.focus();
+      await user.keyboard("{ArrowDown}");
+
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const profile = await screen.findByRole("menuitem", { name: "Profile" });
+      await waitFor(() => expect(profile).toHaveFocus());
+      await user.keyboard("{ArrowDown}");
+      expect(
+        screen.getByRole("menuitem", { name: "Change Password" }),
+      ).toHaveFocus();
+      await user.keyboard("{End}");
+      expect(screen.getByRole("menuitem", { name: "Log Out" })).toHaveFocus();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      await waitFor(() => expect(trigger).toHaveFocus());
+    });
+
+    it("keeps the mobile guest trigger explicitly named", () => {
+      render(
+        <MemoryRouter>
+          <UserDropdown isGuest user={null} />
+        </MemoryRouter>,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "Guest account menu" }),
+      ).toHaveAttribute("aria-expanded", "false");
+    });
+
     it("opens dropdown when button is clicked", async () => {
       const { container } = render(
         <BrowserRouter>
@@ -205,6 +248,13 @@ describe("UserDropdown", () => {
       expect(changePasswordLink).toBeDefined();
       expect(changePasswordLink.closest("a")?.getAttribute("href")).toBe(
         "/dashboard/change-password"
+      );
+    });
+
+    it("displays Notification Settings link", () => {
+      const link = screen.getByText("Notification Settings");
+      expect(link.closest("a")?.getAttribute("href")).toBe(
+        "/dashboard/notification-settings"
       );
     });
 

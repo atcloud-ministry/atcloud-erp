@@ -45,6 +45,41 @@ vi.mock("../../hooks/useRoleStats", () => ({
 }));
 
 vi.mock("../../hooks/useAnalyticsResources", () => ({
+  useUserAnalyticsResource: () => ({
+    data: {
+      demographics: {
+        roleStats: {
+          total: 21,
+          superAdmin: 1,
+          administrators: 2,
+          leaders: 3,
+          guestExperts: 4,
+          participants: 5,
+          atCloudLeaders: 6,
+        },
+        churchAnalytics: {
+          weeklyChurchStats: {},
+          churchAddressStats: {},
+          usersWithChurchInfo: 0,
+          usersWithoutChurchInfo: 21,
+          totalChurches: 0,
+          totalChurchLocations: 0,
+          churchParticipationRate: 0,
+        },
+        occupationAnalytics: {
+          occupationStats: {},
+          usersWithOccupation: 0,
+          usersWithoutOccupation: 21,
+          totalOccupationTypes: 0,
+          topOccupations: [],
+          occupationCompletionRate: 0,
+        },
+      },
+    },
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
   useAnalyticsOverviewResource: () => ({
     data: null,
     loading: false,

@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import Message from "../../models/Message";
-import type { IMessage } from "../../models/Message";
 import User from "../../models/User";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { serializeSystemMessageForRecipient } from "../../serializers/systemMessageRealtimeSerializer";
+import { ROLES, RoleUtils, type UserRole } from "../../utils/roleUtils";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UnreadCounts = {
@@ -13,7 +15,10 @@ type UnreadCounts = {
 };
 
 const MessageModel = Message as unknown as {
-  getUnreadCountsForUser: (userId: string) => Promise<UnreadCounts>;
+  getUnreadCountsForUser: (
+    userId: string,
+    userRole: string,
+  ) => Promise<UnreadCounts>;
 };
 
 type MessageDocLike = {
@@ -53,7 +58,7 @@ export default class SystemMessagesCreationController {
           type?: string;
           priority?: string;
           targetRoles?: unknown;
-          excludeUserIds?: string[];
+          excludeUserIds?: unknown;
         };
       // Determine whether to include creator info in the message presentation
       // Accept both includeCreator (preferred from UI) and hideCreator (for flexibility)
@@ -89,6 +94,64 @@ export default class SystemMessagesCreationController {
         return;
       }
 
+      const requestBody = req.body as Record<string, unknown>;
+      const hasTargetRoles = Object.prototype.hasOwnProperty.call(
+        requestBody,
+        "targetRoles",
+      );
+      let normalizedTargetRoles: UserRole[] | undefined;
+
+      if (hasTargetRoles) {
+        const roleLimit = Object.values(ROLES).length;
+        if (
+          !Array.isArray(targetRoles) ||
+          targetRoles.length === 0 ||
+          targetRoles.length > roleLimit ||
+          !targetRoles.every(
+            (role) => typeof role === "string" && RoleUtils.isValidRole(role),
+          )
+        ) {
+          res.status(400).json({
+            success: false,
+            message: "targetRoles must be a non-empty array of valid roles",
+          });
+          return;
+        }
+
+        normalizedTargetRoles = Array.from(
+          new Set(targetRoles as UserRole[]),
+        );
+      }
+
+      const hasExcludeUserIds = Object.prototype.hasOwnProperty.call(
+        requestBody,
+        "excludeUserIds",
+      );
+      let normalizedExcludedUserIds: Set<string> | undefined;
+
+      if (hasExcludeUserIds) {
+        if (
+          !Array.isArray(excludeUserIds) ||
+          !excludeUserIds.every(
+            (excludedUserId) =>
+              typeof excludedUserId === "string" &&
+              Types.ObjectId.isValid(excludedUserId),
+          )
+        ) {
+          res.status(400).json({
+            success: false,
+            message: "excludeUserIds must be an array of valid user IDs",
+          });
+          return;
+        }
+
+        normalizedExcludedUserIds = new Set(
+          excludeUserIds.map((excludedUserId) =>
+            new Types.ObjectId(excludedUserId as string).toString(),
+          ),
+        );
+      }
+
       // Get creator information
       const creator = await User.findById(userId).select(
         "firstName lastName username avatar gender roleInAtCloud role"
@@ -114,31 +177,37 @@ export default class SystemMessagesCreationController {
       // Get all users to initialize states
       // 🔒 OPTIMIZATION: If targetRoles is specified, only get users with matching roles
       let allUsers;
-      if (targetRoles && Array.isArray(targetRoles) && targetRoles.length > 0) {
+      if (normalizedTargetRoles) {
         // Only get users whose role matches one of the targetRoles
-        allUsers = await User.find({ role: { $in: targetRoles } }, "_id role");
+        allUsers = await User.find(
+          { role: { $in: normalizedTargetRoles } },
+          "_id role",
+        );
         console.log(
           `🎯 Creating message for ${
             allUsers.length
-          } users with roles: ${targetRoles.join(", ")}`
+          } users with roles: ${normalizedTargetRoles.join(", ")}`,
         );
       } else {
         // No targetRoles specified, get all users
-        allUsers = await User.find({}, "_id");
+        allUsers = await User.find({}, "_id role");
         console.log(
           `📢 Creating broadcast message for ${allUsers.length} users`
         );
       }
 
-      let userIds = allUsers.map((user) =>
-        String((user as unknown as { _id: unknown })._id)
-      );
+      let recipients = allUsers.map((user) => ({
+        id: String((user as unknown as { _id: unknown })._id),
+        role: String((user as unknown as { role: unknown }).role),
+      }));
 
       // Exclude specific users if excludeUserIds is provided
-      if (excludeUserIds && Array.isArray(excludeUserIds)) {
-        userIds = userIds.filter((id) => !excludeUserIds.includes(id));
+      if (normalizedExcludedUserIds) {
+        recipients = recipients.filter(
+          ({ id }) => !normalizedExcludedUserIds.has(id),
+        );
         console.log(
-          `📝 Excluding ${excludeUserIds.length} users from system message`
+          `📝 Excluding ${normalizedExcludedUserIds.size} users from system message`,
         );
       } // Create message with all user states initialized
       const messageData = {
@@ -156,7 +225,7 @@ export default class SystemMessagesCreationController {
           roleInAtCloud: creator.roleInAtCloud,
           authLevel: creator.role, // Using role property from User model
         },
-        targetRoles,
+        targetRoles: normalizedTargetRoles,
         isActive: true,
         createdBy: (creator as unknown as { _id: unknown })._id, // Add createdBy field for test compatibility
       };
@@ -184,7 +253,7 @@ export default class SystemMessagesCreationController {
       });
 
       // Initialize user states for all target users
-      for (const userId of userIds) {
+      for (const { id: userId } of recipients) {
         const userState = {
           isReadInSystem: false,
           isReadInBell: false,
@@ -202,14 +271,14 @@ export default class SystemMessagesCreationController {
       await message.save();
 
       // Invalidate user caches for message recipients
-      for (const userId of userIds) {
+      for (const { id: userId } of recipients) {
         await CachePatterns.invalidateUserCache(userId);
       }
 
       // Emit real-time notifications to target users (standardized pattern)
-      for (const userId of userIds) {
+      for (const { id: userId, role: userRole } of recipients) {
         socketService.emitSystemMessageUpdate(userId, "message_created", {
-          message: message.toJSON(),
+          message: serializeSystemMessageForRecipient(message, userId),
         });
 
         // ✅ REMOVED: Redundant bell_notification_update emission
@@ -223,7 +292,8 @@ export default class SystemMessagesCreationController {
         // Update unread counts for target user
         try {
           const updatedCounts = await MessageModel.getUnreadCountsForUser(
-            userId
+            userId,
+            userRole,
           );
           socketService.emitUnreadCountUpdate(userId, updatedCounts);
         } catch (error) {
@@ -251,7 +321,7 @@ export default class SystemMessagesCreationController {
             hideCreator: (message as unknown as MessageDocLike).hideCreator,
             createdBy: message.createdBy, // Include createdBy in response
             createdAt: message.createdAt,
-            recipientCount: userIds.length,
+            recipientCount: recipients.length,
           },
         },
       });

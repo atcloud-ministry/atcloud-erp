@@ -135,7 +135,7 @@ After Milestone 4A:
   functions, and 88.02% branches; frontend coverage now has an honest
   full-application non-regression baseline instead of an impossible gate
 - Restored CI as four parallel pull-request gates with the full DB suite on
-  main/nightly; removed seven placeholder/debug tests
+  main/manual; removed seven placeholder/debug tests
 
 After Milestone 5:
 
@@ -297,8 +297,8 @@ After Milestone 5:
 - [x] Keep coverage thresholds in one configuration source
 - [x] Make frontend coverage non-watch with `vitest run --coverage`
 - [x] Add a real Playwright suite for the critical user journeys
-- [x] Run performance and index tests separately or nightly
-- [x] Restore parallel PR CI and main/nightly full-DB protection
+- [x] Run performance and index tests separately
+- [x] Restore parallel PR CI and main/manual full-DB protection
 - [x] Target: normal PR protection in under three minutes with no skipped
   critical financial tests
 
@@ -377,7 +377,7 @@ Status quo:
 - All planned optimization milestones are complete and the full validation
   matrix is green
 - Pull-request protection remains lightweight and parallel; the six-minute
-  database suite is reserved for main/nightly while critical financial DB
+  database suite is reserved for main/manual while critical financial DB
   flows remain in the PR tier
 - Public compatibility is preserved at API boundaries, while internal module
   ownership is explicit and guarded against regression

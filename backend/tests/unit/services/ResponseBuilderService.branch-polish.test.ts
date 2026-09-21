@@ -97,7 +97,7 @@ describe("ResponseBuilderService - branch polish", () => {
     } as any);
     vi.mocked(GuestRegistration.aggregate).mockResolvedValue([]);
 
-    // Batched organizer lookup returns no match, preserving stored values.
+    // Batched organizer lookup returns no match; public exact fields still redact.
     vi.mocked(User.find).mockReturnValue({
       select: vi.fn().mockReturnThis(),
       lean: vi.fn().mockResolvedValue([]),
@@ -107,7 +107,7 @@ describe("ResponseBuilderService - branch polish", () => {
       await ResponseBuilderService.buildEventWithRegistrations(eventId);
     expect(res).toBeTruthy();
     expect((res as any).organizerDetails[0].email).toBe("old@x.com");
-    expect((res as any).organizerDetails[0].phone).toBe("old");
+    expect((res as any).organizerDetails[0]).not.toHaveProperty("phone");
   });
 
   it("user signup status: existing registration prevents signup; full roles excluded", async () => {
