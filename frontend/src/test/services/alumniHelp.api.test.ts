@@ -6,6 +6,7 @@ import {
 import {
   decodeAlumniHelpRequestMutation,
   decodeAlumniHelpRequestPage,
+  decodeAlumniHelpNotificationCounts,
 } from "../../services/api/alumniHelp.contracts";
 
 const IDS = {
@@ -29,6 +30,7 @@ const detail: AlumniHelpRequestDetailDTO = {
   conversationId: null,
   viewerRole: "provider",
   actionRequiredForViewer: true,
+  hasUnreadUpdate: true,
   availableActions: [
     "request_information",
     "propose_alternative",
@@ -77,7 +79,7 @@ const detail: AlumniHelpRequestDetailDTO = {
   },
 };
 
-const mutationData = { request: detail, helpActionRequiredCount: 1 };
+const mutationData = { request: detail, helpActionRequiredCount: 1, helpNotificationCount: 2 };
 const summary = {
   id: detail.id,
   requester: detail.requester,
@@ -89,6 +91,7 @@ const summary = {
   conversationId: detail.conversationId,
   viewerRole: detail.viewerRole,
   actionRequiredForViewer: detail.actionRequiredForViewer,
+  hasUnreadUpdate: detail.hasUnreadUpdate,
   availableActions: detail.availableActions,
   latestOutcome: detail.latestOutcome,
   revision: detail.revision,
@@ -110,6 +113,14 @@ afterEach(() => {
 });
 
 describe("Alumni Help strict response contracts", () => {
+  it("accepts new unread counts and rejects counts smaller than the action-required union", () => {
+    expect(decodeAlumniHelpNotificationCounts({ helpActionRequiredCount: 0, helpNotificationCount: 2 }))
+      .toEqual({ helpActionRequiredCount: 0, helpNotificationCount: 2 });
+    expect(() => decodeAlumniHelpNotificationCounts({ helpActionRequiredCount: 2, helpNotificationCount: 1 }))
+      .toThrow(/helpNotificationCount/);
+    expect(() => decodeAlumniHelpRequestMutation({ ...mutationData, request: { ...detail, hasUnreadUpdate: "yes" } }))
+      .toThrow(/hasUnreadUpdate/);
+  });
   it("accepts the exact request detail and list DTOs", () => {
     expect(decodeAlumniHelpRequestMutation(mutationData)).toEqual(mutationData);
     expect(
@@ -175,6 +186,19 @@ describe("Alumni Help strict response contracts", () => {
 });
 
 describe("Alumni Help API client", () => {
+  it("acknowledges exactly the rendered revision without sending a workflow action", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      response({ helpActionRequiredCount: 1, helpNotificationCount: 1 }),
+    );
+    await expect(alumniHelpService.markRead(IDS.request, 7)).resolves.toEqual({
+      helpActionRequiredCount: 1,
+      helpNotificationCount: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/alumni-help-requests/${IDS.request}/read`),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ observedRevision: 7 }) }),
+    );
+  });
   it("rejects pagination whose complete MongoDB window is unsafe", async () => {
     await expect(
       alumniHelpService.list({

@@ -77,6 +77,11 @@ export default function HelpRequestCard({
             Updated <time dateTime={request.updatedAt}>{formatHelpDate(request.updatedAt)}</time>
           </p>
           <div className="flex items-center gap-3">
+            {request.hasUnreadUpdate && (
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                New update
+              </span>
+            )}
             {request.actionRequiredForViewer && (
               <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
                 Action required

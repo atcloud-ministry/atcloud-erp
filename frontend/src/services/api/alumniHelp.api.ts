@@ -2,10 +2,12 @@ import { BaseApiClient } from "./common";
 import {
   ALUMNI_HELP_TYPES,
   decodeAlumniHelpActionRequiredCount,
+  decodeAlumniHelpNotificationCounts,
   decodeAlumniHelpRequestMutation,
   decodeAlumniHelpRequestPage,
   decodeAlumniHelpTerms,
   type AlumniHelpOutcomeCode,
+  type AlumniHelpNotificationCountsDTO,
   type AlumniHelpRequestMutationDTO,
   type AlumniHelpRequestPageDTO,
   type AlumniHelpTermsDTO,
@@ -16,6 +18,7 @@ export const ALUMNI_HELP_DEFAULT_PAGE_SIZE = 20;
 export const ALUMNI_HELP_MAX_PAGE_SIZE = 100;
 
 export const ALUMNI_HELP_LIST_VIEWS = [
+  "updates",
   "action_required",
   "received",
   "sent",
@@ -140,6 +143,37 @@ class AlumniHelpApiClient extends BaseApiClient {
       throw new Error(response.message || "Failed to load action count");
     }
     return decodeAlumniHelpActionRequiredCount(response.data);
+  }
+
+  async getNotificationCounts(signal?: AbortSignal): Promise<AlumniHelpNotificationCountsDTO> {
+    const response = await this.request<unknown>(
+      "/alumni-help-requests/action-required-count",
+      { signal },
+    );
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to load Help notification counts");
+    }
+    return decodeAlumniHelpNotificationCounts(response.data);
+  }
+
+  async markRead(
+    requestId: string,
+    observedRevision: number,
+    signal?: AbortSignal,
+  ): Promise<AlumniHelpNotificationCountsDTO> {
+    const safeId = encodeURIComponent(requireObjectId(requestId, "Request ID"));
+    const response = await this.request<unknown>(
+      `/alumni-help-requests/${safeId}/read`,
+      {
+        method: "POST",
+        body: JSON.stringify({ observedRevision: requireRevision(observedRevision) }),
+        signal,
+      },
+    );
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to mark the Help update read");
+    }
+    return decodeAlumniHelpNotificationCounts(response.data);
   }
 
   async get(
@@ -304,6 +338,9 @@ export const alumniHelpService = {
     client.list(params, signal),
   getActionRequiredCount: (signal?: AbortSignal) =>
     client.getActionRequiredCount(signal),
+  getNotificationCounts: (signal?: AbortSignal) => client.getNotificationCounts(signal),
+  markRead: (requestId: string, observedRevision: number, signal?: AbortSignal) =>
+    client.markRead(requestId, observedRevision, signal),
   get: (requestId: string, signal?: AbortSignal) => client.get(requestId, signal),
   create: (input: CreateAlumniHelpRequestInput, idempotencyKey: string) =>
     client.create(input, idempotencyKey),
@@ -365,6 +402,7 @@ export type {
   AlumniHelpAvailableAction,
   AlumniHelpConfirmationMethod,
   AlumniHelpLifecycleAction,
+  AlumniHelpNotificationCountsDTO,
   AlumniHelpOutcomeCode,
   AlumniHelpOutcomeDTO,
   AlumniHelpOutcomeStatus,

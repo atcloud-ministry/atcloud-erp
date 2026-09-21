@@ -25,6 +25,8 @@ router.get(
 router.get("/", requireAlumniNetworkReadable, alumniHelpRequestController.list);
 router.post("/", requireAlumniNetworkWritable, alumniHelpRequestController.create);
 router.get("/:requestId", requireAlumniNetworkReadable, alumniHelpRequestController.get);
+// Read receipts only acknowledge content already shown to this participant.
+router.post("/:requestId/read", requireAlumniNetworkReadable, alumniHelpRequestController.markRead);
 
 const transitions = [
   ["request-information", "request_information"],

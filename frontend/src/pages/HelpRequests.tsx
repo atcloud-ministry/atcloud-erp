@@ -12,10 +12,9 @@ import {
   type AlumniHelpListView,
   type AlumniHelpRequestPageDTO,
 } from "../services/api";
-import { socketService } from "../services/socketService";
-import type { AlumniHelpUpdate } from "../types/realtime";
 
 const TABS: readonly { id: AlumniHelpListView; label: string }[] = [
+  { id: "updates", label: "Updates" },
   { id: "action_required", label: "Action Needed" },
   { id: "received", label: "Received" },
   { id: "sent", label: "Sent" },
@@ -33,7 +32,7 @@ const EMPTY_PAGINATION: AlumniHelpRequestPageDTO["pagination"] = {
 function parseView(value: string | null): AlumniHelpListView {
   return value && ALUMNI_HELP_LIST_VIEWS.includes(value as AlumniHelpListView)
     ? (value as AlumniHelpListView)
-    : "action_required";
+    : "updates";
 }
 
 function parsePage(value: string | null): number {
@@ -43,7 +42,11 @@ function parsePage(value: string | null): number {
 export default function HelpRequests() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { config, status: runtimeStatus } = useRuntimeConfig();
-  const { setHelpActionRequiredCount } = useAlumniHelp();
+  const {
+    setHelpNotificationCounts,
+    captureHelpCounterGeneration,
+    helpRefreshSequence,
+  } = useAlumniHelp();
   const view = parseView(searchParams.get("view"));
   const page = parsePage(searchParams.get("page"));
   const [loadedResult, setLoadedResult] = useState<{
@@ -58,7 +61,7 @@ export default function HelpRequests() {
   const setViewAndPage = useCallback(
     (nextView: AlumniHelpListView, nextPage = 1) => {
       const next = new URLSearchParams();
-      if (nextView !== "action_required") next.set("view", nextView);
+      if (nextView !== "updates") next.set("view", nextView);
       if (nextPage > 1) next.set("page", String(nextPage));
       setSearchParams(next);
     },
@@ -68,6 +71,7 @@ export default function HelpRequests() {
   useEffect(() => {
     if (runtimeStatus !== "ready" || !config.alumniNetwork.readable) return;
     const controller = new AbortController();
+    const expectedGeneration = captureHelpCounterGeneration();
     setLoading(true);
     setError(null);
     void alumniHelpService
@@ -83,7 +87,7 @@ export default function HelpRequests() {
           return;
         }
         setLoadedResult({ view, page, value: next });
-        setHelpActionRequiredCount(next.helpActionRequiredCount);
+        setHelpNotificationCounts(next, expectedGeneration);
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
@@ -101,19 +105,13 @@ export default function HelpRequests() {
     config.alumniNetwork.readable,
     page,
     reloadSequence,
+    helpRefreshSequence,
     runtimeStatus,
-    setHelpActionRequiredCount,
+    setHelpNotificationCounts,
+    captureHelpCounterGeneration,
     setViewAndPage,
     view,
   ]);
-
-  useEffect(
-    () =>
-      socketService.on<AlumniHelpUpdate>("alumni_help_update", () => {
-        setReloadSequence((value) => value + 1);
-      }),
-    [],
-  );
 
   const result =
     loadedResult?.view === view && loadedResult.page === page
@@ -122,7 +120,7 @@ export default function HelpRequests() {
   const requests = result?.requests ?? [];
   const pagination = result?.pagination ?? EMPTY_PAGINATION;
   const activeTabLabel = useMemo(
-    () => TABS.find((tab) => tab.id === view)?.label ?? "Action Needed",
+    () => TABS.find((tab) => tab.id === view)?.label ?? "Updates",
     [view],
   );
 
@@ -163,7 +161,7 @@ export default function HelpRequests() {
                 }`}
                 key={tab.id}
                 to={
-                  tab.id === "action_required"
+                  tab.id === "updates"
                     ? "/dashboard/community/help-requests"
                     : `/dashboard/community/help-requests?view=${tab.id}`
                 }
@@ -217,7 +215,9 @@ export default function HelpRequests() {
                 </Link>
               }
               message={
-                view === "action_required"
+                view === "updates"
+                  ? "You have no unread help updates or requests requiring action."
+                  : view === "action_required"
                   ? "You have no help requests requiring action."
                   : `There are no requests in ${activeTabLabel}.`
               }

@@ -48,10 +48,15 @@ import {
   idempotencyService,
 } from "../reliability/IdempotencyService";
 import {
-  alumniHelpActionCountService,
   buildAlumniHelpActionRequiredFilter,
-  type AlumniHelpActionCountReader,
 } from "./AlumniHelpActionCountService";
+import {
+  alumniHelpNotificationCountService,
+  buildAlumniHelpNotificationFilter,
+  hasUnreadHelpUpdate,
+  helpUpdateMarkers,
+  type AlumniHelpNotificationCountsReader,
+} from "./AlumniHelpNotificationCountService";
 import {
   enqueueAlumniHelpWorkflowNotifications,
   type AlumniHelpWorkflowEventType,
@@ -113,7 +118,7 @@ export interface DecideAlumniHelpOutcomeInput {
 interface AlumniHelpRequestServiceDependencies {
   readonly now?: () => Date;
   readonly idempotency?: IdempotencyService;
-  readonly actionCounts?: AlumniHelpActionCountReader;
+  readonly notificationCounts?: AlumniHelpNotificationCountsReader;
   readonly roomProvisioner?: AlumniHelpRoomProvisioner;
 }
 
@@ -364,6 +369,7 @@ function summaryDto(
     conversationId: request.conversationId ? String(request.conversationId) : null,
     viewerRole: role,
     actionRequiredForViewer: actionRequiredFor(request, role),
+    hasUnreadUpdate: hasUnreadHelpUpdate(request, role),
     availableActions: availableActions(request, role),
     latestOutcome: latestOutcome ? outcomeDto(latestOutcome) : null,
     revision: request.revision,
@@ -376,13 +382,14 @@ function summaryDto(
 export class AlumniHelpRequestService {
   private readonly now: () => Date;
   private readonly idempotency: IdempotencyService;
-  private readonly actionCounts: AlumniHelpActionCountReader;
+  private readonly notificationCounts: AlumniHelpNotificationCountsReader;
   private readonly roomProvisioner: AlumniHelpRoomProvisioner;
 
   constructor(dependencies: AlumniHelpRequestServiceDependencies = {}) {
     this.now = dependencies.now ?? (() => new Date());
     this.idempotency = dependencies.idempotency ?? idempotencyService;
-    this.actionCounts = dependencies.actionCounts ?? alumniHelpActionCountService;
+    this.notificationCounts =
+      dependencies.notificationCounts ?? alumniHelpNotificationCountService;
     this.roomProvisioner = dependencies.roomProvisioner ?? alumniHelpRoomProvisioner;
   }
 
@@ -391,9 +398,38 @@ export class AlumniHelpRequestService {
   }
 
   async actionRequiredCount(userId: string): Promise<AlumniHelpActionRequiredCountDTO> {
-    return Object.freeze({
-      helpActionRequiredCount: await this.actionCounts.countForUser(userId),
-    });
+    return this.notificationCounts.countsForUser(userId);
+  }
+
+  async markRead(
+    userId: string,
+    requestId: string,
+    observedRevision: number,
+  ): Promise<AlumniHelpActionRequiredCountDTO> {
+    if (
+      !Number.isSafeInteger(observedRevision) ||
+      observedRevision < 0 ||
+      observedRevision >= Number.MAX_SAFE_INTEGER
+    ) throw alumniInputError();
+    const actorId = toObjectId(userId);
+    const request = await this.loadParticipantRequest(
+      toObjectId(requestId, true), actorId,
+    );
+    if (observedRevision > request.revision) throw requestRevisionConflict();
+    const role = participantRole(request, actorId);
+    const updated = await AlumniHelpRequest.updateOne(
+      {
+        _id: request._id,
+        [`${role}Id`]: actorId,
+        revision: { $gte: observedRevision },
+        $or: [{ purgeAt: null }, { purgeAt: { $gt: this.requireNow() } }],
+      },
+      { $max: { [`${role}ReadSequence`]: observedRevision + 1 } },
+      // Viewing an update must not reorder requests or change its business revision.
+      { timestamps: false },
+    );
+    if (updated.matchedCount !== 1) throw requestNotFound();
+    return this.actionRequiredCount(userId);
   }
 
   async list(
@@ -409,6 +445,9 @@ export class AlumniHelpRequestService {
       $or: [{ purgeAt: null }, { purgeAt: { $gt: now } }],
     };
     const filter: Record<string, unknown> = (() => {
+      if (query.view === "updates") {
+        return { ...buildAlumniHelpNotificationFilter(userId, now) };
+      }
       if (query.view === "action_required") {
         return {
           $and: [
@@ -433,14 +472,14 @@ export class AlumniHelpRequestService {
       };
     })();
     const skip = (query.page - 1) * query.limit;
-    const [requests, totalCount, helpActionRequiredCount] = await Promise.all([
+    const [requests, totalCount, counts] = await Promise.all([
       AlumniHelpRequest.find(filter)
         .sort({ updatedAt: -1, _id: -1 })
         .skip(skip)
         .limit(query.limit)
         .exec(),
       AlumniHelpRequest.countDocuments(filter),
-      this.actionCounts.countForUser(userId),
+      this.actionRequiredCount(userId),
     ]);
     const outcomeIds = requests.flatMap((request) =>
       request.latestOutcomeSubmissionId ? [request.latestOutcomeSubmissionId] : [],
@@ -472,7 +511,7 @@ export class AlumniHelpRequestService {
         hasNext: query.page < totalPages,
         hasPrev: query.page > 1,
       }),
-      helpActionRequiredCount,
+      ...counts,
     });
   }
 
@@ -549,7 +588,7 @@ export class AlumniHelpRequestService {
     });
     return Object.freeze({
       request: dto,
-      helpActionRequiredCount: await this.actionCounts.countForUser(userId),
+      ...(await this.actionRequiredCount(userId)),
     });
   }
 
@@ -637,6 +676,7 @@ export class AlumniHelpRequestService {
               },
             ],
             revision: 0,
+            ...helpUpdateMarkers(0, "requester"),
           });
           await request.save({ session });
           await AuditLogService.recordRequiredInTransaction(
@@ -823,6 +863,7 @@ export class AlumniHelpRequestService {
                 revision: request.revision,
               },
               $push: { lifecycleTimeline: event },
+              $max: helpUpdateMarkers(request.revision, role),
             },
             { session, runValidators: false },
           );
@@ -981,6 +1022,7 @@ export class AlumniHelpRequestService {
                 purgeAt: requestPurgeAt,
                 revision: request.revision,
               },
+              $max: helpUpdateMarkers(request.revision, "requester"),
             },
             { session, runValidators: false },
           );
@@ -1128,6 +1170,7 @@ export class AlumniHelpRequestService {
               latestOutcomeStatus: outcome.status,
               revision: request.revision,
             },
+            $max: helpUpdateMarkers(request.revision, "provider"),
           },
           { session, runValidators: false },
         );

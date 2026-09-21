@@ -60,6 +60,7 @@ describe("SocketService payload schema", () => {
       requestId: "507F1F77BCF86CD799439012",
       requestRevision: 4,
       helpActionRequiredCount: 2,
+      helpNotificationCount: 4,
     });
 
     expect(mockIO.to).toHaveBeenCalledWith(
@@ -69,6 +70,7 @@ describe("SocketService payload schema", () => {
       requestId: "507f1f77bcf86cd799439012",
       requestRevision: 4,
       helpActionRequiredCount: 2,
+      helpNotificationCount: 4,
       timestamp: expect.any(String),
     });
   });
@@ -79,6 +81,7 @@ describe("SocketService payload schema", () => {
       requestId: "507F1F77BCF86CD799439012",
       requestRevision: 4,
       helpActionRequiredCount: 2,
+      helpNotificationCount: 4,
       roomCreated: { conversationId: "507F1F77BCF86CD799439013" },
     });
 
@@ -89,6 +92,7 @@ describe("SocketService payload schema", () => {
       requestId: "507f1f77bcf86cd799439012",
       requestRevision: 4,
       helpActionRequiredCount: 2,
+      helpNotificationCount: 4,
       roomCreated: { conversationId: "507f1f77bcf86cd799439013" },
       timestamp: expect.any(String),
     });
@@ -205,6 +209,7 @@ describe("SocketService payload schema", () => {
       requestId: eventId,
       requestRevision: 1,
       helpActionRequiredCount: 1,
+      helpNotificationCount: 3,
     });
     expect(mockIO.to).not.toHaveBeenCalled();
     expect(mockIO.emit).not.toHaveBeenCalled();
@@ -215,11 +220,26 @@ describe("SocketService payload schema", () => {
       requestId: eventId,
       requestRevision: 1,
       helpActionRequiredCount: 1,
+      helpNotificationCount: 3,
       roomCreated: { conversationId: "not-an-object-id" },
     });
     expect(mockIO.to).not.toHaveBeenCalled();
     expect(mockIO.emit).not.toHaveBeenCalled();
   });
+
+  it.each([-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses an invalid Alumni Help notification count %s",
+    (helpNotificationCount) => {
+      socketService.emitAlumniHelpUpdate("507f1f77bcf86cd799439011", {
+        requestId: eventId,
+        requestRevision: 1,
+        helpActionRequiredCount: 1,
+        helpNotificationCount,
+      });
+      expect(mockIO.to).not.toHaveBeenCalled();
+      expect(mockIO.emit).not.toHaveBeenCalled();
+    },
+  );
 
   it("emits event_update only to the authorized event room", () => {
     const data = { bar: 2 };

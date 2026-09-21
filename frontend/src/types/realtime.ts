@@ -55,6 +55,7 @@ export interface AlumniHelpUpdate {
   requestId: string;
   requestRevision: number;
   helpActionRequiredCount: number;
+  helpNotificationCount?: number;
   /**
    * Present only on the delivery that establishes a private Alumni Help room.
    * It contains no participant or message data, and is scoped to the two

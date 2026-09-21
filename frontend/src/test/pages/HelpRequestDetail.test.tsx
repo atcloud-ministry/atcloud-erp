@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   submitOutcome: vi.fn(),
   decideOutcome: vi.fn(),
   setCount: vi.fn(),
+  captureGeneration: vi.fn(() => 0),
+  markRead: vi.fn(),
+  helpRefreshSequence: 0,
   announceHelpRoomCreated: vi.fn(),
   writable: true,
   socketHandler: null as ((payload: unknown) => void) | null,
@@ -29,12 +32,15 @@ vi.mock("../../services/api", async (importOriginal) => ({
     proposeAlternative: mocks.proposeAlternative,
     submitOutcome: mocks.submitOutcome,
     decideOutcome: mocks.decideOutcome,
+    markRead: mocks.markRead,
   },
 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
   useAlumniHelp: () => ({
-    setHelpActionRequiredCount: mocks.setCount,
+    setHelpNotificationCounts: mocks.setCount,
+    captureHelpCounterGeneration: mocks.captureGeneration,
+    helpRefreshSequence: mocks.helpRefreshSequence,
     announceHelpRoomCreated: mocks.announceHelpRoomCreated,
   }),
 }));
@@ -87,6 +93,7 @@ function makeRequest(
     conversationId: null,
     viewerRole: "provider",
     actionRequiredForViewer: true,
+    hasUnreadUpdate: false,
     availableActions: [
       "request_information",
       "propose_alternative",
@@ -137,8 +144,8 @@ function makeRequest(
   };
 }
 
-function renderPage() {
-  return render(
+function PageHarness() {
+  return (
     <MemoryRouter
       initialEntries={[
         `/dashboard/community/help-requests/${IDS.request}`,
@@ -150,8 +157,12 @@ function renderPage() {
           path="/dashboard/community/help-requests/:requestId"
         />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderPage() {
+  return render(<PageHarness />);
 }
 
 describe("HelpRequestDetail", () => {
@@ -159,6 +170,9 @@ describe("HelpRequestDetail", () => {
     vi.clearAllMocks();
     mocks.writable = true;
     mocks.socketHandler = null;
+    mocks.helpRefreshSequence = 0;
+    mocks.captureGeneration.mockReturnValue(0);
+    mocks.markRead.mockResolvedValue({ helpActionRequiredCount: 1, helpNotificationCount: 1 });
     const request = makeRequest();
     mocks.get.mockResolvedValue({ request, helpActionRequiredCount: 1 });
     mocks.requestInformation.mockResolvedValue({
@@ -201,7 +215,63 @@ describe("HelpRequestDetail", () => {
       "What field are you targeting?",
     ]);
     expect(mocks.requestInformation.mock.calls[0][3]).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(mocks.setCount).toHaveBeenCalledWith(0);
+    expect(mocks.setCount).toHaveBeenCalledWith(expect.objectContaining({ helpActionRequiredCount: 0 }), 0);
+  });
+
+  it("renders the other participant's updated status and actions from the shared live refresh", async () => {
+    const rendered = renderPage();
+    await screen.findByRole("heading", { name: "Taylor Reed" });
+    mocks.get.mockResolvedValue({
+      request: makeRequest({ status: "in_progress", revision: 2, availableActions: ["complete"] }),
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 1,
+    });
+    mocks.helpRefreshSequence += 1;
+    rendered.rerender(<PageHarness />);
+    expect(await screen.findByText("In progress")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+  });
+
+  it("acknowledges only the unread revision actually visible to the participant", async () => {
+    mocks.get.mockResolvedValue({
+      request: makeRequest({ hasUnreadUpdate: true, revision: 7 }),
+      helpActionRequiredCount: 1,
+      helpNotificationCount: 1,
+    });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    renderPage();
+    await screen.findByRole("heading", { name: "Taylor Reed" });
+    expect(mocks.markRead).not.toHaveBeenCalled();
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(IDS.request, 7));
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.markRead).toHaveBeenCalledOnce();
+    visibility.mockRestore();
+  });
+
+  it("does not restore an older GET response after a successful acceptance", async () => {
+    const user = userEvent.setup();
+    const rendered = renderPage();
+    await screen.findByRole("heading", { name: "Taylor Reed" });
+    let resolveRefresh!: (value: unknown) => void;
+    mocks.get.mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
+    mocks.helpRefreshSequence += 1;
+    rendered.rerender(<PageHarness />);
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(2));
+    mocks.transition.mockResolvedValue({
+      request: makeRequest({
+        status: "accepted", revision: 1, conversationId: IDS.conversation,
+        agreedHelpType: "career_advice", availableActions: ["start", "complete"],
+      }),
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 0,
+    });
+    await user.click(screen.getByRole("button", { name: "Accept" }));
+    await screen.findByText("Help Room created");
+    await act(async () => resolveRefresh({ request: makeRequest(), helpActionRequiredCount: 1, helpNotificationCount: 1 }));
+    expect(screen.getByText("Help Room created")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
   });
 
   it("offers only server-supplied alternative types", async () => {

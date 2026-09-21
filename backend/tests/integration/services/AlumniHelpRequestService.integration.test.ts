@@ -20,6 +20,8 @@ import {
   acceptedHelpRequestPurgeAt,
   type AlumniHelpOutcomeCode,
   type AlumniHelpType,
+  type AlumniHelpRequestDataDTO,
+  type HelpTransitionAction,
 } from "../../../src/contracts/alumniHelpFlow";
 import {
   deriveAlumniAffiliationKey,
@@ -246,6 +248,126 @@ describe("M3 Alumni Help service integration", () => {
     await Promise.all(collections.map((model) => model.deleteMany({})));
   });
 
+  it("persists and acknowledges peer notifications through every lifecycle and outcome action", async () => {
+    const requesterId = await insertUser("Notification");
+    let current = await createRequest(requesterId, "career_advice");
+    const requestId = current.request.id;
+    const checkPeer = async (result: AlumniHelpRequestDataDTO, recipient: mongoose.Types.ObjectId) => {
+      expect(result.request.hasUnreadUpdate).toBe(false);
+      const peer = await service.get(recipient.toString(), requestId);
+      expect(peer.request.hasUnreadUpdate).toBe(true);
+      // The same request is counted only once, even when it also needs an action.
+      expect(peer.helpNotificationCount).toBe(1);
+      const updates = await service.list(recipient.toString(), { view: "updates", page: 1, limit: 20 });
+      expect(updates.requests.map((entry) => entry.id)).toEqual([requestId]);
+      expect(updates.requests[0].hasUnreadUpdate).toBe(true);
+      const counts = await service.markRead(recipient.toString(), requestId, peer.request.revision);
+      expect(counts.helpNotificationCount).toBe(peer.request.actionRequiredForViewer ? 1 : 0);
+      expect((await service.get(recipient.toString(), requestId)).request.hasUnreadUpdate).toBe(false);
+    };
+    await checkPeer(current, providerId);
+
+    const transitions: Array<{ action: HelpTransitionAction; provider: boolean; note?: string; proposedHelpType?: AlumniHelpType }> = [
+      { action: "request_information", provider: true, note: "What would you like help with?" },
+      { action: "provide_information", provider: false, note: "Interview preparation." },
+      { action: "propose_alternative", provider: true, proposedHelpType: "warm_introduction" },
+      { action: "reject_alternative", provider: false },
+      { action: "propose_alternative", provider: true, proposedHelpType: "warm_introduction" },
+      { action: "confirm_alternative", provider: false },
+      { action: "start", provider: true },
+      { action: "complete", provider: true },
+    ];
+    for (const transition of transitions) {
+      current = await service.transition({
+        requestId,
+        action: transition.action,
+        expectedRevision: current.request.revision,
+        actor: actor(transition.provider ? providerId : requesterId),
+        idempotencyKey: randomUUID(),
+        ...(transition.note ? { note: transition.note } : {}),
+        ...(transition.proposedHelpType ? { proposedHelpType: transition.proposedHelpType } : {}),
+      });
+      await checkPeer(current, transition.provider ? requesterId : providerId);
+    }
+    current = await submitOutcome(requesterId, requestId, current.request.revision, "completed");
+    await checkPeer(current, providerId);
+    current = await service.decideOutcome({
+      requestId, outcomeId: current.request.latestOutcome!.id,
+      expectedRevision: 0, decision: "deny", actor: actor(providerId), idempotencyKey: randomUUID(),
+    });
+    await checkPeer(current, requesterId);
+    current = await submitOutcome(requesterId, requestId, current.request.revision, "completed");
+    await checkPeer(current, providerId);
+    current = await service.decideOutcome({
+      requestId, outcomeId: current.request.latestOutcome!.id,
+      expectedRevision: 0, decision: "confirm", actor: actor(providerId), idempotencyKey: randomUUID(),
+    });
+    await checkPeer(current, requesterId);
+    current = await service.transition({
+      requestId, action: "close", expectedRevision: current.request.revision,
+      actor: actor(requesterId), idempotencyKey: randomUUID(),
+    });
+    await checkPeer(current, providerId);
+  });
+
+  it("notifies acceptance, decline and withdrawal even when the recipient has no action required", async () => {
+    for (const action of ["accept", "decline", "withdraw"] as const) {
+      const requesterId = await insertUser(`Terminal${action}`);
+      const created = await createRequest(requesterId, "career_advice");
+      const actingId = action === "withdraw" ? requesterId : providerId;
+      const recipientId = action === "withdraw" ? providerId : requesterId;
+      await service.markRead(providerId.toString(), created.request.id, 0);
+      await service.transition({
+        requestId: created.request.id, action, expectedRevision: 0,
+        actor: actor(actingId), idempotencyKey: randomUUID(),
+      });
+      const peer = await service.get(recipientId.toString(), created.request.id);
+      expect(peer.request).toMatchObject({ hasUnreadUpdate: true, actionRequiredForViewer: false });
+      expect(peer.helpNotificationCount).toBeGreaterThanOrEqual(1);
+      await service.markRead(recipientId.toString(), created.request.id, peer.request.revision);
+    }
+  });
+
+  it("never clears a newer update with stale/concurrent read receipts, and conceals non-participants and expired requests", async () => {
+    const requesterId = await insertUser("Receipt");
+    const outsiderId = await insertUser("OutsiderReceipt");
+    const created = await createRequest(requesterId, "career_advice");
+    const accepted = await acceptRequest(created.request.id);
+    const requestId = created.request.id;
+    // Repeated GETs are read-only, so navigation/list refresh cannot silently clear a badge.
+    expect((await service.get(requesterId.toString(), requestId)).request.hasUnreadUpdate).toBe(true);
+    expect((await service.get(requesterId.toString(), requestId)).request.hasUnreadUpdate).toBe(true);
+    await expect(service.markRead(outsiderId.toString(), requestId, accepted.request.revision))
+      .rejects.toMatchObject({ code: "ALUMNI_HELP_REQUEST_NOT_FOUND" });
+    await expect(service.markRead(requesterId.toString(), requestId, accepted.request.revision + 1))
+      .rejects.toMatchObject({ code: "ALUMNI_HELP_REQUEST_REVISION_CONFLICT" });
+    await Promise.all([
+      service.markRead(requesterId.toString(), requestId, accepted.request.revision),
+      service.transition({ requestId, action: "start", expectedRevision: accepted.request.revision,
+        actor: actor(providerId), idempotencyKey: randomUUID() }),
+    ]);
+    const newer = await service.get(requesterId.toString(), requestId);
+    expect(newer.request.hasUnreadUpdate).toBe(true);
+    await service.markRead(requesterId.toString(), requestId, 0);
+    expect((await service.get(requesterId.toString(), requestId)).request.hasUnreadUpdate).toBe(true);
+    const before = await AlumniHelpRequest.findById(requestId).lean().orFail();
+    await service.markRead(requesterId.toString(), requestId, newer.request.revision);
+    await service.markRead(requesterId.toString(), requestId, accepted.request.revision);
+    const after = await AlumniHelpRequest.findById(requestId).lean().orFail();
+    expect(after.revision).toBe(before.revision);
+    expect(after.updatedAt).toEqual(before.updatedAt);
+    expect(after.requesterReadSequence).toBe(newer.request.revision + 1);
+    expect((await service.get(requesterId.toString(), requestId)).request.hasUnreadUpdate).toBe(false);
+    await AlumniHelpRequest.updateOne({ _id: requestId }, { $set: {
+      purgeAt: new Date("2000-01-01T00:00:00.000Z"), requesterUpdateSequence: 100,
+    } });
+    await expect(service.markRead(requesterId.toString(), requestId, newer.request.revision))
+      .rejects.toMatchObject({ code: "ALUMNI_HELP_REQUEST_NOT_FOUND" });
+    expect(await service.actionRequiredCount(requesterId.toString())).toEqual({
+      helpActionRequiredCount: 0, helpNotificationCount: 0,
+    });
+  });
+
   it("conceals non-participants, enforces active uniqueness, and provisions one exact two-person room", async () => {
     const requesterId = await insertUser("Requester");
     const outsiderId = await insertUser("Outsider");
@@ -267,6 +389,7 @@ describe("M3 Alumni Help service integration", () => {
     });
     expect(await service.actionRequiredCount(providerId.toString())).toEqual({
       helpActionRequiredCount: 1,
+      helpNotificationCount: 1,
     });
     expect(
       await service.list(providerId.toString(), {
@@ -432,6 +555,7 @@ describe("M3 Alumni Help service integration", () => {
     expect(needsInformation.helpActionRequiredCount).toBe(0);
     expect(await service.actionRequiredCount(requesterId.toString())).toEqual({
       helpActionRequiredCount: 1,
+      helpNotificationCount: 1,
     });
     await expect(
       service.transition({
@@ -626,6 +750,7 @@ describe("M3 Alumni Help service integration", () => {
     expect(await AlumniHelpOutcomeSubmission.countDocuments({})).toBe(7);
     expect(await service.actionRequiredCount(providerId.toString())).toEqual({
       helpActionRequiredCount: 7,
+      helpNotificationCount: 7,
     });
     expect(JSON.stringify(await NotificationOutbox.find({}).lean())).not.toContain(
       privateNote,
@@ -659,6 +784,7 @@ describe("M3 Alumni Help service integration", () => {
     });
     expect(await service.actionRequiredCount(requesterId.toString())).toEqual({
       helpActionRequiredCount: 1,
+      helpNotificationCount: 1,
     });
 
     setNow(new Date(nowValue.getTime() + MILLISECONDS_PER_DAY));
@@ -813,6 +939,13 @@ describe("M3 Alumni Help service integration", () => {
       decidedBy: null,
       revision: 1,
     });
+    for (const participantId of [requesterId, providerId]) {
+      const detail = await service.get(participantId.toString(), created.request.id);
+      expect(detail.request.hasUnreadUpdate).toBe(true);
+      expect(detail.helpNotificationCount).toBe(1);
+      const read = await service.markRead(participantId.toString(), created.request.id, detail.request.revision);
+      expect(read.helpNotificationCount).toBe(0);
+    }
     expect(
       await deadlineService.runBounded(
         workerAuthorizationService.createRunContext(

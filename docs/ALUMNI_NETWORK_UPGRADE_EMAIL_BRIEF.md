@@ -79,13 +79,17 @@ Notification numbers appear at these locations:
 - Chat Rooms navigation: unread member messages and Program announcements across accessible Rooms.
 - Room row: unread messages and announcements in that Room.
 - System Messages navigation: unread ERP and workflow notices.
-- Help Requests navigation: unique requests requiring the user's action.
+- Alumni Community sidebar and Help Requests navigation: unique requests with an unread update from the other participant or an action needed; each request counts once.
 - PWA launcher icon: Chat Rooms unread plus System Messages unread.
 
 Room notifications open the relevant Chat Room. Help workflow notifications open the relevant Help
 Request. Login recovery preserves the destination. Room mute controls Room Push/email delivery; Help
 and result events follow the member's global channel preferences.
-Room read state, System Message read state, and Help action completion update their respective counts.
+Every Help workflow step updates the page and badges in real time. The default Updates view includes
+new progress and outcome confirmations. Opening a request marks the displayed update as read;
+requests still requiring action remain counted. Reconnection, returning to the page, and a 15-second
+foreground recovery check restore missed updates.
+Room read state, System Message read state, and Help updates/read state/action completion update their respective counts.
 
 ### Website and PWA
 

@@ -18,7 +18,7 @@ vi.mock("../../services/api", async (importOriginal) => ({
 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
-  useAlumniHelp: () => ({ setHelpActionRequiredCount: mocks.setCount }),
+  useAlumniHelp: () => ({ setHelpNotificationCounts: mocks.setCount }),
 }));
 
 const profile = {
@@ -106,7 +106,7 @@ describe("RequestHelpDialog", () => {
     expect(mocks.create.mock.calls[0][1]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
-    expect(mocks.setCount).toHaveBeenCalledWith(2);
+    expect(mocks.setCount).toHaveBeenCalledWith(created);
     expect(onCreated).toHaveBeenCalledWith(created);
   });
 

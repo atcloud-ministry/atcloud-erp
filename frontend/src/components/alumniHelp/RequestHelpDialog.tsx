@@ -30,7 +30,7 @@ export default function RequestHelpDialog({
   onClose,
   onCreated,
 }: RequestHelpDialogProps) {
-  const { setHelpActionRequiredCount } = useAlumniHelp();
+  const { setHelpNotificationCounts } = useAlumniHelp();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -158,7 +158,7 @@ export default function RequestHelpDialog({
     try {
       const result = await alumniHelpService.create(input, idempotencyKey);
       retryRef.current = null;
-      setHelpActionRequiredCount(result.helpActionRequiredCount);
+      setHelpNotificationCounts(result);
       onCreated(result);
     } catch (reason) {
       const status = (reason as { status?: unknown } | null)?.status;

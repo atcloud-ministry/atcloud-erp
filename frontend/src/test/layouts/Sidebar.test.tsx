@@ -277,6 +277,41 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       );
     });
 
+    it("updates the Alumni Community badge while viewing another page", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+      const sidebar = (count: number) => (
+        <MemoryRouter initialEntries={["/dashboard/my-events"]}>
+          <Sidebar
+            helpNotificationCount={count}
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>
+      );
+      const { rerender } = render(sidebar(0));
+      expect(screen.getByRole("link", { name: "Alumni Community" }))
+        .not.toHaveAttribute("aria-current");
+
+      rerender(sidebar(3));
+      expect(screen.getByRole("link", {
+        name: "Alumni Community, 3 help requests with updates or actions needed",
+      })).toHaveTextContent("3");
+
+      rerender(sidebar(123));
+      expect(screen.getByRole("link", {
+        name: "Alumni Community, 123 help requests with updates or actions needed",
+      })).toHaveTextContent("99+");
+
+      rerender(sidebar(0));
+      expect(screen.getByRole("link", { name: "Alumni Community" }))
+        .toHaveTextContent(/^Alumni Community$/);
+    });
+
     it("shows the accessible Chat Rooms unread badge capped at 99+", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),

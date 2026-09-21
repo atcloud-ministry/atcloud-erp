@@ -10,10 +10,7 @@ import {
   formatHelpDate,
 } from "../components/alumniHelp/presentation";
 import { Button, Card, ErrorState, LoadingState } from "../components/ui";
-import {
-  isAlumniHelpUpdatePayload,
-  useAlumniHelp,
-} from "../contexts/AlumniHelpContext";
+import { useAlumniHelp } from "../contexts/AlumniHelpContext";
 import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
 import {
   alumniHelpService,
@@ -23,7 +20,6 @@ import {
   type AlumniHelpRequestMutationDTO,
   type AlumniHelpType,
 } from "../services/api";
-import { socketService } from "../services/socketService";
 import { createIdempotencyKey } from "../utils/idempotencyKey";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
@@ -48,7 +44,12 @@ function isSimpleAction(action: AlumniHelpAvailableAction): action is SimpleActi
 export default function HelpRequestDetail() {
   const { requestId = "" } = useParams<{ requestId: string }>();
   const { config, status: runtimeStatus } = useRuntimeConfig();
-  const { setHelpActionRequiredCount, announceHelpRoomCreated } = useAlumniHelp();
+  const {
+    setHelpNotificationCounts,
+    captureHelpCounterGeneration,
+    helpRefreshSequence,
+    announceHelpRoomCreated,
+  } = useAlumniHelp();
   const [loadedRequest, setLoadedRequest] = useState<{
     requestId: string;
     value: AlumniHelpRequestDetailDTO;
@@ -60,6 +61,14 @@ export default function HelpRequestDetail() {
   const [busy, setBusy] = useState(false);
   const [reloadSequence, setReloadSequence] = useState(0);
   const retryRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const latestRequestRef = useRef<{
+    requestId: string;
+    revision: number;
+  } | null>(null);
+  const readRevisionsRef = useRef(new Set<string>());
+  const acknowledgedReadRevisionsRef = useRef(new Set<string>());
+  const currentRequestIdRef = useRef(requestId);
+  currentRequestIdRef.current = requestId;
 
   const readable =
     runtimeStatus === "ready" && config.alumniNetwork.readable;
@@ -69,14 +78,32 @@ export default function HelpRequestDetail() {
   useEffect(() => {
     if (!readable || !OBJECT_ID_PATTERN.test(requestId)) return;
     const controller = new AbortController();
+    const expectedGeneration = captureHelpCounterGeneration();
     setLoading(true);
     setError(null);
     void alumniHelpService
       .get(requestId, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
-        setLoadedRequest({ requestId, value: result.request });
-        setHelpActionRequiredCount(result.helpActionRequiredCount);
+        // A refresh started before an action can finish after that action's
+        // response. Never restore the old status, timeline, or available actions.
+        if (
+          latestRequestRef.current?.requestId === requestId &&
+          result.request.revision < latestRequestRef.current.revision
+        ) {
+          return;
+        }
+        latestRequestRef.current = {
+          requestId,
+          revision: result.request.revision,
+        };
+        setLoadedRequest({
+          requestId,
+          value: acknowledgedReadRevisionsRef.current.has(`${requestId}:${result.request.revision}`)
+            ? { ...result.request, hasUnreadUpdate: false }
+            : result.request,
+        });
+        setHelpNotificationCounts(result, expectedGeneration);
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
@@ -93,26 +120,70 @@ export default function HelpRequestDetail() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [readable, reloadSequence, requestId, setHelpActionRequiredCount]);
-
-  useEffect(
-    () =>
-      socketService.on<unknown>("alumni_help_update", (update) => {
-        if (isAlumniHelpUpdatePayload(update) && update.requestId === requestId) {
-          setHelpActionRequiredCount(update.helpActionRequiredCount);
-          setReloadSequence((value) => value + 1);
-        }
-      }),
-    [requestId, setHelpActionRequiredCount],
-  );
+  }, [readable, reloadSequence, helpRefreshSequence, requestId, setHelpNotificationCounts, captureHelpCounterGeneration]);
 
   const request =
     loadedRequest?.requestId === requestId ? loadedRequest.value : null;
 
-  const applyResult = (result: AlumniHelpRequestMutationDTO, message: string) => {
+  useEffect(() => {
+    if (!readable || !request?.hasUnreadUpdate) return;
+    const observedRequest = request;
+    const readKey = `${observedRequest.id}:${observedRequest.revision}`;
+    let active = true;
+    const acknowledgeVisibleUpdate = () => {
+      if (
+        document.visibilityState === "hidden" ||
+        !navigator.onLine ||
+        readRevisionsRef.current.has(readKey)
+      ) return;
+      readRevisionsRef.current.add(readKey);
+      const expectedGeneration = captureHelpCounterGeneration();
+      void alumniHelpService.markRead(observedRequest.id, observedRequest.revision)
+        .then((counts) => {
+          acknowledgedReadRevisionsRef.current.add(readKey);
+          if (!active) return;
+          setHelpNotificationCounts(counts, expectedGeneration);
+          setLoadedRequest((current) =>
+            current?.requestId === observedRequest.id &&
+            current.value.revision === observedRequest.revision
+              ? { ...current, value: { ...current.value, hasUnreadUpdate: false } }
+              : current,
+          );
+        })
+        .catch(() => {
+          // Retry on the next foreground reconciliation; never acknowledge a
+          // revision that has not actually been rendered for this participant.
+          readRevisionsRef.current.delete(readKey);
+        });
+    };
+    acknowledgeVisibleUpdate();
+    document.addEventListener("visibilitychange", acknowledgeVisibleUpdate);
+    window.addEventListener("online", acknowledgeVisibleUpdate);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", acknowledgeVisibleUpdate);
+      window.removeEventListener("online", acknowledgeVisibleUpdate);
+    };
+  }, [request, readable, captureHelpCounterGeneration, setHelpNotificationCounts]);
+
+  const applyResult = (
+    result: AlumniHelpRequestMutationDTO,
+    message: string,
+    expectedGeneration: number,
+  ) => {
+    if (currentRequestIdRef.current !== requestId) return;
     const previousConversationId = loadedRequest?.value.conversationId ?? null;
-    setLoadedRequest({ requestId, value: result.request });
-    setHelpActionRequiredCount(result.helpActionRequiredCount);
+    if (
+      latestRequestRef.current?.requestId !== requestId ||
+      result.request.revision >= latestRequestRef.current.revision
+    ) {
+      latestRequestRef.current = {
+        requestId,
+        revision: result.request.revision,
+      };
+      setLoadedRequest({ requestId, value: result.request });
+      setHelpNotificationCounts(result, expectedGeneration);
+    }
     if (
       result.request.conversationId &&
       result.request.conversationId !== previousConversationId
@@ -136,10 +207,11 @@ export default function HelpRequestDetail() {
     setBusy(true);
     setMutationError(null);
     setSuccessMessage(null);
+    const expectedGeneration = captureHelpCounterGeneration();
     try {
       const result = await operation(key);
       retryRef.current = null;
-      applyResult(result, message);
+      applyResult(result, message, expectedGeneration);
     } catch (reason) {
       const status = (reason as { status?: unknown } | null)?.status;
       if (typeof status === "number" && status < 500) retryRef.current = null;

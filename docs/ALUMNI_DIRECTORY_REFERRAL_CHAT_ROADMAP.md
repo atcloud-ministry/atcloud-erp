@@ -180,12 +180,17 @@ update 以及 Push/Email recipients 使用 current active window。
 | 顶级 `Chat Rooms` 标签 | 所有 authorized active windows 的 chat unread 总数 |
 | Chat Rooms 列表中的 Room row | 该 Room 的 unread 数 |
 | `System Messages` 标签 | 未读 ERP system/workflow notifications 数 |
-| `Help Requests` 标签 | 当前用户需要 action 的 unique request 数 |
+| 侧边栏 `Alumni Community` 与 `Help Requests` 标签 | 有未读对方更新或仍需当前用户处理的 unique request 数；同一 request 只计一次 |
 | PWA launcher icon | `chatUnreadTotal + systemMessageUnread` |
 
 Chat unread 计算 `sequence > lastReadSequence`、`senderId != currentUserId` 且 `kind` 为
 `text | announcement` 的可见消息。Help action 包括回应 request/补充信息、确认或拒绝
 alternative、Confirm/Deny outcome，以及 Deny 后 resubmit。
+
+申请、补充信息、调整帮助方式、接受、更新进度、提交结果及确认结果均实时更新页面与数字。
+`Help Requests` 默认打开 `Updates`，展示有未读更新或待处理的请求；卡片标记 `New update`。
+打开对应详情后，按实际显示的 revision 确认已读；尚需处理的请求继续保留数字。
+断线重连、回到页面时立即同步，前台页面每 15 秒补查一次，恢复遗漏的更新。
 
 Room notification deep link 为 `/#/dashboard/chat-rooms/:conversationId`；Help 和 outcome
 notification deep link 为 `/#/dashboard/community/help-requests/:requestId`。登录后恢复目标页。
@@ -196,7 +201,7 @@ channel preference。
 | --- | --- |
 | Room read cursor advances | Chat unread |
 | System Message marked read | System Message unread |
-| Help workflow action completed | Help action required |
+| Help workflow updated / request detail read / action completed | Alumni Community 与 Help Requests 提醒数 |
 
 ### 1.7 网站、PWA 与 Email
 
@@ -356,6 +361,8 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
     - 验证：frontend 2,296 tests、lint、type-check、PWA build、root verify 通过；staging frontend `41c3637e`、backend `520648e2` Live；staging migration 10/10 applied，mode `on` / revision 1，Directory、Help Requests 和 Chat Rooms 路由加载通过。
   - [x] FIX-003 移除 Administration 分段，将 Community 更名为 Alumni Community，并把 Alumni Community、Chat Rooms 放到 Role Templates 与 Promo Codes 之间；恢复官方透明浏览器图标。
     - 验证：frontend 2,297 tests、lint、type-check、PWA build 通过；staging frontend `1a7831e1` Live，公开 HTML 指向 `Cloud-browsertag.png`。
+  - [x] FIX-004 修复 Help workflow 通知写入冲突，补齐全流程实时更新、侧边栏 Alumni Community 数字、Updates 列表和按已显示版本确认已读。
+    - 验证：frontend 2,313 tests、backend unit/HTTP 全量、27 项真实 MongoDB targeted integration、双账号 production full-stack E2E 2/2、lint、type-check 与 PWA build 通过。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 

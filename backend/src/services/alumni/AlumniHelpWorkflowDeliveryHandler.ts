@@ -22,9 +22,9 @@ import {
   RetryableNotificationOutboxDeliveryError,
 } from "../reliability/NotificationOutboxWorker";
 import {
-  alumniHelpActionCountService,
-  type AlumniHelpActionCountReader,
-} from "./AlumniHelpActionCountService";
+  alumniHelpNotificationCountService,
+  type AlumniHelpNotificationCountsReader,
+} from "./AlumniHelpNotificationCountService";
 import { enqueueAlumniHelpExternalNotification } from "./AlumniHelpExternalNotification";
 
 export const ALUMNI_HELP_WORKFLOW_TOPIC = "alumni.help.workflow" as const;
@@ -129,6 +129,7 @@ interface WorkflowSocketPort {
       requestId: string;
       requestRevision: number;
       helpActionRequiredCount: number;
+      helpNotificationCount: number;
       roomCreated?: {
         conversationId: string;
       };
@@ -162,7 +163,7 @@ export interface AlumniHelpWorkflowDeliveryDependencies {
     eventId: string,
     payload: AlumniHelpWorkflowPayloadV1,
   ) => Promise<IMessage>;
-  readonly actionCounts?: AlumniHelpActionCountReader;
+  readonly notificationCounts?: AlumniHelpNotificationCountsReader;
   readonly unreadCounts?: WorkflowUnreadCountReader;
   readonly socket?: WorkflowSocketPort;
 }
@@ -389,6 +390,10 @@ export async function enqueueAlumniHelpWorkflowNotifications(
 
   const occurredAt = new Date(input.occurredAt).toISOString();
   const records: NotificationOutboxRecord[] = [];
+  const externalNotifications: Array<{
+    workflowEventId: string;
+    recipientUserId: string;
+  }> = [];
   for (const recipientUserId of [requesterId, providerId]) {
     const presentation: AlumniHelpWorkflowPresentation = isAutomatic
       ? recipientUserId === requesterId
@@ -419,21 +424,28 @@ export async function enqueueAlumniHelpWorkflowNotifications(
     });
     records.push(workflowRecord);
     if (presentation === "system_message") {
-      await enqueueAlumniHelpExternalNotification(
-        {
-          workflowEventId: workflowRecord.eventId,
-          recipientUserId,
-          requestId,
-          requestRevision,
-          timelineEventId,
-          eventType,
-          occurredAt,
-          session: input.session,
-          correlationId: input.correlationId,
-        },
-        outbox,
-      );
+      externalNotifications.push({
+        workflowEventId: workflowRecord.eventId,
+        recipientUserId,
+      });
     }
+  }
+  // Queue both in-page updates before email/push. The FIFO worker must not
+  // wait for an external provider between the two participants' updates.
+  for (const external of externalNotifications) {
+    await enqueueAlumniHelpExternalNotification(
+      {
+        ...external,
+        requestId,
+        requestRevision,
+        timelineEventId,
+        eventType,
+        occurredAt,
+        session: input.session,
+        correlationId: input.correlationId,
+      },
+      outbox,
+    );
   }
   return Object.freeze(records);
 }
@@ -631,6 +643,10 @@ async function ensureWorkflowMessage(
         upsert: true,
         setDefaultsOnInsert: true,
         runValidators: true,
+        // Preserve the event's timestamps on insertion and on idempotent
+        // replay. Mongoose's automatic $set.updatedAt otherwise conflicts
+        // with $setOnInsert.updatedAt, preventing every recipient delivery.
+        timestamps: false,
       },
     ).exec();
     if (!message) throw new Error("Workflow System Message was not persisted.");
@@ -664,7 +680,7 @@ export class AlumniHelpWorkflowDeliveryHandler
   private readonly ensureMessage: NonNullable<
     AlumniHelpWorkflowDeliveryDependencies["ensureMessage"]
   >;
-  private readonly actionCounts: AlumniHelpActionCountReader;
+  private readonly notificationCounts: AlumniHelpNotificationCountsReader;
   private readonly unreadCounts: WorkflowUnreadCountReader;
   private readonly socket?: WorkflowSocketPort;
 
@@ -675,7 +691,8 @@ export class AlumniHelpWorkflowDeliveryHandler
     this.loadRequest = dependencies.loadRequest ?? loadRequestFromMongo;
     this.loadRecipient = dependencies.loadRecipient ?? loadRecipientFromMongo;
     this.ensureMessage = dependencies.ensureMessage ?? ensureWorkflowMessage;
-    this.actionCounts = dependencies.actionCounts ?? alumniHelpActionCountService;
+    this.notificationCounts =
+      dependencies.notificationCounts ?? alumniHelpNotificationCountService;
     this.unreadCounts = dependencies.unreadCounts ?? DEFAULT_UNREAD_COUNTS;
     this.socket = dependencies.socket;
   }
@@ -718,14 +735,16 @@ export class AlumniHelpWorkflowDeliveryHandler
     let unreadCounts: Awaited<
       ReturnType<WorkflowUnreadCountReader["getUnreadCountsForUser"]>
     >;
-    let helpActionRequiredCount: number;
+    let helpCounts: Awaited<
+      ReturnType<AlumniHelpNotificationCountsReader["countsForUser"]>
+    >;
     try {
-      [unreadCounts, helpActionRequiredCount] = await Promise.all([
+      [unreadCounts, helpCounts] = await Promise.all([
         this.unreadCounts.getUnreadCountsForUser(
           delivery.recipient.id,
           delivery.recipient.role,
         ),
-        this.actionCounts.countForUser(
+        this.notificationCounts.countsForUser(
           delivery.recipient.id,
           context.signal,
         ),
@@ -756,7 +775,7 @@ export class AlumniHelpWorkflowDeliveryHandler
     socket.emitAlumniHelpUpdate(delivery.recipient.id, {
       requestId: delivery.request.id,
       requestRevision: delivery.request.revision,
-      helpActionRequiredCount,
+      ...helpCounts,
       ...(ROOM_CREATION_EVENT_TYPES.has(delivery.payload.eventType) &&
       delivery.request.conversationId
         ? {

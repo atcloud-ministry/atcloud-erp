@@ -6,7 +6,7 @@ import CommunityLayout from "../../layouts/CommunityLayout";
 const mocks = vi.hoisted(() => ({ count: 0 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
-  useAlumniHelp: () => ({ helpActionRequiredCount: mocks.count }),
+  useAlumniHelp: () => ({ helpNotificationCount: mocks.count }),
 }));
 
 function renderCommunity(path: string) {
@@ -78,7 +78,7 @@ describe("CommunityLayout", () => {
     renderCommunity("/dashboard/community/help-requests/64b000000000000000000001");
 
     const link = screen.getByRole("link", {
-      name: "Help Requests, 123 actions required",
+      name: "Help Requests, 123 requests with updates or actions needed",
     });
     expect(link).toHaveAttribute("aria-current", "page");
     expect(link).toHaveTextContent("99+");

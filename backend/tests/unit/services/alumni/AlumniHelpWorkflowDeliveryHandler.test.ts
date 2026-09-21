@@ -109,7 +109,12 @@ function setup(options: {
     loadRequest,
     loadRecipient,
     ensureMessage,
-    actionCounts: { countForUser: vi.fn().mockResolvedValue(3) },
+    notificationCounts: {
+      countsForUser: vi.fn().mockResolvedValue({
+        helpActionRequiredCount: 3,
+        helpNotificationCount: 5,
+      }),
+    },
     unreadCounts: {
       getUnreadCountsForUser: vi.fn().mockResolvedValue({
         bellNotifications: 7,
@@ -186,6 +191,7 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
       requestId: REQUEST_ID,
       requestRevision: 4,
       helpActionRequiredCount: 3,
+      helpNotificationCount: 5,
     });
   });
 
@@ -211,6 +217,7 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
         requestId: REQUEST_ID,
         requestRevision: 4,
         helpActionRequiredCount: 3,
+        helpNotificationCount: 5,
         roomCreated: { conversationId: CONVERSATION_ID },
       });
     },
@@ -224,6 +231,7 @@ describe("AlumniHelpWorkflowDeliveryHandler", () => {
       requestId: REQUEST_ID,
       requestRevision: 4,
       helpActionRequiredCount: 3,
+      helpNotificationCount: 5,
     });
   });
 
@@ -338,14 +346,14 @@ describe("enqueueAlumniHelpWorkflowNotifications", () => {
       outcomeSubmissionId: OUTCOME_ID,
       outcomeRevision: 1,
     });
-    expect(enqueueInTransaction.mock.calls[1][0]).toMatchObject({
+    expect(enqueueInTransaction.mock.calls[2][0]).toMatchObject({
       topic: "alumni.help.external_notification",
       payload: {
         workflowEventId: DELIVERY_ID,
         recipientUserId: REQUESTER_ID,
       },
     });
-    expect(enqueueInTransaction.mock.calls[2][0].payload).toMatchObject({
+    expect(enqueueInTransaction.mock.calls[1][0].payload).toMatchObject({
       recipientUserId: PROVIDER_ID,
       presentation: "counter_only",
     });

@@ -19,6 +19,7 @@ import {
 } from "../reliability/MongoTransactionService";
 import { featureControlService } from "../runtime/FeatureControlService";
 import { enqueueAlumniHelpWorkflowNotifications } from "./AlumniHelpWorkflowDeliveryHandler";
+import { helpUpdateMarkers } from "./AlumniHelpNotificationCountService";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -215,6 +216,7 @@ export class AlumniOutcomeDeadlineService {
             latestOutcomeStatus: "confirmed",
             revision: request.revision + 1,
           },
+          $max: helpUpdateMarkers(request.revision + 1, null),
         },
         { session, runValidators: false },
       );

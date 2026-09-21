@@ -123,6 +123,7 @@ export interface AlumniHelpRequestSummaryDTO {
   conversationId: string | null;
   viewerRole: AlumniHelpViewerRole;
   actionRequiredForViewer: boolean;
+  hasUnreadUpdate: boolean;
   availableActions: AlumniHelpAvailableAction[];
   latestOutcome: AlumniHelpOutcomeDTO | null;
   revision: number;
@@ -164,7 +165,12 @@ export interface AlumniHelpTermsDTO {
   disclaimer: { version: string; text: string; effectiveAt: string };
 }
 
-export interface AlumniHelpRequestPageDTO {
+export interface AlumniHelpNotificationCountsDTO {
+  helpActionRequiredCount: number;
+  helpNotificationCount: number;
+}
+
+export interface AlumniHelpRequestPageDTO extends AlumniHelpNotificationCountsDTO {
   requests: AlumniHelpRequestSummaryDTO[];
   pagination: {
     currentPage: number;
@@ -173,12 +179,10 @@ export interface AlumniHelpRequestPageDTO {
     hasNext: boolean;
     hasPrev: boolean;
   };
-  helpActionRequiredCount: number;
 }
 
-export interface AlumniHelpRequestMutationDTO {
+export interface AlumniHelpRequestMutationDTO extends AlumniHelpNotificationCountsDTO {
   request: AlumniHelpRequestDetailDTO;
-  helpActionRequiredCount: number;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -195,6 +199,7 @@ function exactObjectAt(
   value: unknown,
   path: string,
   expectedKeys: readonly string[],
+  optionalKeys: readonly string[] = [],
 ): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return contractError(path, "object");
@@ -202,8 +207,8 @@ function exactObjectAt(
   const object = value as JsonObject;
   const keys = Object.keys(object);
   if (
-    keys.length !== expectedKeys.length ||
-    keys.some((key) => !expectedKeys.includes(key))
+    expectedKeys.some((key) => !Object.prototype.hasOwnProperty.call(object, key)) ||
+    keys.some((key) => !expectedKeys.includes(key) && !optionalKeys.includes(key))
   ) {
     return contractError(path, `exact keys ${expectedKeys.join(", ")}`);
   }
@@ -418,6 +423,9 @@ function decodeSummaryFields(
       summary.actionRequiredForViewer,
       `${path}.actionRequiredForViewer`,
     ),
+    hasUnreadUpdate: Object.prototype.hasOwnProperty.call(summary, "hasUnreadUpdate")
+      ? booleanAt(summary.hasUnreadUpdate, `${path}.hasUnreadUpdate`)
+      : false,
     availableActions: arrayAt(
       summary.availableActions,
       `${path}.availableActions`,
@@ -442,7 +450,10 @@ export function decodeAlumniHelpRequestSummary(
   value: unknown,
   path: string,
 ): AlumniHelpRequestSummaryDTO {
-  return decodeSummaryFields(exactObjectAt(value, path, SUMMARY_KEYS), path);
+  return decodeSummaryFields(
+    exactObjectAt(value, path, SUMMARY_KEYS, ["hasUnreadUpdate"]),
+    path,
+  );
 }
 
 function decodeTimelineEntry(
@@ -513,7 +524,7 @@ export function decodeAlumniHelpRequestDetail(
   value: unknown,
   path = "data.request",
 ): AlumniHelpRequestDetailDTO {
-  const detail = exactObjectAt(value, path, DETAIL_KEYS);
+  const detail = exactObjectAt(value, path, DETAIL_KEYS, ["hasUnreadUpdate"]);
   return {
     ...decodeSummaryFields(detail, path),
     alumniProfileId: objectIdAt(
@@ -596,7 +607,7 @@ export function decodeAlumniHelpRequestPage(
     "requests",
     "pagination",
     "helpActionRequiredCount",
-  ]);
+  ], ["helpNotificationCount"]);
   return {
     requests: arrayAt(
       data.requests,
@@ -604,11 +615,7 @@ export function decodeAlumniHelpRequestPage(
       decodeAlumniHelpRequestSummary,
     ),
     pagination: decodePagination(data.pagination, "data.pagination"),
-    helpActionRequiredCount: safeIntegerAt(
-      data.helpActionRequiredCount,
-      "data.helpActionRequiredCount",
-      0,
-    ),
+    ...decodeNotificationCountFields(data),
   };
 }
 
@@ -618,23 +625,34 @@ export function decodeAlumniHelpRequestMutation(
   const data = exactObjectAt(value, "data", [
     "request",
     "helpActionRequiredCount",
-  ]);
+  ], ["helpNotificationCount"]);
   return {
     request: decodeAlumniHelpRequestDetail(data.request),
-    helpActionRequiredCount: safeIntegerAt(
-      data.helpActionRequiredCount,
-      "data.helpActionRequiredCount",
-      0,
-    ),
+    ...decodeNotificationCountFields(data),
   };
 }
 
 export function decodeAlumniHelpActionRequiredCount(value: unknown): number {
-  const data = exactObjectAt(value, "data", ["helpActionRequiredCount"]);
-  return safeIntegerAt(
+  return decodeAlumniHelpNotificationCounts(value).helpActionRequiredCount;
+}
+
+function decodeNotificationCountFields(data: JsonObject): AlumniHelpNotificationCountsDTO {
+  const helpActionRequiredCount = safeIntegerAt(
     data.helpActionRequiredCount,
     "data.helpActionRequiredCount",
     0,
+  );
+  return {
+    helpActionRequiredCount,
+    helpNotificationCount: Object.prototype.hasOwnProperty.call(data, "helpNotificationCount")
+      ? safeIntegerAt(data.helpNotificationCount, "data.helpNotificationCount", helpActionRequiredCount)
+      : helpActionRequiredCount,
+  };
+}
+
+export function decodeAlumniHelpNotificationCounts(value: unknown): AlumniHelpNotificationCountsDTO {
+  return decodeNotificationCountFields(
+    exactObjectAt(value, "data", ["helpActionRequiredCount"], ["helpNotificationCount"]),
   );
 }
 

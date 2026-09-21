@@ -1,5 +1,10 @@
 import mongoose from "mongoose";
 import User from "../../models/User";
+import AlumniProfile from "../../models/AlumniProfile";
+import AlumniAffiliation from "../../models/AlumniAffiliation";
+import ConsentRecord from "../../models/ConsentRecord";
+import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../../config/alumniProfilePublicationConsent";
+import { deriveAlumniAffiliationKey } from "../../contracts/alumniDirectoryData";
 
 const SAFE_DATABASE_NAME = /^atcloud_fullstack_e2e_[a-zA-Z0-9_-]{1,40}$/;
 const REQUIRED_HOST = "127.0.0.1";
@@ -120,6 +125,87 @@ async function seed(configuration: FixtureConfiguration): Promise<void> {
     isVerified: true,
     emailNotifications: false,
     hasReceivedWelcomeMessage: true,
+    phone: "+12065550100",
+    birthYear: 1988,
+    residenceCity: "Seattle",
+    residenceRegion: "US-WA",
+    residenceCountryCode: "US",
+    employmentStatus: "employed",
+    company: "E2E Test Organization",
+    occupation: "Engineer",
+  });
+
+  const helper = await User.create({
+    username: "e2e_alumni_helper",
+    email: "alumni.helper.e2e@example.com",
+    password: configuration.password,
+    firstName: "Alumni",
+    lastName: "Helper",
+    gender: "female",
+    isAtCloudLeader: false,
+    role: "Participant",
+    isActive: true,
+    isVerified: true,
+    emailNotifications: false,
+    hasReceivedWelcomeMessage: true,
+    phone: "+12065550101",
+    birthYear: 1989,
+    residenceCity: "Seattle",
+    residenceRegion: "US-WA",
+    residenceCountryCode: "US",
+    employmentStatus: "employed",
+    company: "E2E Test Organization",
+    occupation: "Mentor",
+  });
+  const now = new Date();
+  const profileId = new mongoose.Types.ObjectId("64b00000000000000000ee01");
+  const consentId = new mongoose.Types.ObjectId();
+  await AlumniProfile.collection.insertOne({
+    _id: profileId,
+    userId: helper._id,
+    professionalHeadline: "E2E career mentor",
+    industry: "Technology",
+    skills: ["Mentoring"],
+    bio: "Controlled full-stack test helper",
+    helpOfferings: { careerAdvice: true, warmIntroduction: true, formalEmployeeReferral: true },
+    publishStatus: "published",
+    currentPublicationConsentId: consentId,
+    searchProjection: {},
+    publishedAt: now,
+    withdrawnAt: null,
+    accountDeletionApprovedAt: null,
+    purgeAt: null,
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ConsentRecord.collection.insertOne({
+    _id: consentId,
+    subjectUserId: helper._id,
+    alumniProfileId: profileId,
+    purpose: "alumni_profile_publication",
+    consentVersion: ALUMNI_PROFILE_PUBLICATION_CONSENT.version,
+    documentHash: ALUMNI_PROFILE_PUBLICATION_CONSENT.documentHash,
+    status: "active",
+    acceptedAt: now,
+    revision: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await AlumniAffiliation.collection.insertOne({
+    _id: new mongoose.Types.ObjectId(),
+    alumniProfileId: profileId,
+    programName: "E2E Alumni Program",
+    cohortLabel: "2026",
+    affiliationKey: deriveAlumniAffiliationKey({ programName: "E2E Alumni Program", cohortLabel: "2026" }),
+    verificationStatus: "verified",
+    reviewedAt: now,
+    reviewedBy: user._id,
+    accountDeletionApprovedAt: null,
+    purgeAt: null,
+    revision: 0,
+    createdAt: now,
+    updatedAt: now,
   });
 
   process.stdout.write(

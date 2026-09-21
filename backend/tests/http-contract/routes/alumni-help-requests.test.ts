@@ -43,6 +43,7 @@ import alumniHelpRequestRoutes from "../../../src/routes/alumniHelpRequests";
 import { AlumniFlowError } from "../../../src/services/alumni/AlumniFlowErrors";
 import { alumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
 import { reliabilityFoundationService } from "../../../src/services/reliability/ReliabilityFoundationService";
+import { socketService } from "../../../src/services/infrastructure/SocketService";
 import { featureControlService } from "../../../src/services/runtime/FeatureControlService";
 import { PERMISSIONS } from "../../../src/utils/roleUtils";
 
@@ -73,6 +74,7 @@ const SUMMARY = Object.freeze({
   conversationId: null,
   viewerRole: "requester" as const,
   actionRequiredForViewer: false,
+  hasUnreadUpdate: false,
   availableActions: Object.freeze(["withdraw"] as const),
   latestOutcome: null,
   revision: 0,
@@ -123,6 +125,7 @@ const DETAIL = Object.freeze({
 const REQUEST_DATA = Object.freeze({
   request: DETAIL,
   helpActionRequiredCount: 2,
+  helpNotificationCount: 3,
 });
 
 const LIST_DATA = Object.freeze({
@@ -135,6 +138,7 @@ const LIST_DATA = Object.freeze({
     hasPrev: true,
   }),
   helpActionRequiredCount: 2,
+  helpNotificationCount: 3,
 });
 
 function buildApp() {
@@ -179,6 +183,7 @@ describe("alumni help request HTTP contracts", () => {
         hasPrev: false,
       },
       helpActionRequiredCount: 0,
+      helpNotificationCount: 0,
     });
     const app = buildApp();
 
@@ -193,7 +198,7 @@ describe("alumni help request HTTP contracts", () => {
     );
     expect(list).toHaveBeenCalledOnce();
     expect(list).toHaveBeenCalledWith(USER_ID, {
-      view: "action_required",
+      view: "updates",
       page: 1,
       limit: 20,
     });
@@ -247,7 +252,7 @@ describe("alumni help request HTTP contracts", () => {
       .mockResolvedValue(LIST_DATA);
     const count = vi
       .spyOn(alumniHelpRequestService, "actionRequiredCount")
-      .mockResolvedValue({ helpActionRequiredCount: 2 });
+      .mockResolvedValue({ helpActionRequiredCount: 2, helpNotificationCount: 3 });
     const get = vi
       .spyOn(alumniHelpRequestService, "get")
       .mockResolvedValue(REQUEST_DATA);
@@ -295,11 +300,44 @@ describe("alumni help request HTTP contracts", () => {
     expect(count).toHaveBeenCalledWith(USER_ID);
     expect(counted.body).toEqual({
       success: true,
-      data: { helpActionRequiredCount: 2 },
+      data: { helpActionRequiredCount: 2, helpNotificationCount: 3 },
     });
     expect(get).toHaveBeenCalledWith(USER_ID, REQUEST_ID);
     expect(detail.body).toEqual({ success: true, data: REQUEST_DATA });
     expect(detail.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("records an observed revision in readable mode and only broadcasts this user's counts", async () => {
+    const counts = { helpActionRequiredCount: 1, helpNotificationCount: 2 };
+    const markRead = vi.spyOn(alumniHelpRequestService, "markRead").mockResolvedValue(counts);
+    const emit = vi.spyOn(socketService, "emitAlumniHelpUpdate").mockImplementation(() => {});
+    const app = buildApp();
+    const endpoint = `/api/alumni-help-requests/${REQUEST_ID}/read`;
+    await request(app).post(endpoint).send({ observedRevision: 2 }).expect(401);
+    await member(request(app).post(endpoint)).set("x-deny-permission", "true")
+      .send({ observedRevision: 2 }).expect(403);
+    setRuntimeMode("read_only");
+    const response = await member(request(app).post(endpoint)).send({ observedRevision: 2 }).expect(200);
+    expect(response.body).toEqual({ success: true, data: counts });
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(markRead).toHaveBeenCalledWith(USER_ID, REQUEST_ID, 2);
+    expect(emit).toHaveBeenCalledExactlyOnceWith(USER_ID, {
+      requestId: REQUEST_ID, requestRevision: 2, ...counts,
+    });
+    await member(request(app).post(endpoint)).send({ observedRevision: 2, providerId: PROVIDER_ID }).expect(400);
+    setRuntimeMode("off");
+    await member(request(app).post(endpoint)).send({ observedRevision: 2 }).expect(503);
+    expect(markRead).toHaveBeenCalledOnce();
+  });
+
+  it("does not publish a read receipt for an unauthorized request", async () => {
+    vi.spyOn(alumniHelpRequestService, "markRead").mockRejectedValue(
+      new AlumniFlowError("ALUMNI_HELP_REQUEST_NOT_FOUND", 404, "Not found."),
+    );
+    const emit = vi.spyOn(socketService, "emitAlumniHelpUpdate");
+    await member(request(buildApp()).post(`/api/alumni-help-requests/${REQUEST_ID}/read`))
+      .send({ observedRevision: 2 }).expect(404);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("strictly rejects malformed queries, bodies, request context, and keys", async () => {

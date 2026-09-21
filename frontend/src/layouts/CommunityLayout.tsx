@@ -26,7 +26,7 @@ const communityLinks = [
 
 export default function CommunityLayout() {
   const { pathname } = useLocation();
-  const { helpActionRequiredCount } = useAlumniHelp();
+  const { helpNotificationCount } = useAlumniHelp();
   const directoryBase = "/dashboard/community/alumni";
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
 
@@ -64,8 +64,8 @@ export default function CommunityLayout() {
                 key={link.to}
                 to={link.to}
                 aria-label={
-                  link.id === "help-requests" && helpActionRequiredCount > 0
-                    ? `${link.label}, ${helpActionRequiredCount} actions required`
+                  link.id === "help-requests" && helpNotificationCount > 0
+                    ? `${link.label}, ${helpNotificationCount} requests with updates or actions needed`
                     : undefined
                 }
                 aria-current={active ? "page" : undefined}
@@ -77,14 +77,14 @@ export default function CommunityLayout() {
               >
                 <span>{link.label}</span>
                 {link.id === "help-requests" &&
-                  helpActionRequiredCount > 0 && (
+                  helpNotificationCount > 0 && (
                     <span
                       aria-hidden="true"
                       className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
                     >
-                      {helpActionRequiredCount > 99
+                      {helpNotificationCount > 99
                         ? "99+"
-                        : helpActionRequiredCount}
+                        : helpNotificationCount}
                     </span>
                   )}
               </Link>
@@ -93,11 +93,9 @@ export default function CommunityLayout() {
         </div>
       </nav>
       <span aria-live="polite" className="sr-only">
-        {helpActionRequiredCount > 0
-          ? `${helpActionRequiredCount} Alumni Help ${
-              helpActionRequiredCount === 1 ? "action" : "actions"
-            } required.`
-          : "No Alumni Help actions required."}
+        {helpNotificationCount > 0
+          ? `${helpNotificationCount} Alumni Help requests have updates or need action.`
+          : "No Alumni Help updates or actions needed."}
       </span>
       <Outlet />
     </div>

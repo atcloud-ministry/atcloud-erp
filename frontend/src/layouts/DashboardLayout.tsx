@@ -8,6 +8,7 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
 import AuthInitializationError from "../components/common/AuthInitializationError";
 import { useOptionalNotifications } from "../contexts/NotificationContext";
+import { useOptionalAlumniHelp } from "../contexts/AlumniHelpContext";
 
 /**
  * Routes that unauthenticated "guest" visitors may access.
@@ -39,6 +40,8 @@ export default function DashboardLayout() {
     retryInitialization,
   } = useAuth();
   const chatUnreadTotal = useOptionalChatRooms()?.chatUnreadTotal ?? 0;
+  const helpNotificationCount =
+    useOptionalAlumniHelp()?.helpNotificationCount ?? 0;
   const systemMessageUnreadCount =
     useOptionalNotifications()?.systemMessageUnreadCount ?? 0;
   const location = useLocation();
@@ -111,6 +114,7 @@ export default function DashboardLayout() {
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           chatUnreadTotal={chatUnreadTotal}
+          helpNotificationCount={helpNotificationCount}
           systemMessageUnreadCount={systemMessageUnreadCount}
         />
 

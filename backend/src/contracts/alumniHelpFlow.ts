@@ -121,6 +121,7 @@ export type AlumniHelpOutcomeConfirmationMethod =
   (typeof ALUMNI_HELP_OUTCOME_CONFIRMATION_METHODS)[number];
 
 export const ALUMNI_HELP_REQUEST_LIST_VIEWS = [
+  "updates",
   "action_required",
   "received",
   "sent",
@@ -262,6 +263,10 @@ export interface OutcomeDecisionBody {
   readonly expectedRevision: number;
 }
 
+export interface ReadHelpRequestBody {
+  readonly observedRevision: number;
+}
+
 export interface HelpRequestListQuery {
   readonly view: AlumniHelpRequestListView;
   readonly page: number;
@@ -311,6 +316,7 @@ export interface AlumniHelpRequestSummaryDTO {
   readonly conversationId: string | null;
   readonly viewerRole: AlumniHelpParticipantRole;
   readonly actionRequiredForViewer: boolean;
+  readonly hasUnreadUpdate: boolean;
   readonly availableActions: AlumniHelpAvailableAction[];
   readonly latestOutcome: AlumniHelpOutcomeDTO | null;
   readonly revision: number;
@@ -359,15 +365,18 @@ export interface AlumniHelpRequestListDataDTO {
   readonly requests: AlumniHelpRequestSummaryDTO[];
   readonly pagination: AlumniHelpPaginationDTO;
   readonly helpActionRequiredCount: number;
+  readonly helpNotificationCount: number;
 }
 
 export interface AlumniHelpRequestDataDTO {
   readonly request: AlumniHelpRequestDTO;
   readonly helpActionRequiredCount: number;
+  readonly helpNotificationCount: number;
 }
 
 export interface AlumniHelpActionRequiredCountDTO {
   readonly helpActionRequiredCount: number;
+  readonly helpNotificationCount: number;
 }
 
 type StrictObject = Readonly<Record<string, unknown>>;
@@ -596,6 +605,16 @@ export function parseOutcomeDecisionBody(
   });
 }
 
+export function parseReadHelpRequestBody(value: unknown): ReadHelpRequestBody {
+  const object = strictObject(value, "body", ["observedRevision"]);
+  return Object.freeze({
+    observedRevision: expectedRevision(
+      required(object, "observedRevision", "body"),
+      "body.observedRevision",
+    ),
+  });
+}
+
 function scalarQueryValue(value: unknown, path: string): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") return fail(path, `${path} must be a string`);
@@ -638,7 +657,7 @@ export function parseHelpRequestListQuery(
   return Object.freeze({
     view:
       rawView === undefined || rawView === ""
-        ? "action_required"
+        ? "updates"
         : enumValue(rawView, ALUMNI_HELP_REQUEST_LIST_VIEWS, "query.view"),
     page: positiveQueryInteger(object.page, "query.page", 1, maximumPage),
     limit,

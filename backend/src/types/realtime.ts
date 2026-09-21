@@ -51,6 +51,7 @@ export interface AlumniHelpUpdate {
   requestId: string;
   requestRevision: number;
   helpActionRequiredCount: number;
+  helpNotificationCount: number;
   /** Present only for the accepted transition that created a private room. */
   roomCreated?: {
     conversationId: string;

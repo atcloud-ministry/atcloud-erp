@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AlumniHelpProvider,
   isAlumniHelpUpdatePayload,
@@ -8,13 +8,14 @@ import {
 } from "../../contexts/AlumniHelpContext";
 
 const mocks = vi.hoisted(() => ({
-  getActionRequiredCount: vi.fn(),
+  getNotificationCounts: vi.fn(),
   socketHandlers: new Map<string, (payload?: unknown) => void>(),
   showNotification: vi.fn(),
+  userId: "64b000000000000000000001" as string | null,
 }));
 
 vi.mock("../../hooks/useAuth", () => ({
-  useAuth: () => ({ currentUser: { id: "64b000000000000000000001" } }),
+  useAuth: () => ({ currentUser: mocks.userId ? { id: mocks.userId } : null }),
 }));
 
 vi.mock("../../hooks/useSocket", () => ({ useSocket: vi.fn() }));
@@ -34,7 +35,7 @@ vi.mock("../../contexts/NotificationModalContext", () => ({
 
 vi.mock("../../services/api", () => ({
   alumniHelpService: {
-    getActionRequiredCount: mocks.getActionRequiredCount,
+    getNotificationCounts: mocks.getNotificationCounts,
   },
 }));
 
@@ -50,8 +51,12 @@ vi.mock("../../services/socketService", () => ({
 }));
 
 function CountProbe() {
-  const { helpActionRequiredCount } = useAlumniHelp();
-  return <output aria-label="Alumni Help action count">{helpActionRequiredCount}</output>;
+  const { helpActionRequiredCount, helpNotificationCount, helpRefreshSequence } = useAlumniHelp();
+  return <>
+    <output aria-label="Alumni Help action count">{helpActionRequiredCount}</output>
+    <output aria-label="Alumni Help notification count">{helpNotificationCount}</output>
+    <output aria-label="Alumni Help refresh sequence">{helpRefreshSequence}</output>
+  </>;
 }
 
 function LocationProbe() {
@@ -73,7 +78,13 @@ describe("AlumniHelpProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.socketHandlers.clear();
-    mocks.getActionRequiredCount.mockResolvedValue(2);
+    mocks.userId = "64b000000000000000000001";
+    mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 2, helpNotificationCount: 3 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("loads the count and accepts only validated realtime count updates", async () => {
@@ -82,19 +93,23 @@ describe("AlumniHelpProvider", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Alumni Help action count")).toHaveTextContent("2"),
     );
-    expect(mocks.getActionRequiredCount).toHaveBeenCalledOnce();
+    expect(mocks.getNotificationCounts).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("3");
 
     act(() => {
       mocks.socketHandlers.get("alumni_help_update")?.({
         requestId: "64b000000000000000000002",
         requestRevision: 1,
         helpActionRequiredCount: 5,
+        helpNotificationCount: 6,
         timestamp: "2026-09-12T13:00:00.000Z",
       });
     });
     expect(screen.getByLabelText("Alumni Help action count")).toHaveTextContent("5");
+    expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("6");
+    expect(screen.getByLabelText("Alumni Help refresh sequence")).toHaveTextContent("1");
 
-    mocks.getActionRequiredCount.mockResolvedValue(4);
+    mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 4, helpNotificationCount: 5 });
     act(() =>
       mocks.socketHandlers.get("alumni_help_update")?.({
         helpActionRequiredCount: -1,
@@ -103,7 +118,58 @@ describe("AlumniHelpProvider", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Alumni Help action count")).toHaveTextContent("4"),
     );
-    expect(mocks.getActionRequiredCount).toHaveBeenCalledTimes(2);
+    expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains a live unread update when an older HTTP count returns afterward", async () => {
+    let resolveCounts!: (value: { helpActionRequiredCount: number; helpNotificationCount: number }) => void;
+    mocks.getNotificationCounts.mockReturnValue(new Promise((resolve) => { resolveCounts = resolve; }));
+    renderProvider();
+    act(() => mocks.socketHandlers.get("alumni_help_update")?.({
+      requestId: "64b000000000000000000002",
+      requestRevision: 7,
+      helpActionRequiredCount: 0,
+      helpNotificationCount: 1,
+      timestamp: "2026-09-21T13:00:00.000Z",
+    }));
+    await act(async () => resolveCounts({ helpActionRequiredCount: 0, helpNotificationCount: 0 }));
+    expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("1");
+  });
+
+  it("refreshes count and mounted Help content after reconnect and after foreground suspension", async () => {
+    renderProvider();
+    await waitFor(() => expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("3"));
+    mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 0, helpNotificationCount: 1 });
+    act(() => mocks.socketHandlers.get("connect")?.());
+    await waitFor(() => expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("1"));
+    expect(screen.getByLabelText("Alumni Help refresh sequence")).toHaveTextContent("1");
+
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(2);
+    visibility.mockReturnValue("visible");
+    mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 1, helpNotificationCount: 2 });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Alumni Help refresh sequence")).toHaveTextContent("2");
+  });
+
+  it("recovers missed events within the bounded foreground interval and pauses offline", async () => {
+    vi.useFakeTimers();
+    renderProvider();
+    await act(async () => {});
+    mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 0, helpNotificationCount: 1 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Alumni Help refresh sequence")).toHaveTextContent("1");
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(2);
   });
 
   it("requires the exact metadata-only Alumni Help event shape", () => {

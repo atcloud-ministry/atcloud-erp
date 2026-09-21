@@ -577,6 +577,8 @@ class SocketService {
       update.requestRevision < 0 ||
       !Number.isSafeInteger(update.helpActionRequiredCount) ||
       update.helpActionRequiredCount < 0 ||
+      !Number.isSafeInteger(update.helpNotificationCount) ||
+      update.helpNotificationCount < 0 ||
       (roomCreated !== undefined &&
         (!roomCreated ||
           typeof roomCreated !== "object" ||
@@ -596,6 +598,7 @@ class SocketService {
       requestId: normalizedRequestId,
       requestRevision: update.requestRevision,
       helpActionRequiredCount: update.helpActionRequiredCount,
+      helpNotificationCount: update.helpNotificationCount,
       ...(normalizedConversationId
         ? { roomCreated: { conversationId: normalizedConversationId } }
         : {}),
@@ -606,6 +609,7 @@ class SocketService {
       requestId: normalizedRequestId,
       requestRevision: update.requestRevision,
       helpActionRequiredCount: update.helpActionRequiredCount,
+      helpNotificationCount: update.helpNotificationCount,
     });
     this.io
       .to(`user:${normalizedUserId}`)

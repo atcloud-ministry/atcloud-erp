@@ -19,6 +19,7 @@ import {
   parseHelpRequestListQuery,
   parseHelpTransitionBody,
   parseOutcomeDecisionBody,
+  parseReadHelpRequestBody,
   parseSubmitHelpOutcomeBody,
 } from "../../../src/contracts/alumniHelpFlow";
 
@@ -209,7 +210,7 @@ describe("alumni help request input contracts", () => {
 
   it("parses bounded list views and pagination", () => {
     expect(parseHelpRequestListQuery({})).toEqual({
-      view: "action_required",
+      view: "updates",
       page: 1,
       limit: 20,
     });
@@ -226,6 +227,17 @@ describe("alumni help request input contracts", () => {
     expectValidationError(() =>
       parseHelpRequestListQuery({ view: "action_needed" }),
     );
+  });
+});
+
+describe("Alumni Help read receipts", () => {
+  it("accepts only a bounded observed revision and rejects write fields", () => {
+    expect(parseReadHelpRequestBody({ observedRevision: 0 })).toEqual({ observedRevision: 0 });
+    for (const value of [-1, 0.5, "1", null, Number.MAX_SAFE_INTEGER]) {
+      expectValidationError(() => parseReadHelpRequestBody({ observedRevision: value }));
+    }
+    expectValidationError(() => parseReadHelpRequestBody({}));
+    expectValidationError(() => parseReadHelpRequestBody({ observedRevision: 1, requesterReadSequence: 99 }));
   });
 });
 

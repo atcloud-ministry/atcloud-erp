@@ -4,6 +4,7 @@ import {
   parseHelpRequestListQuery,
   parseHelpTransitionBody,
   parseOutcomeDecisionBody,
+  parseReadHelpRequestBody,
   parseSubmitHelpOutcomeBody,
   type HelpTransitionAction,
 } from "../../contracts/alumniHelpFlow";
@@ -12,6 +13,7 @@ import {
   type AlumniHelpRequestService,
 } from "../../services/alumni/AlumniHelpRequestService";
 import { reliabilityFoundationService } from "../../services/reliability/ReliabilityFoundationService";
+import { socketService } from "../../services/infrastructure/SocketService";
 import { sendAlumniHttpError } from "./AlumniHttpErrorResponder";
 import {
   getAlumniIdempotencyKey,
@@ -70,6 +72,30 @@ export class AlumniHelpRequestController {
     try {
       const actor = getAlumniRequestActor(req, "help");
       const data = await this.service.get(actor.id, req.params.requestId ?? "");
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      sendAlumniHttpError(res, error);
+    }
+  };
+
+  markRead = async (req: Request, res: Response): Promise<void> => {
+    setAlumniNoStore(res);
+    try {
+      const actor = getAlumniRequestActor(req, "help");
+      const { observedRevision } = parseReadHelpRequestBody(req.body);
+      const requestId = req.params.requestId ?? "";
+      const data = await this.service.markRead(actor.id, requestId, observedRevision);
+      // Participant authorization and retention are checked by markRead first.
+      // A receipt only synchronizes this user's counters across their sessions.
+      try {
+        socketService.emitAlumniHelpUpdate(actor.id, {
+          requestId,
+          requestRevision: observedRevision,
+          ...data,
+        });
+      } catch {
+        // The durable receipt remains readable if realtime delivery is unavailable.
+      }
       res.status(200).json({ success: true, data });
     } catch (error) {
       sendAlumniHttpError(res, error);

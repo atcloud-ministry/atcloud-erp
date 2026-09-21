@@ -7,6 +7,8 @@ import HelpRequests from "../../pages/HelpRequests";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   setCount: vi.fn(),
+  captureGeneration: vi.fn(() => 0),
+  helpRefreshSequence: 0,
   socketHandler: null as (() => void) | null,
 }));
 
@@ -16,7 +18,11 @@ vi.mock("../../services/api", async (importOriginal) => ({
 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
-  useAlumniHelp: () => ({ setHelpActionRequiredCount: mocks.setCount }),
+  useAlumniHelp: () => ({
+    setHelpNotificationCounts: mocks.setCount,
+    captureHelpCounterGeneration: mocks.captureGeneration,
+    helpRefreshSequence: mocks.helpRefreshSequence,
+  }),
 }));
 
 vi.mock("../../contexts/RuntimeConfigContext", () => ({
@@ -58,6 +64,7 @@ const request = {
   conversationId: null,
   viewerRole: "provider" as const,
   actionRequiredForViewer: true,
+  hasUnreadUpdate: true,
   availableActions: ["accept" as const, "decline" as const],
   latestOutcome: null,
   revision: 0,
@@ -76,10 +83,11 @@ const page = (requests = [request], count = 3) => ({
     hasPrev: false,
   },
   helpActionRequiredCount: count,
+  helpNotificationCount: count,
 });
 
-function renderPage(initialEntry = "/dashboard/community/help-requests") {
-  return render(
+function PageHarness({ initialEntry = "/dashboard/community/help-requests" }: { initialEntry?: string }) {
+  return (
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
@@ -87,26 +95,31 @@ function renderPage(initialEntry = "/dashboard/community/help-requests") {
           path="/dashboard/community/help-requests"
         />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderPage(initialEntry?: string) {
+  return render(<PageHarness initialEntry={initialEntry} />);
 }
 
 describe("HelpRequests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.socketHandler = null;
+    mocks.helpRefreshSequence = 0;
     mocks.list.mockResolvedValue(page());
   });
 
-  it("loads Action Needed by default and publishes the authoritative count", async () => {
+  it("loads unread updates and pending actions by default and publishes both counts", async () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "Taylor Reed" })).toBeInTheDocument();
     expect(mocks.list).toHaveBeenCalledWith(
-      { view: "action_required", page: 1, limit: 20 },
+      { view: "updates", page: 1, limit: 20 },
       expect.any(AbortSignal),
     );
-    expect(mocks.setCount).toHaveBeenCalledWith(3);
+    expect(mocks.setCount).toHaveBeenCalledWith(expect.objectContaining({ helpActionRequiredCount: 3, helpNotificationCount: 3 }), 0);
     expect(screen.getByText("Action required")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "View Request" }),
@@ -118,7 +131,7 @@ describe("HelpRequests", () => {
 
   it("keeps the selected view in the URL and refreshes after a workflow event", async () => {
     const user = userEvent.setup();
-    renderPage();
+    const rendered = renderPage();
     await screen.findByRole("heading", { name: "Taylor Reed" });
 
     await user.click(screen.getByRole("link", { name: "Received" }));
@@ -129,7 +142,19 @@ describe("HelpRequests", () => {
       ),
     );
 
-    mocks.socketHandler?.();
+    mocks.helpRefreshSequence += 1;
+    rendered.rerender(<PageHarness />);
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(3));
+  });
+
+  it("keeps the action-only view separately addressable", async () => {
+    renderPage("/dashboard/community/help-requests?view=action_required");
+    await screen.findByRole("heading", { name: "Taylor Reed" });
+    expect(mocks.list).toHaveBeenCalledWith(
+      { view: "action_required", page: 1, limit: 20 },
+      expect.any(AbortSignal),
+    );
+    expect(screen.getByRole("link", { name: "Action Needed" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Updates" })).toHaveAttribute("href", "/dashboard/community/help-requests");
   });
 });

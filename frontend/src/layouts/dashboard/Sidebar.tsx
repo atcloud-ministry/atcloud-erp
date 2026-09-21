@@ -38,6 +38,7 @@ interface NavigationItem {
   onClick?: () => void;
   activePathPrefix?: string;
   badgeCount?: number;
+  badgeDescription?: string;
 }
 
 interface SidebarProps {
@@ -45,6 +46,7 @@ interface SidebarProps {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   chatUnreadTotal?: number;
+  helpNotificationCount?: number;
   systemMessageUnreadCount?: number;
 }
 
@@ -74,6 +76,7 @@ export default function Sidebar({
   sidebarOpen,
   setSidebarOpen,
   chatUnreadTotal = 0,
+  helpNotificationCount = 0,
   systemMessageUnreadCount = 0,
 }: SidebarProps) {
   const location = useLocation(); //获取当前路径
@@ -274,6 +277,8 @@ export default function Sidebar({
         href: "/dashboard/community",
         activePathPrefix: "/dashboard/community",
         icon: UsersIcon,
+        badgeCount: helpNotificationCount,
+        badgeDescription: "help requests with updates or actions needed",
       });
       baseItems.push({
         name: "Chat Rooms",
@@ -497,7 +502,7 @@ export default function Sidebar({
                         to={item.href}
                         aria-label={
                           item.badgeCount && item.badgeCount > 0
-                            ? `${item.name}, ${item.badgeCount} unread messages`
+                            ? `${item.name}, ${item.badgeCount} ${item.badgeDescription ?? "unread messages"}`
                             : undefined
                         }
                         className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
@@ -547,6 +552,9 @@ export default function Sidebar({
             <XMarkIcon aria-hidden="true" className="h-6 w-6" />
           </button>
           <span aria-atomic="true" aria-live="polite" className="sr-only">
+            {helpNotificationCount > 0
+              ? `${helpNotificationCount} Alumni Help requests have updates or need action. `
+              : "No Alumni Help updates or actions needed. "}
             {chatUnreadTotal > 0
               ? `${chatUnreadTotal} unread Chat Room ${
                   chatUnreadTotal === 1 ? "message" : "messages"

@@ -83,6 +83,10 @@ export interface IAlumniHelpRequest extends Document {
   latestOutcomeStatus?: AlumniHelpOutcomeStatus | null;
   latestOutcomeDueAt?: Date | null;
   purgeAt?: Date | null;
+  requesterUpdateSequence: number;
+  providerUpdateSequence: number;
+  requesterReadSequence: number;
+  providerReadSequence: number;
   revision: number;
   createdAt: Date;
   updatedAt: Date;
@@ -318,6 +322,18 @@ const alumniHelpRequestSchema = new Schema<IAlumniHelpRequest>(
     },
     latestOutcomeDueAt: { type: Date, default: null },
     purgeAt: { type: Date, default: null },
+    requesterUpdateSequence: {
+      type: Number, default: 0, min: 0, validate: isNonNegativeSafeInteger,
+    },
+    providerUpdateSequence: {
+      type: Number, default: 0, min: 0, validate: isNonNegativeSafeInteger,
+    },
+    requesterReadSequence: {
+      type: Number, default: 0, min: 0, validate: isNonNegativeSafeInteger,
+    },
+    providerReadSequence: {
+      type: Number, default: 0, min: 0, validate: isNonNegativeSafeInteger,
+    },
     revision: {
       type: Number,
       required: true,
