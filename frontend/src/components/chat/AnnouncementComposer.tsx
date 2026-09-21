@@ -121,7 +121,7 @@ export default function AnnouncementComposer({
       <textarea
         aria-describedby="program-announcement-guidance program-announcement-error program-announcement-count"
         aria-invalid={Boolean(error)}
-        className="mt-3 block min-h-24 max-h-48 w-full resize-y rounded-lg border border-blue-600 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+        className="mt-3 block min-h-24 max-h-48 w-full resize-y rounded-lg border border-blue-600 bg-white px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 lg:text-sm"
         disabled={disabled || sending}
         id="program-announcement-composer"
         onChange={(event) => setContent(event.target.value)}
