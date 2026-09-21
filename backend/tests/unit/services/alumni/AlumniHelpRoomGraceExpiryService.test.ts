@@ -33,9 +33,11 @@ function runContext(): AlumniHelpRoomGraceExpiryRunContext {
 function findOneQuery<T>(value: T) {
   const chain = {
     session: vi.fn(),
+    lean: vi.fn(),
     exec: vi.fn().mockResolvedValue(value),
   };
   chain.session.mockReturnValue(chain);
+  chain.lean.mockReturnValue(chain);
   return chain;
 }
 

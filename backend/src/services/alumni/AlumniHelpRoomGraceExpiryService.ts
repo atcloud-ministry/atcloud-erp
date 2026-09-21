@@ -189,6 +189,7 @@ export class AlumniHelpRoomGraceExpiryService {
           writeAccessEndsAt: { $lte: now },
         })
         .session(session)
+        .lean()
         .exec();
       if (
         !room ||

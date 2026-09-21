@@ -184,6 +184,7 @@ export class AlumniHelpRoomProvisioner {
       helpRequestId: input.helpRequestId,
     })
       .session(input.session)
+      .lean()
       .exec();
     if (!room) throw new Error("The Alumni Help Room is unavailable.");
     if (room.status !== "current") {
@@ -197,9 +198,25 @@ export class AlumniHelpRoomProvisioner {
     }
     if (sameInstant(room.writeAccessEndsAt, input.writeAccessEndsAt)) return;
 
-    room.writeAccessEndsAt = input.writeAccessEndsAt;
-    room.updatedAt = input.occurredAt;
-    await room.validate();
+    // This is intentionally a lean read. Hydrating a document that contains
+    // immutable identity paths under this schema's strict mode can cause
+    // Mongoose to attempt to re-apply defaults during read hydration. We only
+    // need its immutable identity, current revision, and deadline here; the
+    // following CAS supplies the actual state transition.
+    if (
+      !(room.createdAt instanceof Date) ||
+      Number.isNaN(room.createdAt.getTime()) ||
+      input.writeAccessEndsAt.getTime() <= room.createdAt.getTime()
+    ) {
+      throw new Error("The Alumni Help Room grace deadline is invalid.");
+    }
+    if (
+      room.writeAccessEndsAt != null &&
+      (!(room.writeAccessEndsAt instanceof Date) ||
+        Number.isNaN(room.writeAccessEndsAt.getTime()))
+    ) {
+      throw new Error("The Alumni Help Room has an invalid grace deadline.");
+    }
     const updated = await Conversation.updateOne(
       {
         _id: room._id,
