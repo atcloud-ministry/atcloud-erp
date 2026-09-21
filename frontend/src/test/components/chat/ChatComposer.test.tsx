@@ -85,6 +85,15 @@ describe("ChatComposer", () => {
     expect(counter.parentElement).toHaveClass("col-start-2");
     expect(composer).toHaveClass("resize-none");
     expect(composer).not.toHaveClass("resize-y");
+    expect(composer).not.toHaveClass("focus:border-blue-500");
+    expect(composer).not.toHaveClass("focus:ring-2");
+    expect(composer).not.toHaveClass("focus:ring-blue-500");
+    // Mouse focus stays visually quiet; keyboard focus retains a thin neutral
+    // indicator for reliable keyboard navigation.
+    expect(composer).toHaveClass(
+      "focus-visible:ring-1",
+      "focus-visible:ring-gray-400",
+    );
   });
 
   it("grows with message content and scrolls after the composer height limit", () => {

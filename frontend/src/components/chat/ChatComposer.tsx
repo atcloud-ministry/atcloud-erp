@@ -233,7 +233,7 @@ export default function ChatComposer({
           aria-describedby="chat-message-help chat-message-error"
           aria-disabled={disabled || sending}
           aria-invalid={messageHasError}
-          className="block min-h-11 max-h-36 w-full resize-none rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          className="block min-h-11 max-h-36 w-full resize-none rounded-2xl border border-gray-500 px-4 py-2.5 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 disabled:bg-gray-100"
           id="chat-message-composer"
           onChange={(event) => setContent(event.target.value)}
           onKeyDown={handleKeyDown}
