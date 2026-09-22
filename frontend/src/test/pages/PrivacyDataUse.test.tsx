@@ -34,14 +34,8 @@ describe("PrivacyDataUse", () => {
     ).toBeInTheDocument();
 
     const table = screen.getByRole("table");
-    expect(
-      within(table).getByRole("rowheader", {
-        name: "Import raw rows and row errors",
-      }),
-    ).toBeInTheDocument();
-    expect(
-      within(table).getByText(/365-day database TTL fallback/i),
-    ).toBeInTheDocument();
+    expect(within(table).queryByText(/roster|invitation|import raw rows/i)).not.toBeInTheDocument();
+    expect(within(table).getByRole("rowheader", { name: "Audit log" }).parentElement).toHaveTextContent("3 months");
     expect(
       within(table).getByRole("rowheader", { name: "Push subscription" }),
     ).toBeInTheDocument();

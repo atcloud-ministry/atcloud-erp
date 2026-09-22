@@ -1,12 +1,13 @@
 import type { Request, Response } from "express";
 import { AlumniHelpFlowValidationError } from "../../contracts/alumniHelpFlow";
+import { AlumniProfileFlowValidationError } from "../../contracts/alumniProfileFlow";
 import { AlumniRosterFlowValidationError } from "../../contracts/alumniRosterFlow";
-import type { AlumniFlowActor } from "../../services/alumni/AlumniInvitationService";
+import type { AlumniFlowActor } from "../../services/alumni/AlumniFlowActor";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type AlumniRequestContextValidationScope = "roster" | "help";
+type AlumniRequestContextValidationScope = "roster" | "help" | "profile";
 
 function invalidInput(
   path: string,
@@ -17,6 +18,9 @@ function invalidInput(
   ];
   if (validationScope === "help") {
     throw new AlumniHelpFlowValidationError(issues);
+  }
+  if (validationScope === "profile") {
+    throw new AlumniProfileFlowValidationError(issues);
   }
   throw new AlumniRosterFlowValidationError(issues);
 }

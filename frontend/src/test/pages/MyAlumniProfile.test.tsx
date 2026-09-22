@@ -15,7 +15,6 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate,
 } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MyAlumniProfile from "../../pages/MyAlumniProfile";
@@ -25,7 +24,6 @@ const mocks = vi.hoisted(() => {
   const error = vi.fn();
   const success = vi.fn();
   return {
-    claim: vi.fn(),
     createIdempotencyKey: vi.fn(),
     ensureOwnDraft: vi.fn(),
     error,
@@ -50,7 +48,6 @@ vi.mock("../../services/api", async (importOriginal) => ({
     updateOwn: mocks.updateOwn,
     withdrawOwn: mocks.withdrawOwn,
   },
-  alumniInvitationsService: { claim: mocks.claim },
 }));
 
 vi.mock("../../contexts/RuntimeConfigContext", () => ({
@@ -79,7 +76,6 @@ vi.mock("../../utils/idempotencyKey", () => ({
 const IDS = {
   profile: "64b000000000000000000001",
   affiliation: "64b000000000000000000002",
-  invitation: "64b000000000000000000003",
 };
 
 const IDEMPOTENCY_KEYS = [
@@ -133,22 +129,7 @@ function ownProfile(
 
 function LocationProbe() {
   const location = useLocation();
-  const navigate = useNavigate();
-  return (
-    <>
-      <output data-testid="location">{`${location.pathname}${location.search}`}</output>
-      <button
-        onClick={() =>
-          navigate(
-            `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=second-secret&source=email`,
-          )
-        }
-        type="button"
-      >
-        Open another invitation
-      </button>
-    </>
-  );
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function renderProfile(
@@ -181,7 +162,6 @@ describe("MyAlumniProfile", () => {
       .mockReturnValueOnce(IDEMPOTENCY_KEYS[0])
       .mockReturnValueOnce(IDEMPOTENCY_KEYS[1])
       .mockReturnValue(IDEMPOTENCY_KEYS[2]);
-    mocks.claim.mockResolvedValue({ status: "claimed" });
     mocks.getOwn.mockResolvedValue(ownProfile());
     mocks.ensureOwnDraft.mockResolvedValue(ownProfile());
     mocks.previewOwn.mockResolvedValue(ownProfile());
@@ -551,18 +531,15 @@ describe("MyAlumniProfile", () => {
     expect(mocks.publishOwn).not.toHaveBeenCalled();
   });
 
-  it("claims a deep link with one stable key and removes only secret query fields", async () => {
+  it("ignores obsolete invitation links and removes their secret query fields", async () => {
     renderProfile(
-      `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=secret-token&source=email`,
+      "/dashboard/community/alumni/me?invitation=old-invitation&claim=secret-token&source=email",
     );
 
-    await screen.findByRole("heading", { name: "My Alumni Profile" });
-    await waitFor(() => expect(mocks.claim).toHaveBeenCalled());
-    expect(mocks.claim).toHaveBeenCalledTimes(1);
-    expect(new Set(mocks.claim.mock.calls.map((call) => call[1]))).toEqual(
-      new Set([IDEMPOTENCY_KEYS[0]]),
-    );
-    expect(mocks.claim.mock.calls.every((call) => call[0] === "secret-token")).toBe(true);
+    expect(await screen.findByRole("heading", { name: "My Alumni Profile" })).toBeInTheDocument();
+    expect(mocks.getOwn).toHaveBeenCalledTimes(1);
+    expect(mocks.ensureOwnDraft).not.toHaveBeenCalled();
+    expect(mocks.createIdempotencyKey).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
         "/dashboard/community/alumni/me?source=email",
@@ -571,21 +548,16 @@ describe("MyAlumniProfile", () => {
     expect(screen.getByTestId("location")).not.toHaveTextContent("secret-token");
   });
 
-  it("replaces an aborted claim load under React StrictMode", async () => {
+  it("does not process obsolete invitation links under React StrictMode", async () => {
     renderProfile(
-      `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=secret-token&source=email`,
+      "/dashboard/community/alumni/me?invitation=old-invitation&claim=secret-token&source=email",
       true,
     );
 
     expect(
       await screen.findByRole("heading", { name: "My Alumni Profile" }),
     ).toBeInTheDocument();
-    expect(mocks.claim).toHaveBeenCalledTimes(2);
-    expect(new Set(mocks.claim.mock.calls.map((call) => call[1]))).toEqual(
-      new Set([IDEMPOTENCY_KEYS[0]]),
-    );
-    expect((mocks.claim.mock.calls[0][2] as AbortSignal).aborted).toBe(true);
-    expect((mocks.claim.mock.calls[1][2] as AbortSignal).aborted).toBe(false);
+    expect(mocks.createIdempotencyKey).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
         "/dashboard/community/alumni/me?source=email",
@@ -593,36 +565,13 @@ describe("MyAlumniProfile", () => {
     );
   });
 
-  it("claims a new invitation query without remounting the owner page", async () => {
-    const user = userEvent.setup();
-    renderProfile();
-    await screen.findByRole("heading", { name: "My Alumni Profile" });
-
-    await user.click(
-      screen.getByRole("button", { name: "Open another invitation" }),
-    );
-    await waitFor(() => expect(mocks.claim).toHaveBeenCalledTimes(1));
-    expect(mocks.claim).toHaveBeenCalledWith(
-      "second-secret",
-      IDEMPOTENCY_KEYS[0],
-      expect.any(AbortSignal),
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent(
-        "/dashboard/community/alumni/me?source=email",
-      ),
-    );
-  });
-
-  it("shows a retryable claim error after an earlier owner-profile 404", async () => {
-    const user = userEvent.setup();
+  it("offers account completion when owner profile creation is not ready", async () => {
     mocks.getOwn.mockRejectedValue(
       Object.assign(new Error("Not found"), { status: 404 }),
     );
     mocks.ensureOwnDraft.mockRejectedValue(
       Object.assign(new Error("Complete your account profile"), { status: 409 }),
     );
-    mocks.claim.mockRejectedValue(new Error("Temporary claim failure"));
     renderProfile();
     expect(
       await screen.findByRole("heading", { name: "Alumni profile not available" }),
@@ -631,17 +580,7 @@ describe("MyAlumniProfile", () => {
       "href",
       "/dashboard/profile?mode=complete",
     );
-    expect(screen.queryByText(/invitation email/i)).not.toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Open another invitation" }),
-    );
-
-    expect(await screen.findByText("Temporary claim failure")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try Again" })).toBeEnabled();
-    expect(
-      screen.queryByRole("heading", { name: "Alumni profile not available" }),
-    ).not.toBeInTheDocument();
   });
 
   it("creates a private draft through the writable endpoint when an owner lookup is missing", async () => {
@@ -652,58 +591,16 @@ describe("MyAlumniProfile", () => {
 
     expect(await screen.findByRole("heading", { name: "My Alumni Profile" })).toBeInTheDocument();
     expect(mocks.ensureOwnDraft).toHaveBeenCalledWith(expect.any(AbortSignal));
-    expect(screen.queryByText(/invitation email/i)).not.toBeInTheDocument();
   });
 
-  it("keeps a failed claim in memory so Try Again can reuse the secure token and key", async () => {
-    const user = userEvent.setup();
-    mocks.claim
-      .mockRejectedValueOnce(new Error("Temporary claim failure"))
-      .mockResolvedValueOnce({ status: "claimed" });
-    renderProfile(
-      `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=secret-token&source=email`,
-    );
-
-    expect(await screen.findByText("Temporary claim failure")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent(
-        "/dashboard/community/alumni/me?source=email",
-      ),
-    );
-    expect(screen.getByTestId("location")).not.toHaveTextContent("secret-token");
-
-    await user.click(screen.getByRole("button", { name: "Try Again" }));
-    expect(await screen.findByRole("heading", { name: "My Alumni Profile" })).toBeInTheDocument();
-    expect(mocks.claim).toHaveBeenCalledTimes(2);
-    expect(mocks.claim.mock.calls.map((call) => call[0])).toEqual([
-      "secret-token",
-      "secret-token",
-    ]);
-    expect(mocks.claim.mock.calls.map((call) => call[1])).toEqual([
-      IDEMPOTENCY_KEYS[0],
-      IDEMPOTENCY_KEYS[0],
-    ]);
-    expect(mocks.claim.mock.calls.every((call) => call[2] instanceof AbortSignal)).toBe(
-      true,
-    );
-    expect(mocks.createIdempotencyKey).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not claim in read-only mode and explains how an unclaimed user can retry", async () => {
+  it("explains when a missing owner profile cannot be created in read-only mode", async () => {
     mocks.writable = false;
     mocks.getOwn.mockRejectedValue(Object.assign(new Error("Not found"), { status: 404 }));
-    renderProfile(
-      `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=secret-token&source=email`,
-    );
+    renderProfile();
 
     expect(await screen.findByText(/Alumni Profile updates are temporarily paused/i)).toBeInTheDocument();
-    expect(mocks.claim).not.toHaveBeenCalled();
     expect(mocks.getOwn).toHaveBeenCalledWith(expect.any(AbortSignal));
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent(
-        "/dashboard/community/alumni/me?source=email",
-      ),
-    );
+    expect(mocks.ensureOwnDraft).not.toHaveBeenCalled();
   });
 
   it("aborts the owner read when the page unmounts", async () => {

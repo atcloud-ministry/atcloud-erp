@@ -388,7 +388,6 @@ export async function runAlumniImportCli(
 }
 
 if (require.main === module) {
-  void runAlumniImportCli(process.argv.slice(2), process.env).then((code) => {
-    process.exitCode = code;
-  });
+  process.stderr.write("ALUMNI_ROSTER_IMPORT_DISABLED\n");
+  process.exitCode = 1;
 }

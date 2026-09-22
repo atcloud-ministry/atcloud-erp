@@ -29,8 +29,6 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/atcloud_signup_p
 JWT_ACCESS_SECRET=<64-char-random-string>
 JWT_REFRESH_SECRET=<64-char-random-string>
 SESSION_SECRET=<64-char-random-string>
-ALUMNI_CONTACT_LOOKUP_KEY_V1=<32-random-bytes-as-unpadded-base64url>
-ALUMNI_INVITATION_TOKEN_KEY_V1=<different-32-random-bytes-as-unpadded-base64url>
 ```
 
 **Application Configuration:**

@@ -66,7 +66,7 @@ import {
   alumniInputError,
   isAlumniFlowError,
 } from "./AlumniFlowErrors";
-import type { AlumniFlowActor } from "./AlumniInvitationService";
+import type { AlumniFlowActor } from "./AlumniFlowActor";
 import {
   alumniDisplayName,
 } from "./AlumniProfileProjectionService";

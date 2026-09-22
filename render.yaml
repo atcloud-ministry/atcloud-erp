@@ -56,8 +56,6 @@ services:
       # - JWT_ACCESS_SECRET (generate secure random string)
       # - JWT_REFRESH_SECRET (generate secure random string)
       # - SESSION_SECRET (generate secure random string)
-      # - ALUMNI_CONTACT_LOOKUP_KEY_V1 (32 random bytes, unpadded base64url)
-      # - ALUMNI_INVITATION_TOKEN_KEY_V1 (different 32 random bytes, unpadded base64url)
       # - VAPID_SUBJECT (https: URL or monitored mailto: address)
       # - VAPID_PUBLIC_KEY (public half of one durable VAPID key pair)
       # - VAPID_PRIVATE_KEY (Render secret; never expose through a VITE_ variable)

@@ -2,18 +2,6 @@ import { Link } from "react-router-dom";
 
 const retentionRows = [
   [
-    "Import counts, checksum, and batch status",
-    "6 months after the batch reaches a terminal status",
-  ],
-  [
-    "Import raw rows and row errors",
-    "30 days after the batch reaches a terminal status",
-  ],
-  [
-    "Unclaimed roster or invitation contact",
-    "6 months after the last invitation",
-  ],
-  [
     "Directory publication consent record",
     "12 months after it is superseded or withdrawn, or after account deletion",
   ],
@@ -38,7 +26,7 @@ const retentionRows = [
     "Notification outbox",
     "30 days after delivery; 90 days after dead status; pending and processing records remain until terminal",
   ],
-  ["Audit log", "12 months, with a 365-day database TTL fallback"],
+  ["Audit log", "3 months"],
 ] as const;
 
 export default function PrivacyDataUse() {

@@ -4,15 +4,10 @@ import {
   type OwnAlumniProfileDTO,
 } from "../../services/api/alumniDirectory.api";
 import { decodeOwnAlumniProfileResponse } from "../../services/api/alumniDirectory.contracts";
-import {
-  alumniInvitationsService,
-  decodeAlumniInvitationClaim,
-} from "../../services/api/alumniInvitations.api";
 
 const IDS = {
   profile: "64b000000000000000000001",
   affiliation: "64b000000000000000000002",
-  invitation: "64b000000000000000000003",
 };
 
 const ownProfile: OwnAlumniProfileDTO = {
@@ -51,15 +46,6 @@ const ownProfile: OwnAlumniProfileDTO = {
   publishedAt: null,
   withdrawnAt: null,
   updatedAt: "2026-09-12T12:00:00.000Z",
-};
-
-const claim = {
-  invitationId: IDS.invitation,
-  alumniProfileId: IDS.profile,
-  affiliationIds: [IDS.affiliation],
-  claimedAt: "2026-09-12T12:00:00.000Z",
-  status: "claimed" as const,
-  replayed: false,
 };
 
 const directoryDetail = {
@@ -260,65 +246,4 @@ describe("owner alumni profile API client", () => {
       });
     },
   );
-});
-
-describe("alumni invitation claim contract and client", () => {
-  it("accepts the exact claim DTO", () => {
-    expect(decodeAlumniInvitationClaim(claim)).toEqual(claim);
-  });
-
-  it.each([
-    ["invitationId", { ...claim, invitationId: "not-an-object-id" }],
-    ["alumniProfileId", { ...claim, alumniProfileId: "123" }],
-    [
-      "affiliationIds",
-      { ...claim, affiliationIds: ["invalid-affiliation-id"] },
-    ],
-  ])("rejects a malformed %s", (_field, value) => {
-    expect(() => decodeAlumniInvitationClaim(value)).toThrow(/ObjectId/);
-  });
-
-  it("rejects more than 50 affiliation ids", () => {
-    expect(() =>
-      decodeAlumniInvitationClaim({
-        ...claim,
-        affiliationIds: Array.from({ length: 51 }, () => IDS.affiliation),
-      }),
-    ).toThrow(/too many affiliations/);
-  });
-
-  it("rejects unexpected contact data", () => {
-    expect(() =>
-      decodeAlumniInvitationClaim({ ...claim, email: "amy@example.com" }),
-    ).toThrow(/unexpected field/);
-  });
-
-  it("posts only the token with the caller's idempotency key", async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(apiResponse(claim));
-
-    const controller = new AbortController();
-    await expect(
-      alumniInvitationsService.claim(
-        "opaque-secret-token",
-        "claim-key",
-        controller.signal,
-      ),
-    ).resolves.toEqual(claim);
-
-    const [url, options] = fetchMock.mock.calls[0];
-    expect(new URL(String(url)).pathname).toBe(
-      "/api/alumni-invitations/claim",
-    );
-    expect(options).toMatchObject({
-      method: "POST",
-      credentials: "include",
-      body: JSON.stringify({ token: "opaque-secret-token" }),
-    });
-    expect(options?.headers).toMatchObject({
-      "Idempotency-Key": "claim-key",
-    });
-    expect(options?.signal).toBe(controller.signal);
-  });
 });

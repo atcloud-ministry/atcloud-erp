@@ -67,10 +67,7 @@ export function readAlumniInvitationTokenKey(
   return read256BitKey(environment, ALUMNI_INVITATION_TOKEN_KEY_ENV);
 }
 
-/**
- * Fail closed before an alumni-enabled deployment accepts traffic. Secrets are
- * deliberately independent and have no JWT/session/development fallback.
- */
+/** Validate legacy invitation secrets only when handling historical records. */
 export function assertAlumniInvitationSecurityConfiguration(
   environment: NodeJS.ProcessEnv = process.env,
 ): void {
@@ -88,18 +85,6 @@ export function assertAlumniInvitationSecurityConfiguration(
   ) {
     throw new AlumniInvitationSecurityConfigurationError(
       "alumni-key-separation",
-    );
-  }
-}
-
-/** Alumni invitation issuance is unavailable without its durable email worker. */
-export function assertAlumniInvitationReleaseConfiguration(
-  environment: NodeJS.ProcessEnv = process.env,
-): void {
-  assertAlumniInvitationSecurityConfiguration(environment);
-  if (environment.NOTIFICATION_OUTBOX_ENABLED !== "true") {
-    throw new AlumniInvitationSecurityConfigurationError(
-      "NOTIFICATION_OUTBOX_ENABLED",
     );
   }
 }
