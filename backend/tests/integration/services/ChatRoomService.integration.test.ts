@@ -1434,6 +1434,46 @@ describe("M4 ChatRoomService integration", () => {
     ).rejects.toBe(failure);
   });
 
+  it("propagates Program Room lookup resolver failures instead of hiding them as no Room", async () => {
+    const userId = await insertUser("ProgramLookupRecipient");
+    const programId = await insertProgram("Lookup resolver failure", userId);
+    const room = await Conversation.create({ kind: "program", programId });
+    await ConversationMember.create({
+      conversationId: room._id,
+      userId,
+      role: "mentor",
+      status: "active",
+      joinedAt: nowValue,
+      accessWindows: [
+        {
+          visibleFromSequence: 1,
+          visibleThroughSequence: null,
+          openedAt: nowValue,
+          closedAt: null,
+        },
+      ],
+    });
+    const failure = new Error("canonical resolver database unavailable");
+    const failingService = new ChatRoomService({
+      now: () => new Date(nowValue),
+      runtime: {
+        getOperationalRuntimeConfig: async () =>
+          createRuntimeConfigDTO("on", 1),
+      },
+      programMembershipResolver: {
+        resolveProgram: vi.fn().mockRejectedValue(failure),
+        resolveProgramMember: vi.fn().mockRejectedValue(failure),
+      },
+    });
+
+    await expect(
+      failingService.getProgramRoomLink(
+        userId.toString(),
+        programId.toString(),
+      ),
+    ).rejects.toBe(failure);
+  });
+
   it("performs the canonical Program check after the delivery counter snapshot", async () => {
     const mentorId = await insertUser("Mentor");
     const programId = await insertProgram("Delivery authorization", mentorId);

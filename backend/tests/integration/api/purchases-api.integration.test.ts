@@ -745,6 +745,79 @@ describe("Purchase API Integration Tests", () => {
     });
   });
 
+  describe("POST /api/purchases/check-access/batch", () => {
+    it("returns access for multiple programs in one request", async () => {
+      await Purchase.create({
+        userId,
+        programId: paidProgramId,
+        purchaseType: "program",
+        fullPrice: 1900,
+        finalPrice: 1900,
+        isClassRep: false,
+        isEarlyBird: false,
+        status: "completed",
+        orderNumber: "ORD-BATCH-ACCESS",
+        purchaseDate: new Date(),
+        paymentMethod: { type: "card", cardBrand: "visa", last4: "4242" },
+        billingInfo: {
+          fullName: "Purchase User",
+          email: "purchase@example.com",
+        },
+      });
+
+      const response = await request(app)
+        .post("/api/purchases/check-access/batch")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ programIds: [paidProgramId, freeProgramId] });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.access).toEqual([
+        {
+          programId: paidProgramId,
+          hasAccess: true,
+          reason: "purchased",
+        },
+        {
+          programId: freeProgramId,
+          hasAccess: false,
+          reason: "not_purchased",
+        },
+      ]);
+
+      const uppercaseResponse = await request(app)
+        .post("/api/purchases/check-access/batch")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ programIds: [paidProgramId.toUpperCase()] });
+      expect(uppercaseResponse.status).toBe(200);
+      expect(uppercaseResponse.body.data.access).toEqual([
+        {
+          programId: paidProgramId,
+          hasAccess: true,
+          reason: "purchased",
+        },
+      ]);
+    });
+
+    it("rejects invalid or unbounded batch input", async () => {
+      const invalidResponse = await request(app)
+        .post("/api/purchases/check-access/batch")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({ programIds: ["not-an-object-id"] });
+      expect(invalidResponse.status).toBe(400);
+
+      const oversizedResponse = await request(app)
+        .post("/api/purchases/check-access/batch")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({
+          programIds: Array.from(
+            { length: 101 },
+            () => new mongoose.Types.ObjectId().toString(),
+          ),
+        });
+      expect(oversizedResponse.status).toBe(400);
+    });
+  });
+
   describe("POST /api/purchases/create-checkout-session - classRepCount bug fix", () => {
     it("should not double-increment classRepCount when user clicks 'Proceed to Payment' multiple times with Class Rep", async () => {
       // Setup: Create a program with Class Rep limit

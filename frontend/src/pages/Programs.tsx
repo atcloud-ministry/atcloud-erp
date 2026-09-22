@@ -155,6 +155,8 @@ export default function Programs() {
   } | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessLoadError, setAccessLoadError] = useState(false);
+  const [accessRetryKey, setAccessRetryKey] = useState(0);
 
   const handleEnrollClick = useCallback(
     (e: React.MouseEvent, programId: string) => {
@@ -313,11 +315,16 @@ export default function Programs() {
     setPrograms(programCards);
   }, [rawPrograms, sortOrder, filterYear, filterType]);
 
+  const programIdsKey = programs.map((program) => program.id).join(",");
+  const currentUserId = currentUser?.id;
+
   // Check access for each program (after programs are set)
   useEffect(() => {
-    if (programs.length === 0 || !currentUser) {
+    const programIds = programIdsKey ? programIdsKey.split(",") : [];
+    if (programIds.length === 0 || !currentUserId) {
+      setAccessLoadError(false);
       // Guest visitors: mark paid programs as "not_purchased" so Enroll button shows
-      if (!currentUser && programs.length > 0) {
+      if (!currentUserId && programIds.length > 0) {
         setPrograms((prev) =>
           prev.map((p) =>
             p.isFree
@@ -329,53 +336,44 @@ export default function Programs() {
       return;
     }
 
-    // Check access for all programs in parallel
+    let cancelled = false;
+    setAccessLoadError(false);
+
+    // Check access for all visible programs in one request.
     const checkAllAccess = async () => {
       try {
-        const accessChecks = programs.map(async (program) => {
-          try {
-            const result = await purchaseService.checkProgramAccess(program.id);
-            return {
-              id: program.id,
-              hasAccess: result.hasAccess,
-              accessReason: result.reason,
-            };
-          } catch (error) {
-            console.error(
-              `Failed to check access for program ${program.id}`,
-              error,
-            );
-            return {
-              id: program.id,
-              hasAccess: false,
-              accessReason: "not_purchased" as const,
-            };
-          }
-        });
-
-        const results = await Promise.all(accessChecks);
+        const accessByProgramId = await purchaseService.checkProgramsAccess(
+          programIds,
+        );
+        if (cancelled) return;
+        setAccessLoadError(false);
 
         // Update programs with access info
         setPrograms((prev) =>
           prev.map((program) => {
-            const result = results.find((r) => r.id === program.id);
+            const result = accessByProgramId[program.id];
             return result
               ? {
                   ...program,
                   hasAccess: result.hasAccess,
-                  accessReason: result.accessReason,
+                  accessReason: result.reason,
                 }
               : program;
           }),
         );
       } catch (error) {
-        console.error("Failed to check program access", error);
+        if (!cancelled) {
+          console.error("Failed to check program access", error);
+          setAccessLoadError(true);
+        }
       }
     };
 
     checkAllAccess();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programs.length, currentUser?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [programIdsKey, currentUserId, accessRetryKey]);
 
   // Get unique years and types for filter dropdowns
   const availableYears = Array.from(
@@ -444,6 +442,21 @@ export default function Programs() {
           {error && (
             <div className="mb-4 rounded border border-red-200 bg-red-50 text-red-700 px-4 py-3">
               {error}
+            </div>
+          )}
+          {accessLoadError && (
+            <div
+              className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900"
+              role="alert"
+            >
+              <span>We couldn&apos;t load your enrollment status.</span>
+              <button
+                className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+                onClick={() => setAccessRetryKey((key) => key + 1)}
+                type="button"
+              >
+                Retry
+              </button>
             </div>
           )}
 

@@ -19,6 +19,15 @@ function errorStatus(error: unknown): number | null {
   return Number.isInteger(status) ? status : null;
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "name" in error &&
+    (error as { readonly name?: unknown }).name === "AbortError"
+  );
+}
+
 let refreshInFlight: Promise<AuthTokens> | null = null;
 
 type NavigatorWithLocks = Navigator & {
@@ -186,6 +195,10 @@ export class BaseApiClient {
 
             if (response.ok) return data;
           } catch (refreshError) {
+            // The original request may be cancelled while token refresh is in
+            // flight. Preserve that cancellation instead of presenting it as
+            // an authentication or network failure.
+            if (isAbortError(refreshError)) throw refreshError;
             const refreshStatus = errorStatus(refreshError);
             if (refreshStatus === 401 || refreshStatus === 403) {
               localStorage.removeItem("authToken");
@@ -292,6 +305,12 @@ export class BaseApiClient {
 
       return data;
     } catch (error) {
+      // AbortController is used to replace stale requests during navigation,
+      // realtime reconnects, and account changes. That cancellation is an
+      // expected control-flow event and must not be reported as an API error.
+      if (isAbortError(error)) {
+        return Promise.reject(error);
+      }
       console.error("API Request failed:", error);
       if (error instanceof Error) {
         return Promise.reject(error);

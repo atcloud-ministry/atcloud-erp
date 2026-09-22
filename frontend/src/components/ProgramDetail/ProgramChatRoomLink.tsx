@@ -20,7 +20,7 @@ function retryableProjectionStatus(error: unknown): boolean {
     return false;
   }
   const status = Number((error as { readonly status?: unknown }).status);
-  return status === 404 || status === 409;
+  return status === 409;
 }
 
 function waitForRetry(delayMs: number, signal: AbortSignal): Promise<boolean> {
@@ -73,7 +73,9 @@ export default function ProgramChatRoomLink({
             programId,
             controller.signal,
           );
-          if (!controller.signal.aborted) setLoaded({ requestKey, room });
+          if (!controller.signal.aborted) {
+            setLoaded(room ? { requestKey, room } : null);
+          }
           return;
         } catch (error) {
           if (controller.signal.aborted) return;
