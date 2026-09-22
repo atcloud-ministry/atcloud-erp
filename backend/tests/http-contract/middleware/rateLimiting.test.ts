@@ -749,6 +749,46 @@ describe("Rate Limiting Middleware", () => {
       });
     });
 
+    test("readiness probes do not consume or exhaust the global limit", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      const { generalLimiter: productionGeneralLimiter } =
+        await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.get("/api/readiness", (_req, res) => res.json({ ok: true }));
+      composedApp.get("/api/readiness/live", (_req, res) =>
+        res.json({ ok: true }),
+      );
+      composedApp.get("/api/example", (_req, res) => res.json({ ok: true }));
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const ready = await request(composedApp)
+          .get("/api/readiness")
+          .expect(200);
+        const live = await request(composedApp)
+          .get("/api/readiness/live")
+          .expect(200);
+        expect(ready.headers["ratelimit-limit"]).toBeUndefined();
+        expect(live.headers["ratelimit-limit"]).toBeUndefined();
+      }
+      const head = await request(composedApp)
+        .head("/api/readiness")
+        .expect(200);
+      expect(head.headers["ratelimit-limit"]).toBeUndefined();
+
+      const firstApiRequest = await request(composedApp)
+        .get("/api/example")
+        .expect(200);
+      expect(firstApiRequest.headers["ratelimit-limit"]).toBe("1");
+      await request(composedApp).get("/api/example").expect(429);
+      await request(composedApp).get("/api/readiness/unknown").expect(429);
+      await request(composedApp).post("/api/readiness").expect(429);
+    });
+
     test("the global limiter remains the fail-closed policy for other routes", async () => {
       process.env.NODE_ENV = "production";
       process.env.ENABLE_RATE_LIMITING = "true";
