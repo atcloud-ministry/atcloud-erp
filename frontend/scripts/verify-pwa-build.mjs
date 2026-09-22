@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { inflateSync } from "node:zlib";
 
 const root = process.cwd();
 const dist = resolve(root, "dist");
@@ -23,6 +24,29 @@ function assertPng(relativePath, expectedSize) {
   }
 }
 
+function assertWhitePngBackground(relativePath) {
+  const bytes = read(relativePath);
+  if (bytes[24] !== 8 || bytes[25] !== 6) {
+    fail(`${relativePath} must be an 8-bit RGBA PNG`);
+  }
+  const idatChunks = [];
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    const end = offset + 12 + length;
+    if (end > bytes.length) fail(`${relativePath} has an invalid PNG chunk`);
+    if (type === "IDAT") idatChunks.push(bytes.subarray(offset + 8, end - 4));
+    offset = end;
+    if (type === "IEND") break;
+  }
+  if (idatChunks.length === 0) fail(`${relativePath} has no image data`);
+  // At the top-left corner every PNG scanline filter has a zero predictor.
+  const firstScanline = inflateSync(Buffer.concat(idatChunks));
+  if (!firstScanline.subarray(1, 5).equals(Buffer.from([255, 255, 255, 255]))) {
+    fail(`${relativePath} must have an opaque white background`);
+  }
+}
+
 const manifest = JSON.parse(read("manifest.json").toString("utf8"));
 const packageJson = JSON.parse(
   readFileSync(resolve(root, "package.json"), "utf8"),
@@ -32,9 +56,9 @@ if (manifest.display !== "standalone" || manifest.scope !== "/") {
 }
 
 const requiredIcons = new Map([
-  ["/pwa-icon-192.png", ["192x192", "any"]],
-  ["/pwa-icon-512.png", ["512x512", "any"]],
-  ["/pwa-maskable-512.png", ["512x512", "maskable"]],
+  ["/pwa-icon-192.png?v=white-20260922", ["192x192", "any"]],
+  ["/pwa-icon-512.png?v=white-20260922", ["512x512", "any"]],
+  ["/pwa-maskable-512.png?v=white-20260922", ["512x512", "maskable"]],
 ]);
 for (const [source, [size, purpose]] of requiredIcons) {
   const icon = manifest.icons?.find((candidate) => candidate.src === source);
@@ -47,6 +71,9 @@ assertPng("pwa-icon-192.png", 192);
 assertPng("pwa-icon-512.png", 512);
 assertPng("pwa-maskable-512.png", 512);
 assertPng("apple-touch-icon.png", 180);
+for (const icon of ["pwa-icon-192.png", "pwa-icon-512.png", "pwa-maskable-512.png"]) {
+  assertWhitePngBackground(icon);
+}
 
 const indexHtml = read("index.html").toString("utf8");
 if (
