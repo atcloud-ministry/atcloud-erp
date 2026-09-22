@@ -165,6 +165,25 @@ test("serves an installable manifest and branded platform metadata", async ({
     "href",
     "/apple-touch-icon.png",
   );
+  const appleIconPixels = await page.evaluate(async () => {
+    const icon = new Image();
+    icon.src = "/apple-touch-icon.png";
+    await icon.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = icon.naturalWidth;
+    canvas.height = icon.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas 2D context is unavailable");
+    context.drawImage(icon, 0, 0);
+    return {
+      size: [icon.naturalWidth, icon.naturalHeight],
+      background: Array.from(context.getImageData(0, 0, 1, 1).data),
+      mark: Array.from(context.getImageData(90, 134, 1, 1).data),
+    };
+  });
+  expect(appleIconPixels.size).toEqual([180, 180]);
+  expect(appleIconPixels.background).toEqual([255, 255, 255, 255]);
+  expect(appleIconPixels.mark[2]).toBeGreaterThan(appleIconPixels.mark[0]);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     "content",
     "#111827",
