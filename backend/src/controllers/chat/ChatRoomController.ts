@@ -16,6 +16,7 @@ import {
 import { socketService } from "../../services/infrastructure/SocketService";
 import { reliabilityFoundationService } from "../../services/reliability/ReliabilityFoundationService";
 import { sendChatRoomHttpError } from "./ChatRoomHttpErrorResponder";
+import { isChatRoomError } from "../../services/chat/ChatRoomErrors";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -121,6 +122,16 @@ export class ChatRoomController {
       );
       res.status(200).json({ success: true, data });
     } catch (error) {
+      // This endpoint is an optional lookup used while rendering Program
+      // details. A missing or inaccessible Room is a normal empty state, not
+      // a failed resource fetch that clients should retry.
+      if (
+        isChatRoomError(error) &&
+        error.code === "CHAT_ROOM_NOT_FOUND"
+      ) {
+        res.status(200).json({ success: true, data: { room: null } });
+        return;
+      }
       sendChatRoomHttpError(res, error);
     }
   };

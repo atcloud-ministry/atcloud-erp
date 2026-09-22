@@ -136,7 +136,7 @@ export interface ProgramChatRoomLinkDTO {
 }
 
 export interface ProgramChatRoomLinkDataDTO {
-  room: ProgramChatRoomLinkDTO;
+  room: ProgramChatRoomLinkDTO | null;
 }
 
 export interface ChatMessageMutationDTO {
@@ -706,6 +706,7 @@ export function decodeProgramChatRoomLink(
   value: unknown,
 ): ProgramChatRoomLinkDataDTO {
   const data = exactObjectAt(value, "data", ["room"]);
+  if (data.room === null) return { room: null };
   const room = exactObjectAt(data.room, "data.room", [
     "id",
     "programId",

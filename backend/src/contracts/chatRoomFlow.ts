@@ -162,7 +162,7 @@ export interface ProgramChatRoomLinkDTO {
 }
 
 export interface ProgramChatRoomLinkDataDTO {
-  readonly room: ProgramChatRoomLinkDTO;
+  readonly room: ProgramChatRoomLinkDTO | null;
 }
 
 export interface ChatMessageHistoryPaginationDTO {

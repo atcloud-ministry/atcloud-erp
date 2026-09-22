@@ -269,6 +269,7 @@ describe("Conversations API response contracts", () => {
       },
     };
     expect(decodeProgramChatRoomLink(data)).toEqual(data);
+    expect(decodeProgramChatRoomLink({ room: null })).toEqual({ room: null });
     expect(() =>
       decodeProgramChatRoomLink({
         room: {

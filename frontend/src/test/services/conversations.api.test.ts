@@ -271,6 +271,11 @@ describe("Conversations API client", () => {
       /Program ID/u,
     );
     expect(fetchMock).toHaveBeenCalledOnce();
+
+    fetchMock.mockResolvedValueOnce(response({ room: null }));
+    await expect(conversationsService.getProgramRoom(IDS.program)).resolves.toEqual({
+      room: null,
+    });
   });
 
   it("rejects unsafe pagination, ambiguous history, UUID, and links locally", async () => {
