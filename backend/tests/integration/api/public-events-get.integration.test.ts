@@ -93,6 +93,7 @@ describe("Public Events API - GET /api/public/events/:slug", () => {
       endDate: "2025-10-11",
       time: "09:00",
       endTime: "10:30",
+      timeZone: "America/Los_Angeles",
       location: "Online",
       format: "Online",
       organizer: "Org",
