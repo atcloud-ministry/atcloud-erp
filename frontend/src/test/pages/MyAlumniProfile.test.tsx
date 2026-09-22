@@ -287,6 +287,35 @@ describe("MyAlumniProfile", () => {
     expect(await screen.findByText("Product and data leader")).toBeInTheDocument();
   });
 
+  it("preserves About paragraph breaks in the save request and saved preview", async () => {
+    const user = userEvent.setup();
+    const bio = "First paragraph.\n\nSecond paragraph.";
+    mocks.updateOwn.mockResolvedValue(ownProfile({ bio, revision: 4 }));
+    renderProfile();
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Share the experience and perspective you would like alumni to know.",
+      ),
+      { target: { value: bio } },
+    );
+    await user.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOwn).toHaveBeenCalledWith(
+        expect.objectContaining({ bio }),
+        IDEMPOTENCY_KEYS[0],
+      ),
+    );
+    const preview = await screen.findByRole("article", {
+      name: "Alumni profile preview",
+    });
+    const about = within(preview).getByRole("heading", { name: "About" });
+    expect(about.nextElementSibling?.textContent).toBe(bio);
+    expect(about.nextElementSibling).toHaveClass("whitespace-pre-wrap");
+  });
+
   it("reuses an idempotency key for an unchanged failed save payload", async () => {
     const user = userEvent.setup();
     mocks.updateOwn.mockRejectedValue(new Error("Temporary failure"));

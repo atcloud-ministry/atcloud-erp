@@ -90,6 +90,41 @@ describe("alumni profile mutation contracts", () => {
     expect(Object.isFrozen(parsed.skills)).toBe(true);
   });
 
+  it("preserves About paragraph breaks while normalizing line endings", () => {
+    const parsed = parseAlumniProfileUpdateBody({
+      expectedRevision: 3,
+      bio: " \tFirst   paragraph\r\n\r\n  Second\tparagraph  \r\n",
+    });
+
+    expect(parsed.bio).toBe("First paragraph\n\nSecond paragraph");
+    expect(
+      buildDirectoryDetailDTO({
+        ...directorySource(),
+        bio: parsed.bio,
+      }).bio,
+    ).toBe("First paragraph\n\nSecond paragraph");
+  });
+
+  it("rejects forbidden controls and overlong multiline About text", () => {
+    for (const bio of ["First\u0000\n\nSecond", "First\u007f\n\nSecond"]) {
+      expectValidationError(() =>
+        parseAlumniProfileUpdateBody({ expectedRevision: 0, bio }),
+      );
+    }
+    expect(
+      parseAlumniProfileUpdateBody({
+        expectedRevision: 0,
+        bio: `${"a".repeat(1_997)}\n\nb`,
+      }).bio,
+    ).toHaveLength(2_000);
+    expectValidationError(() =>
+      parseAlumniProfileUpdateBody({
+        expectedRevision: 0,
+        bio: `${"a".repeat(1_998)}\n\nb`,
+      }),
+    );
+  });
+
   it("rejects unknown, accessor, non-plain, incomplete, and empty edits", () => {
     expectValidationError(() =>
       parseAlumniProfileUpdateBody({ expectedRevision: 0, phone: "+12065550101" }),

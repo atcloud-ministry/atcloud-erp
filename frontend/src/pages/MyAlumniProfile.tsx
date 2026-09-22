@@ -4,6 +4,7 @@ import {
   EyeIcon,
   PencilSquareIcon,
 } from "@heroicons/react/24/outline";
+import { normalizeNullableMultilineDisplayText } from "@atcloud/shared-time/registration-profile";
 import {
   useCallback,
   useEffect,
@@ -356,7 +357,7 @@ export default function MyAlumniProfile() {
       professionalHeadline: nullable(form.professionalHeadline),
       industry: nullable(form.industry),
       skills: normalizedSkills(form.skills),
-      bio: nullable(form.bio),
+      bio: normalizeNullableMultilineDisplayText(form.bio),
       helpOfferings: form.helpOfferings,
     };
   }, [form]);
