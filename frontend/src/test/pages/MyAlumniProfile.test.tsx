@@ -583,6 +583,29 @@ describe("MyAlumniProfile", () => {
     expect(screen.getByRole("button", { name: "Try Again" })).toBeEnabled();
   });
 
+  it("offers account completion when a missing owner draft is not publishable yet", async () => {
+    mocks.getOwn.mockRejectedValueOnce(
+      Object.assign(new Error("Not found"), { status: 404 }),
+    );
+    mocks.ensureOwnDraft.mockRejectedValueOnce(
+      Object.assign(new Error("The alumni profile is not ready to publish."), {
+        status: 422,
+      }),
+    );
+
+    renderProfile();
+
+    expect(
+      await screen.findByRole("heading", { name: "Alumni profile not available" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Complete account profile" })).toHaveAttribute(
+      "href",
+      "/dashboard/profile?mode=complete",
+    );
+    expect(screen.queryByText("The alumni profile is not ready to publish.")).not.toBeInTheDocument();
+    expect(mocks.ensureOwnDraft).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
   it("creates a private draft through the writable endpoint when an owner lookup is missing", async () => {
     mocks.getOwn.mockRejectedValueOnce(
       Object.assign(new Error("Not found"), { status: 404 }),

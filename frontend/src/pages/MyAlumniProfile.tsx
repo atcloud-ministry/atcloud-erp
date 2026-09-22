@@ -281,7 +281,9 @@ export default function MyAlumniProfile() {
             (createError &&
               typeof createError === "object" &&
               "status" in createError &&
-              (createError as { status?: unknown }).status === 409)
+              [409, 422].includes(
+                Number((createError as { status?: unknown }).status),
+              ))
           ) {
             setProfileUnavailable(true);
             return;
