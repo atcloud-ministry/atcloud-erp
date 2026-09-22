@@ -110,7 +110,7 @@ NODE_ENV=production
 4. **Advanced Settings:**
    ```
    Auto-Deploy: Yes (deploy on git push)
-   Health Check Path: /api/readiness
+   Health Check Path: /api/readiness/live
    ```
 
 ## Step 4: Deploy Frontend Service
@@ -150,7 +150,7 @@ After backend is deployed, update the frontend environment variable:
 curl https://your-backend-url.onrender.com/api/readiness
 ```
 
-Expected response: `{"status": "ok", "timestamp": "..."}`
+Expected response: `{"success":true,"status":"ready","version":1,"timestamp":"..."}`
 
 ### Frontend Access
 
