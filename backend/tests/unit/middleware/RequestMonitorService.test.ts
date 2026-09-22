@@ -46,12 +46,16 @@ describe("RequestMonitorService", () => {
     method?: string;
     status?: number;
     ip?: string;
+    forwardedFor?: string;
     userAgent?: string;
   } = {}) {
     const req = {
       method: options.method || "GET",
       path: options.path || "/api/test",
-      headers: options.ip ? { "x-forwarded-for": options.ip } : {},
+      ip: options.ip || "127.0.0.1",
+      headers: options.forwardedFor
+        ? { "x-forwarded-for": options.forwardedFor }
+        : {},
       socket: { remoteAddress: "127.0.0.1" },
       connection: { remoteAddress: "127.0.0.1" },
       get: vi.fn((header: string) =>
@@ -141,9 +145,10 @@ describe("RequestMonitorService", () => {
     expect(metric.uniqueUserAgents).toBe(100);
   });
 
-  it("uses only the first forwarded IP and truncates user agents", () => {
+  it("uses Express' trusted client IP and truncates user agents", () => {
     completeRequest({
-      ip: "203.0.113.1, 10.0.0.1",
+      ip: "203.0.113.1",
+      forwardedFor: "198.51.100.9, 10.0.0.1",
       userAgent: "x".repeat(300),
     });
 

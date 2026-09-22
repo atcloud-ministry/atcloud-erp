@@ -814,6 +814,109 @@ describe("Rate Limiting Middleware", () => {
       await request(composedApp).post("/api/readiness").expect(429);
     });
 
+    test("static upload reads do not consume the global API limit", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      process.env.STATIC_UPLOAD_RATE_LIMIT_MAX_REQUESTS = "2";
+      const {
+        generalLimiter: productionGeneralLimiter,
+        staticUploadReadLimiter: productionStaticUploadReadLimiter,
+      } = await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.use("/uploads", productionStaticUploadReadLimiter);
+      composedApp.all("/uploads/*", (_req, res) =>
+        res.json({ static: true }),
+      );
+      composedApp.get("/api/runtime-config", (_req, res) =>
+        res.json({ ok: true }),
+      );
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const avatar = await request(composedApp)
+          .get(`/uploads/avatars/example-${attempt}.webp`)
+          .expect(200);
+        expect(avatar.headers["ratelimit-limit"]).toBe("2");
+      }
+      const preflight = await request(composedApp)
+        .options("/uploads/avatars/example.webp")
+        .expect(200);
+      expect(preflight.headers["ratelimit-limit"]).toBeUndefined();
+      const blockedStaticRead = await request(composedApp)
+        .get("/uploads/avatars/missing.webp")
+        .expect(429);
+      expect(blockedStaticRead.body).toEqual({
+        error:
+          "Too many static file requests from this IP, please try again later.",
+      });
+
+      const firstApiRequest = await request(composedApp)
+        .get("/api/runtime-config")
+        .expect(200);
+      expect(firstApiRequest.headers["ratelimit-limit"]).toBe("1");
+      await request(composedApp).get("/api/runtime-config").expect(429);
+    });
+
+    test("mutation requests under the static upload path remain limited", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      const { generalLimiter: productionGeneralLimiter } =
+        await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.post("/uploads/avatars/example.webp", (_req, res) =>
+        res.json({ ok: true }),
+      );
+
+      const firstMutation = await request(composedApp)
+        .post("/uploads/avatars/example.webp")
+        .expect(200);
+      expect(firstMutation.headers["ratelimit-limit"]).toBe("1");
+      await request(composedApp)
+        .post("/uploads/avatars/example.webp")
+        .expect(429);
+    });
+
+    test("the global limiter uses Express's trusted one-hop client IP", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "1";
+      const { generalLimiter: productionGeneralLimiter } =
+        await importWithEnv();
+
+      const composedApp = express();
+      composedApp.set("trust proxy", 1);
+      composedApp.use(productionGeneralLimiter);
+      composedApp.get("/api/example", (req, res) =>
+        res.json({ ip: req.ip }),
+      );
+
+      const first = await request(composedApp)
+        .get("/api/example")
+        .set("X-Forwarded-For", "198.51.100.10, 203.0.113.20")
+        .expect(200);
+      expect(first.body.ip).toBe("203.0.113.20");
+
+      // Changing an untrusted, leftmost value cannot rotate the limiter key.
+      await request(composedApp)
+        .get("/api/example")
+        .set("X-Forwarded-For", "198.51.100.11, 203.0.113.20")
+        .expect(429);
+
+      const differentClient = await request(composedApp)
+        .get("/api/example")
+        .set("X-Forwarded-For", "198.51.100.10, 203.0.113.21")
+        .expect(200);
+      expect(differentClient.body.ip).toBe("203.0.113.21");
+    });
+
     test("the global limiter remains the fail-closed policy for other routes", async () => {
       process.env.NODE_ENV = "production";
       process.env.ENABLE_RATE_LIMITING = "true";

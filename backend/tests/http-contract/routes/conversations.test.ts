@@ -58,7 +58,10 @@ vi.mock("../../../src/middleware/authorization", () => ({
 import type { AlumniNetworkMode } from "../../../src/config/alumniNetworkFeature";
 import { createRuntimeConfigDTO } from "../../../src/contracts/runtimeConfig";
 import conversationRoutes from "../../../src/routes/conversations";
-import { ChatRoomError } from "../../../src/services/chat/ChatRoomErrors";
+import {
+  ChatRoomError,
+  chatRoomNotFound,
+} from "../../../src/services/chat/ChatRoomErrors";
 import { chatRoomService } from "../../../src/services/chat/ChatRoomService";
 import { AUTHORIZATION_ACTIONS } from "../../../src/services/authorization/types";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
@@ -257,11 +260,30 @@ describe("conversation HTTP contracts", () => {
     });
     expect(lookup).toHaveBeenCalledWith(USER_ID, PROGRAM_ID);
 
+    lookup.mockRejectedValueOnce(chatRoomNotFound());
+    const missingResponse = await member(
+      request(app).get(`/api/conversations/program/${PROGRAM_ID}`),
+    ).expect(200);
+    expect(missingResponse.body).toEqual({
+      success: true,
+      data: { room: null },
+    });
+
+    lookup.mockRejectedValueOnce(new Error("membership resolver unavailable"));
+    const unavailableResponse = await member(
+      request(app).get(`/api/conversations/program/${PROGRAM_ID}`),
+    ).expect(503);
+    expect(unavailableResponse.body).toEqual({
+      success: false,
+      code: "CHAT_OPERATION_UNAVAILABLE",
+      message: "The chat operation is temporarily unavailable.",
+    });
+
     setMode("off");
     await member(
       request(app).get(`/api/conversations/program/${PROGRAM_ID}`),
     ).expect(503);
-    expect(lookup).toHaveBeenCalledOnce();
+    expect(lookup).toHaveBeenCalledTimes(3);
   });
 
   it("maps send/read/mute bodies and idempotency context exactly", async () => {

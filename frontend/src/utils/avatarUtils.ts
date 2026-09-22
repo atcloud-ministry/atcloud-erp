@@ -49,21 +49,18 @@ export const getAvatarUrl = (
 };
 
 /**
- * Get avatar URL with cache busting for fresh uploads
+ * Resolve an avatar URL without adding a render-time cache key.
+ *
+ * Uploaded avatars already have unique filenames and the upload response may
+ * include a stable version query parameter. Keeping that URL unchanged lets
+ * the browser cache the image while a newly uploaded avatar still receives a
+ * new URL. The legacy function name is retained for existing callers.
  */
 export const getAvatarUrlWithCacheBust = (
   customAvatar: string | null,
   gender: "male" | "female"
 ): string => {
-  const baseUrl = getAvatarUrl(customAvatar, gender);
-
-  // Add cache busting only for uploaded avatars (not default avatars)
-  if (customAvatar && !customAvatar.includes("default-avatar")) {
-    const separator = baseUrl.includes("?") ? "&" : "?";
-    return `${baseUrl}${separator}t=${Date.now()}`;
-  }
-
-  return baseUrl;
+  return getAvatarUrl(customAvatar, gender);
 };
 
 export const getAvatarAlt = (

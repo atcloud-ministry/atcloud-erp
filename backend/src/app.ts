@@ -16,6 +16,7 @@ import {
 import { Logger } from "./services/LoggerService";
 import {
   generalLimiter,
+  staticUploadReadLimiter,
   authLimiter,
   profileLimiter,
   systemMessagesLimiter,
@@ -74,6 +75,7 @@ app.use(requestMonitor.middleware());
 
 // Rate limiting middleware
 app.use(generalLimiter);
+app.use("/uploads", staticUploadReadLimiter);
 // Apply specific limiters to critical endpoints
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);

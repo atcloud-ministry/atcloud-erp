@@ -1,5 +1,20 @@
 import { BaseApiClient } from "./common";
 
+export type ProgramAccessReason =
+  | "admin"
+  | "creator"
+  | "mentor"
+  | "class_rep"
+  | "free"
+  | "membership"
+  | "purchased"
+  | "not_purchased";
+
+export interface ProgramAccessResult {
+  hasAccess: boolean;
+  reason: ProgramAccessReason;
+}
+
 /**
  * Purchases API Service
  * Handles purchase/payment operations, checkout sessions, and admin purchase management
@@ -84,31 +99,31 @@ class PurchasesApiClient extends BaseApiClient {
     return res.data;
   }
 
-  async checkProgramAccess(programId: string): Promise<{
-    hasAccess: boolean;
-    reason:
-      | "admin"
-      | "creator"
-      | "mentor"
-      | "class_rep"
-      | "free"
-      | "membership"
-      | "purchased"
-      | "not_purchased";
-  }> {
-    const res = await this.request<{
-      hasAccess: boolean;
-      reason:
-        | "admin"
-        | "creator"
-        | "mentor"
-        | "class_rep"
-        | "free"
-        | "membership"
-        | "purchased"
-        | "not_purchased";
-    }>(`/purchases/check-access/${programId}`);
+  async checkProgramAccess(programId: string): Promise<ProgramAccessResult> {
+    const res = await this.request<ProgramAccessResult>(
+      `/purchases/check-access/${programId}`,
+    );
     return res.data || { hasAccess: false, reason: "not_purchased" };
+  }
+
+  async checkProgramsAccess(
+    programIds: string[],
+  ): Promise<Record<string, ProgramAccessResult>> {
+    if (programIds.length === 0) return {};
+
+    const res = await this.request<{
+      access: Array<ProgramAccessResult & { programId: string }>;
+    }>("/purchases/check-access/batch", {
+      method: "POST",
+      body: JSON.stringify({ programIds }),
+    });
+
+    return Object.fromEntries(
+      (res.data?.access || []).map(({ programId, hasAccess, reason }) => [
+        programId,
+        { hasAccess, reason },
+      ]),
+    );
   }
 
   // ========== Refund Operations ==========
@@ -310,6 +325,8 @@ export const purchasesService = {
   getPurchaseReceipt: (id: string) => purchasesApiClient.getPurchaseReceipt(id),
   checkProgramAccess: (programId: string) =>
     purchasesApiClient.checkProgramAccess(programId),
+  checkProgramsAccess: (programIds: string[]) =>
+    purchasesApiClient.checkProgramsAccess(programIds),
 
   // Refund operations
   checkRefundEligibility: (purchaseId: string) =>

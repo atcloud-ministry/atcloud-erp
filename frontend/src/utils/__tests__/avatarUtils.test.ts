@@ -3,11 +3,11 @@
  *
  * Tests avatar URL handling utilities:
  * - getAvatarUrl: Select custom or default avatar
- * - getAvatarUrlWithCacheBust: Add cache busting for uploads
+ * - getAvatarUrlWithCacheBust: Preserve stable/versioned upload URLs
  * - getAvatarAlt: Generate alt text
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   getAvatarUrl,
   getAvatarUrlWithCacheBust,
@@ -17,14 +17,7 @@ import {
 describe("avatarUtils", () => {
   const originalEnv = { ...import.meta.env };
 
-  beforeEach(() => {
-    // Reset Date.now for consistent cache busting tests
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2025-01-15T12:00:00Z"));
-  });
-
   afterEach(() => {
-    vi.useRealTimers();
     vi.unstubAllEnvs();
     // Restore original env
     Object.defineProperty(import.meta, "env", {
@@ -142,12 +135,18 @@ describe("avatarUtils", () => {
   });
 
   describe("getAvatarUrlWithCacheBust", () => {
-    it("should add cache busting to custom avatar", () => {
+    it("keeps a custom avatar URL stable across renders", () => {
       const result = getAvatarUrlWithCacheBust(
         "/uploads/avatars/user.jpg",
         "male"
       );
-      expect(result).toBe("/uploads/avatars/user.jpg?t=1736942400000");
+      const secondResult = getAvatarUrlWithCacheBust(
+        "/uploads/avatars/user.jpg",
+        "male"
+      );
+
+      expect(result).toBe("/uploads/avatars/user.jpg");
+      expect(secondResult).toBe(result);
     });
 
     it("should not add cache busting to default avatar", () => {
@@ -164,36 +163,38 @@ describe("avatarUtils", () => {
       expect(result).toBe("/default-avatar-male.jpg");
     });
 
-    it("should append cache bust with ? when no query params", () => {
+    it("does not add a query parameter to an unversioned URL", () => {
       const result = getAvatarUrlWithCacheBust("/avatar.jpg", "female");
-      expect(result).toContain("?t=");
+      expect(result).toBe("/avatar.jpg");
     });
 
-    it("should append cache bust with & when query params exist", () => {
+    it("preserves a stable upload version query parameter", () => {
       const result = getAvatarUrlWithCacheBust("/avatar.jpg?version=2", "male");
-      expect(result).toContain("&t=");
-      expect(result).toContain("version=2");
+      expect(result).toBe("/avatar.jpg?version=2");
     });
 
-    it("should use current timestamp for cache busting", () => {
+    it("does not change when time advances", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2025-06-15T10:30:00Z"));
       const result = getAvatarUrlWithCacheBust("/uploads/user.jpg", "female");
+      vi.advanceTimersByTime(60_000);
+      const laterResult = getAvatarUrlWithCacheBust(
+        "/uploads/user.jpg",
+        "female"
+      );
 
-      // Check format, not exact value (timing may vary slightly)
-      expect(result).toMatch(/\/uploads\/user\.jpg\?t=\d{13}/);
+      expect(result).toBe("/uploads/user.jpg");
+      expect(laterResult).toBe(result);
 
       vi.useRealTimers();
     });
 
-    it("should handle custom avatars with existing timestamps", () => {
+    it("preserves an upload-time timestamp without adding another", () => {
       const result = getAvatarUrlWithCacheBust(
         "/uploads/avatar.jpg?t=12345",
         "male"
       );
-      // Should add new timestamp
-      expect(result).toContain("&t=1736942400000");
-      expect(result).toContain("t=12345");
+      expect(result).toBe("/uploads/avatar.jpg?t=12345");
     });
 
     it("should not cache bust default-avatar string in path", () => {
@@ -268,8 +269,7 @@ describe("avatarUtils", () => {
       const alt = getAvatarAlt("Custom", "User", true);
 
       expect(url).toBe(customPath);
-      expect(urlWithCache).toContain(customPath);
-      expect(urlWithCache).toContain("?t=");
+      expect(urlWithCache).toBe(customPath);
       expect(alt).toBe("Custom User avatar");
     });
 
@@ -291,8 +291,7 @@ describe("avatarUtils", () => {
 
       // In test environment, pathname is extracted (PROD flag not set)
       expect(url).toBe("/uploads/avatars/prod-user.jpg");
-      expect(urlWithCache).toContain("/uploads/avatars/prod-user.jpg");
-      expect(urlWithCache).toContain("?t=");
+      expect(urlWithCache).toBe("/uploads/avatars/prod-user.jpg");
     });
   });
 });
