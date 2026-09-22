@@ -24,22 +24,8 @@ This contract is part of the
 Help Request and outcome timelines persist as independent business records under their approved
 retention contract.
 
-## Flex restore
-
-An isolated Atlas Flex restore keeps Email, Push, Socket emit, and workers disabled while it:
-
-1. removes records whose approved retention has expired;
-2. reconciles account deletions;
-3. verifies the AuditLog TTL index and cutoff behavior; and
-4. completes application integrity checks before production read/write access opens.
-
-Deleted live records can remain in Atlas Flex's eight retained daily snapshots until those snapshots
-expire.
-
 ## Release verification requirements
 
 - Unit tests must cover UTC month-end and leap-year boundaries.
 - MongoDB integration tests must cover scheduled cleanup and TTL index configuration.
 - Migration verification must read the actual production index definition.
-- The pre-release restore drill must verify cleanup before external effects and production access
-  are enabled.

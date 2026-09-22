@@ -214,7 +214,7 @@ channel preference。
 - iOS/iPadOS 16.4+ Home Screen install 与 Push UX；
 - user-initiated notification permission、per-installation PushSubscription 和 VAPID；
 - notification preferences、authorized deep links 和 Email fallback；
-- iPhone、iPad、Android 和 desktop browser qualification。
+- iPhone、iPad、desktop 实体设备及 Android 浏览器自动化 qualification。
 
 Email fallback 根据 user email preference、active PushSubscription 状态和 permanent endpoint
 failure 生成 outbox delivery。
@@ -348,13 +348,16 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### G1 — Production release
 
+2026-09-21 起使用已批准的 [Atlas Free 发布参数](ALUMNI_NETWORK_APPROVED_PARAMETERS.md) 验收与上线。
+Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实体设备。
+
 - [x] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
   - 验证：backend unit 7,027、HTTP 458、MongoDB integration 1,946、frontend 2,281；7 migrations、production full-stack E2E、lint、type-check、production/PWA build、deployment guards 与 browser keyboard/narrow-layout review 通过。
 - [x] G1-02 完成 affiliation canonical identity index migration、alumni import dry-run 和 data verification 的工程资格验证。
   - 验证：backend unit 7,071、HTTP 458、MongoDB integration 1,966；migration suite 41、322-row qualification、CLI smoke、lint、type-check、production build、checksum、deployment guards 与独立审查通过。
 - [x] G1-03 建立 isolated backup/restore qualification、rollback runbook、outbox/deadline/membership/Service Worker recovery。
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。
-- [ ] G1-04 完成 expected-capacity load、full regression 和 real-device qualification。
+- [ ] G1-04 完成隔离本机容量回归、Atlas Free staging 运行验证、full regression 和 real-device qualification。
   - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
     - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
   - [x] FIX-002 在 System Monitor 提供受保护的 Alumni Network mode control，按 revision 确认切换并刷新 runtime config。
@@ -363,7 +366,9 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
     - 验证：frontend 2,297 tests、lint、type-check、PWA build 通过；staging frontend `1a7831e1` Live，公开 HTML 指向 `Cloud-browsertag.png`。
   - [x] FIX-004 修复 Help workflow 通知写入冲突，补齐全流程实时更新、侧边栏 Alumni Community 数字、Updates 列表和按已显示版本确认已读。
     - 验证：frontend 2,313 tests、backend unit/HTTP 全量、27 项真实 MongoDB targeted integration、双账号 production full-stack E2E 2/2、lint、type-check 与 PWA build 通过。
+  - 2026-09-21 进度：staging 前后端 `e358b16a`、Atlas Free 迁移 11/11、readiness 正常；本机容量回归、backend unit/HTTP/integration、frontend、PWA 16/16 和 full-stack E2E 2/2 通过。等待 iPad 与 desktop 实机结果。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
+  - 2026-09-21 进度：Atlas Free 已配置 256 MB 容量及 250 连接邮件预警，运行说明已加入用户问题排查步骤。
 - [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
 
 ### M7 — 上线后改进

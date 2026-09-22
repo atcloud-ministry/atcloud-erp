@@ -1,7 +1,7 @@
 # @Cloud Alumni Network 已批准参数
 
-- 版本：1.0
-- 批准日期：2026-09-10
+- 版本：1.1
+- 批准日期：2026-09-10；Atlas Free 发布方案由 Travis 于 2026-09-21 批准
 - 批准人：Travis Fan，Assistant Director of IT and Website
 - 适用范围：M1–M6 与 G1
 
@@ -50,15 +50,14 @@ Profile publish 前满足 required fields。
 | AuditLog | 12 个 UTC calendar months；fallback TTL 为 365 天 |
 | De-identified KPI aggregates | 无自动到期；任何可筛选结果少于 5 人时不返回 |
 
-Flex 保留最近 8 个 daily snapshots。Primary database 已删除的数据随对应 snapshots 到期，恢复流程在
-开放生产读写前执行当前 retention cleanup 和 account-deletion reconciliation。
 曾 accepted 的 Help Request 在记录 immutable `closedAt` 后开始 retention clock。
 
 ## 3. Capacity 与边界
 
-### Qualification baseline
+### 工程负载测试基线
 
-这些数值是 load-test inputs；Program Room membership 仍按 eligibility resolver 的结果完整建立。
+这些数值用于隔离的本机 MongoDB 负载回归，不代表 Atlas Free 的生产容量承诺；Program Room
+membership 仍按 eligibility resolver 的结果完整建立。
 
 | Parameter | Approved value |
 | --- | --- |
@@ -89,14 +88,16 @@ Flex 保留最近 8 个 daily snapshots。Primary database 已删除的数据随
 | Unread badge | `0–99`，随后显示 `99+` |
 | Production MongoDB pool | `maxPoolSize=10` |
 
-### Flex operating gates
+### Atlas Free 发布与运行门槛
 
 | Gate | Approved value |
 | --- | --- |
-| Launch storage | `dataSize + indexSize ≤ 3.5 GB` |
-| Storage tier trigger | `dataSize + indexSize ≥ 4 GB`，或预计 90 天内达到 5 GB |
-| Performance tier trigger | 持续接近 `400 ops/s`，或未达到批准的 p95 targets |
-| Recovery tier trigger | Restore drill 超过 RTO，或需要 point-in-time recovery |
+| Launch storage | 同一 Free 集群全部 database 的 data + indexes ≤ 256 MB |
+| Storage review | 达到 256 MB，或预计 90 天内达到 384 MB 时评估升级 |
+| Throughput review | 持续达到 50 database ops/s，或未达到批准的 p95 targets 时评估升级 |
+| Transfer review | 任一方向连续 7 天达到 5 GB 时评估升级 |
+| Connection review | 达到 250 Atlas connections 时评估升级 |
+| Runtime qualification | 在现有 Free staging database 验证 transaction、migration、idempotency、outbox、AuditLog、TTL 与真实双账号流程；负载测试只在隔离本机数据库执行 |
 
 ## 4. Program mapping
 
@@ -124,28 +125,20 @@ Flex 保留最近 8 个 daily snapshots。Primary database 已删除的数据随
 11. Announcement authorization 在每次发布时重新计算：Mentor、Class Representative，以及
     authorization level 为 Leader 或以上的 Mentee。
 
-## 5. Flex recovery 与成本
+## 5. Atlas Free 与发布风险
 
 | Parameter | Approved value |
 | --- | --- |
-| Production Atlas tier | Flex |
-| Database RPO target | ≤ 24 hours |
-| Database RTO target | ≤ 8 hours；以 restore drill 验证 |
-| Restore window | Atlas 最近 8 个 daily snapshots |
-| Snapshot review | Monthly |
-| Isolated full restore drill | Production release 前一次，此后 quarterly |
-| Transaction qualification | 在真实 Flex 上验证 transaction、migration、idempotency、outbox 和 AuditLog |
-| Restore qualification | 验证 collections、indexes、TTL、counts/checksum、Chat、Help outcome 和 access windows |
-| External effects during restore | Email、Push、Socket emit 和 workers disabled |
-| Uploaded assets | Release qualification 验证 Render `/uploads` persistence 和 backup |
-| Core monthly planning cost | Render Static Site `$0` + backend `$7` + Atlas Flex `$8–$30` = `$15–$37`，另计其他实际服务 |
+| Production Atlas tier | Free，沿用当前集群；staging 与 production 使用不同 database |
+| Release qualification | 验证现有生产库 migration、索引/TTL、数据一致性、roster 和上线 smoke |
+| Uploaded assets | 验证 Render `/uploads` 在正常部署后仍可访问 |
+| Atlas monthly cost | `$0`；Render 与其他服务按实际用量另计 |
 
 新增付费资源、套餐升级，以及增加定时 CI 或自动部署等持续用量，须经 Travis 事先批准。
 
-RPO 表示恢复后最多丢失的已确认生产数据时间；RTO 从检测或确认数据事故开始，到完成完整性验证并
-重新开放生产读写为止。
+Travis 接受 Atlas Free 无自动备份、无异地备份及恢复保障的发布风险；数据库故障或误操作可能造成
+无法恢复的生产数据丢失，数据丢失概率与恢复时间均无保证。此项风险接受不改变个人资料保护、权限、
+账号删除和主库 retention 要求。
 
-参考：[Atlas Flex costs](https://www.mongodb.com/docs/atlas/billing/atlas-flex-costs/)、
-[Atlas Flex limits](https://www.mongodb.com/docs/atlas/reference/flex-limitations/)、
-[Atlas Flex backups](https://www.mongodb.com/docs/atlas/backup/cloud-backup/flex-cluster-backup/)、
+参考：[Atlas Free limits](https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/)、
 [Render pricing](https://render.com/pricing)。

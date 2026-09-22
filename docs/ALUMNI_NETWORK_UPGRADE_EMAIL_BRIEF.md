@@ -1,8 +1,9 @@
 # @Cloud Alumni Network Upgrade — Implementation Brief
 
 **Suggested subject:** Approved Scope and Delivery Plan for the @Cloud Alumni Network Upgrade
-**Version:** 2.3
+**Version:** 2.4
 **Prepared:** September 10, 2026
+**Updated:** September 21, 2026
 **Project leads:** Sam Ma, Executive Director; Travis Fan, Assistant Director of IT and Website
 
 This upgrade adds an alumni directory, structured help workflows, private and Program chat rooms,
@@ -95,7 +96,8 @@ Room read state, System Message read state, and Help updates/read state/action c
 
 One React codebase delivers desktop, phone-browser, and installable PWA access. It includes the
 manifest/icons, standalone launch, Service Worker/offline/update flow, Android and iPhone/iPad install
-UX, Web Push, preferences, deep links, login recovery, email fallback, and real-device qualification.
+UX, Web Push, preferences, deep links, login recovery, email fallback, iPhone/iPad/desktop real-device
+qualification, and Android browser automation.
 
 ## 2. Code delivery
 
@@ -116,41 +118,36 @@ UX, Web Push, preferences, deep links, login recovery, email fallback, and real-
    links, email fallback, and device installation UX.
 7. **Reliability/release:** authorization, validation, indexes, idempotency, durable outbox,
    migrations, approved record-specific retention and capacity limits, monitoring, accessibility,
-   load, backup/restore, and recovery tests.
+   load, and operational recovery tests.
 
-The exact field, retention, capacity, Program-mapping, and recovery contracts are maintained in the
+The exact field, retention, capacity, Program-mapping, and deployment contracts are maintained in the
 [approved parameter registry](ALUMNI_NETWORK_APPROVED_PARAMETERS.md).
 
 ## 3. Architecture and cost
 
 `React website/PWA on Render Static Site → Node/Express/Socket.IO and workers on Render Web Service → MongoDB Atlas`, with Push and email adapters.
 
-The approved launch configuration keeps the Render Static Site and Starter Web Service and uses an
-Atlas Flex cluster.
+The approved launch configuration keeps the Render Static Site and Starter Web Service and uses the
+existing Atlas Free cluster.
 
 | Launch services | Monthly planning view |
 | --- | --- |
-| Core configuration | Static Site `$0` + Starter backend about `$7` + Atlas Flex `$8–$30` = about `$15–$37` |
+| Core configuration | Existing Render services + Atlas Free `$0` database subscription |
 | Additional services | Actual workspace, email, domain, bandwidth, storage, Push, and other usage |
 
-The approved database recovery targets are RPO ≤24 hours and RTO ≤8 hours. Release requires a
-successful isolated Flex restore test; restore drills repeat quarterly and snapshots are reviewed
-monthly. Launch requires data plus indexes at or below 3.5 GB. Atlas tier upgrade triggers are 4 GB,
-projected 5 GB usage within 90 days, sustained load near `400 ops/s`, missed
-approved p95 targets, a restore drill exceeding eight hours, or a point-in-time recovery requirement.
-
-Render and Atlas capacity are reassessed when testing or monitoring reaches an approved threshold or
-when the recovery objective requires point-in-time restore.
+Launch qualification verifies production data and indexes fit within the Atlas Free storage limit and
+that the existing transaction, migration, outbox, and audit workflows operate on that cluster. Render
+and Atlas capacity are reassessed if usage or performance approaches the Free limits. Data loss or
+corruption may be irreversible on this configuration; Travis accepted this launch risk.
 
 Published references: [Render plans and pricing](https://render.com/pricing),
 [Render workspaces](https://render.com/docs/platform-features-by-plan),
-[MongoDB Atlas pricing](https://www.mongodb.com/pricing), and
-[Atlas Flex costs](https://www.mongodb.com/docs/atlas/billing/atlas-flex-costs/).
+[MongoDB Atlas pricing](https://www.mongodb.com/pricing).
 
 ## 4. Release
 
 Release readiness requires security/data, workflow/messaging, device, accessibility, capacity, and
-recovery evidence for every roadmap task.
+operational recovery evidence for the applicable roadmap tasks.
 
 M0–M6 are enabled together in one production release for every user who meets the corresponding
 permissions. Production monitoring and user feedback drive debugging and improvement.

@@ -1,5 +1,9 @@
 # @Cloud Sign-up System - Render Deployment Guide
 
+当前生产发布使用现有 Render backend/frontend 服务和 Atlas Free 集群；具体 Alumni Network 发布顺序、
+数据库确认与迁移命令以 [Alumni Network 运行说明](ALUMNI_NETWORK_OPERATIONS.md) 为准。
+下方创建新服务的步骤仅供首次搭建参考，不用于本次发布。
+
 Note on terminology: when reviewing UI copy and logs, "Leader" refers to the System Authorization Level, while the user-facing @Cloud status label is “@Cloud Co-worker.” See `docs/TERMINOLOGY.md`.
 
 ## Prerequisites
@@ -67,10 +71,10 @@ NODE_ENV=production
 1. **Create MongoDB Atlas Cluster:**
 
    - Go to [MongoDB Atlas](https://cloud.mongodb.com/)
-   - Create a new cluster (Free tier is fine for testing)
+   - Select the approved Atlas Free cluster for production
    - Use an Atlas replica-set or sharded deployment with transaction support
    - Create database user with read/write permissions
-   - Whitelist Render's IP addresses (or use 0.0.0.0/0 for simplicity)
+   - 按现有 Render 出站连接要求维护 Atlas IP access list
 
 2. **Get Connection String:**
    - In Atlas dashboard, click "Connect"
@@ -108,7 +112,7 @@ NODE_ENV=production
 4. **Advanced Settings:**
    ```
    Auto-Deploy: Yes (deploy on git push)
-   Health Check Path: /api/health
+   Health Check Path: /api/readiness
    ```
 
 ## Step 4: Deploy Frontend Service
@@ -145,7 +149,7 @@ After backend is deployed, update the frontend environment variable:
 ### Backend Health Check
 
 ```bash
-curl https://your-backend-url.onrender.com/api/health
+curl https://your-backend-url.onrender.com/api/readiness
 ```
 
 Expected response: `{"status": "ok", "timestamp": "..."}`
@@ -233,18 +237,13 @@ curl https://your-backend-url.onrender.com/api/health
    - Configure alerts for service downtime
    - Monitor database performance in Atlas
 
-2. **Backup:**
-
-   - Enable automated backups in MongoDB Atlas
-   - Export critical configuration
-
-3. **Security:**
+2. **Security:**
 
    - Regularly rotate JWT secrets
    - Monitor for unusual API usage
    - Keep dependencies updated
 
-4. **Performance:**
+3. **Performance:**
    - Monitor response times
    - Consider upgrading to paid plans for better performance
    - Implement caching strategies if needed
@@ -255,7 +254,6 @@ After successful deployment:
 
 - [ ] Test all user flows (signup, login, event creation, etc.)
 - [ ] Set up monitoring and alerts
-- [ ] Configure backup procedures
 - [ ] Update documentation with production URLs
 - [ ] Train administrators on production system
 
