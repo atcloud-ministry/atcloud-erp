@@ -24,11 +24,22 @@ const communitySortBy = (
   return "firstName";
 };
 
+function sameFilters(a: UserSearchFilters, b: UserSearchFilters): boolean {
+  return (
+    a.search === b.search &&
+    a.role === b.role &&
+    a.gender === b.gender &&
+    a.sortBy === b.sortBy &&
+    a.sortOrder === b.sortOrder
+  );
+}
+
 export function useManagementFilters(scope: ManagementDirectoryScope) {
   const [currentFilters, setCurrentFilters] = useState<UserSearchFilters>(() =>
     initialFilters(scope),
   );
   const currentFiltersRef = useRef(currentFilters);
+  const initializedScopeRef = useRef<ManagementDirectoryScope | null>(null);
   currentFiltersRef.current = currentFilters;
 
   const {
@@ -74,6 +85,10 @@ export function useManagementFilters(scope: ManagementDirectoryScope) {
 
   const handleFiltersChange = useCallback(
     (filters: UserSearchFilters) => {
+      // The filter control reports its default values on mount. The hook has
+      // already loaded that page, so do not issue the same request twice.
+      if (sameFilters(currentFiltersRef.current, filters)) return;
+      currentFiltersRef.current = filters;
       setCurrentFilters(filters);
       void fetchPage(filters, 1);
     },
@@ -106,7 +121,10 @@ export function useManagementFilters(scope: ManagementDirectoryScope) {
   );
 
   useEffect(() => {
+    if (initializedScopeRef.current === scope) return;
+    initializedScopeRef.current = scope;
     const filters = initialFilters(scope);
+    currentFiltersRef.current = filters;
     setCurrentFilters(filters);
     void fetchPage(filters, 1);
   }, [fetchPage, scope]);
