@@ -83,6 +83,23 @@ describe("RegistrationProfileService", () => {
     ).toThrow(RegistrationProfileNotReadyError);
   });
 
+  it("reports an impossible stored number with a person-facing readiness issue", () => {
+    const readiness = getRegistrationProfileReadiness({
+      ...COMPLETE_PROFILE,
+      phone: "+11234567890",
+    });
+    expect(readiness).toEqual({
+      ready: false,
+      issues: [
+        {
+          field: "phone",
+          code: "invalid_format",
+          message: "Enter a valid phone number, including its country code.",
+        },
+      ],
+    });
+  });
+
   it("loads every required field including hidden birthYear for publish readiness", async () => {
     const lean = vi.fn().mockResolvedValue(COMPLETE_PROFILE);
     const select = vi.fn().mockReturnValue({ lean });

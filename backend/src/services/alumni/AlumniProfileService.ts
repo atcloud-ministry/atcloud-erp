@@ -43,6 +43,7 @@ import {
   alumniGeneralLocation,
   buildAlumniProfileSearchProjection,
 } from "./AlumniProfileProjectionService";
+import { ensurePrivateAlumniDraft } from "./AlumniDraftProfileService";
 
 const OWNER_USER_PROJECTION = [
   REGISTRATION_PROFILE_READ_PROJECTION,
@@ -157,7 +158,6 @@ function directoryAffiliations(
 
 function publishReadiness(
   user: IUser,
-  affiliations: OwnerAggregate["affiliations"],
   now = new Date(),
 ): {
   readonly ready: boolean;
@@ -176,13 +176,6 @@ function publishReadiness(
       field: "account",
       code: "account_ineligible",
       message: "An active, verified account is required.",
-    });
-  }
-  if (affiliations.length === 0) {
-    issues.push({
-      field: "affiliations",
-      code: "verified_affiliation_required",
-      message: "At least one verified alumni affiliation is required.",
     });
   }
   return Object.freeze({ ready: issues.length === 0, issues: Object.freeze(issues) });
@@ -254,7 +247,7 @@ function toOwnDto(aggregate: OwnerAggregate): OwnAlumniProfileDTO {
             acceptedAt: pointedActiveConsent.acceptedAt,
           }
         : null,
-    publishReadiness: publishReadiness(aggregate.user, aggregate.affiliations),
+    publishReadiness: publishReadiness(aggregate.user),
     revision: aggregate.profile.revision,
     publishedAt: aggregate.profile.publishedAt ?? null,
     withdrawnAt: aggregate.profile.withdrawnAt ?? null,
@@ -281,6 +274,17 @@ export class AlumniProfileService {
 
   async getOwn(userId: string): Promise<OwnAlumniProfileDTO> {
     return toOwnDto(await this.loadOwnerAggregate(objectId(userId)));
+  }
+
+  async ensureOwnDraft(userId: string): Promise<OwnAlumniProfileDTO> {
+    const id = objectId(userId);
+    const user = await User.findOne({ _id: id, isActive: true, isVerified: true })
+      .select(OWNER_USER_PROJECTION);
+    if (!user) throw profileNotFound();
+    const readiness = publishReadiness(user);
+    if (!readiness.ready) throw new AlumniProfileNotPublishableError(readiness.issues);
+    await ensurePrivateAlumniDraft(user);
+    return this.getOwn(userId);
   }
 
   async previewOwn(userId: string): Promise<DirectoryDetailDTO> {
@@ -388,11 +392,7 @@ export class AlumniProfileService {
           throw profileRevisionConflict();
         }
         const now = this.now();
-        const readiness = publishReadiness(
-          aggregate.user,
-          aggregate.affiliations,
-          now,
-        );
+        const readiness = publishReadiness(aggregate.user, now);
         if (!readiness.ready) {
           throw new AlumniProfileNotPublishableError(readiness.issues);
         }

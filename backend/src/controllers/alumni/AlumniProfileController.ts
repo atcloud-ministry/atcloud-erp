@@ -31,6 +31,17 @@ export class AlumniProfileController {
     }
   };
 
+  ensureOwnDraft = async (req: Request, res: Response): Promise<void> => {
+    setAlumniNoStore(res);
+    try {
+      const actor = getAlumniRequestActor(req);
+      const profile = await this.service.ensureOwnDraft(actor.id);
+      res.status(200).json({ success: true, data: { profile } });
+    } catch (error) {
+      sendAlumniHttpError(res, error);
+    }
+  };
+
   previewOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {

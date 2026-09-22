@@ -13,7 +13,7 @@ import {
   type RegistrationNoticeDTO,
 } from "../services/api";
 import {
-  inferPhoneCountry,
+  getDefaultPhoneCountry,
   prepareRegistrationProfileSubmission,
 } from "../utils/registrationProfile";
 
@@ -48,7 +48,7 @@ export function useSignUpForm() {
       lastName: prefill.lastName || "",
       email: prefill.email || "",
       phone: prefill.phone || "",
-      phoneCountryCode: inferPhoneCountry(prefill.phone) || "",
+      phoneCountryCode: getDefaultPhoneCountry(prefill.phone),
       birthYear: undefined,
       residenceCountryCode: "",
       residenceRegion: "",

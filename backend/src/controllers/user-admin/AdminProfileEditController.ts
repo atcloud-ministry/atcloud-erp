@@ -16,6 +16,7 @@ import {
 import {
   synchronizeExistingAlumniProfileProjection,
 } from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { ensurePrivateAlumniDraft } from "../../services/alumni/AlumniDraftProfileService";
 import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
 import { AuditLogService } from "../../services/AuditLogService";
 import { logSafeErrorEvent } from "../../utils/safeEventLogger";
@@ -145,6 +146,7 @@ export default class AdminProfileEditController {
           );
         }
         const updatedUser = await targetUser.save({ session });
+        await ensurePrivateAlumniDraft(updatedUser, session);
         await synchronizeExistingAlumniProfileProjection(updatedUser, session);
         const changedFields = AUDITED_PROFILE_FIELDS.filter(
           (field) => oldValues[field] !== updatedUser[field],

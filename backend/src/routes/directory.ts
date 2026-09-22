@@ -31,6 +31,11 @@ router.get(
   alumniProfileController.previewOwn,
 );
 router.get("/me", requireAlumniNetworkReadable, alumniProfileController.getOwn);
+router.post(
+  "/me/draft",
+  requireAlumniNetworkWritable,
+  alumniProfileController.ensureOwnDraft,
+);
 router.patch(
   "/me",
   requireAlumniNetworkWritable,

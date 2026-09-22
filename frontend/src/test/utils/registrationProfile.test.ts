@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COUNTRY_SELECT_OPTIONS,
+  getDefaultPhoneCountry,
   getRegistrationProfileIssueLabels,
   getRegistrationProfileIssues,
   getSubdivisionOptions,
@@ -27,11 +28,26 @@ describe("registration profile form utilities", () => {
     expect(normalizePhoneToE164("(415) 555-2671", "US")).toBe(
       "+14155552671",
     );
+    expect(normalizePhoneToE164("5102581542", "US")).toBe(
+      "+15102581542",
+    );
+    expect(normalizePhoneToE164("+44 20 7946 0958", "US")).toBe(
+      "+442079460958",
+    );
     expect(inferPhoneCountry("+14155552671")).toBe("US");
+  });
+
+  it("rejects impossible or embedded numbers even when the E.164 length looks plausible", () => {
+    expect(normalizePhoneToE164("+11234567890", "US")).toBeNull();
+    expect(normalizePhoneToE164("Call me at 5102581542", "US")).toBeNull();
   });
 
   it("does not guess a country for a national phone number", () => {
     expect(normalizePhoneToE164("4155552671", "")).toBeNull();
+    expect(getDefaultPhoneCountry("4155552671")).toBe("US");
+    expect(getDefaultPhoneCountry("4155552671", "CA")).toBe("CA");
+    expect(getDefaultPhoneCountry("4155552671", "AQ")).toBe("US");
+    expect(getDefaultPhoneCountry("+442079460958", "US")).toBe("GB");
   });
 
   it("detects profile completeness and only meaningful changes to the eight persisted fields", () => {

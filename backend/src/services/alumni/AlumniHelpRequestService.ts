@@ -31,7 +31,6 @@ import {
   type HelpRequestListQuery,
   type HelpTransitionAction,
 } from "../../contracts/alumniHelpFlow";
-import AlumniAffiliation from "../../models/AlumniAffiliation";
 import AlumniHelpOutcomeSubmission, {
   type IAlumniHelpOutcomeSubmission,
 } from "../../models/AlumniHelpOutcomeSubmission";
@@ -1365,14 +1364,7 @@ export class AlumniHelpRequestService {
       })
         .select("_id")
         .session(session ?? null);
-    const affiliation = await AlumniAffiliation.findOne({
-        alumniProfileId: profile._id,
-        verificationStatus: "verified",
-        accountDeletionApprovedAt: null,
-      })
-        .select("_id")
-        .session(session ?? null);
-    if (!consent || !affiliation) throw offeringUnavailable();
+    if (!consent) throw offeringUnavailable();
     return { profile, user };
   }
 

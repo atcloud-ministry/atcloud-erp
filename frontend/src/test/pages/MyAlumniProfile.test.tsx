@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
   return {
     claim: vi.fn(),
     createIdempotencyKey: vi.fn(),
+    ensureOwnDraft: vi.fn(),
     error,
     getOwn: vi.fn(),
     previewOwn: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("../../services/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../services/api")>()),
   alumniDirectoryService: {
     getOwn: mocks.getOwn,
+    ensureOwnDraft: mocks.ensureOwnDraft,
     previewOwn: mocks.previewOwn,
     publishOwn: mocks.publishOwn,
     updateOwn: mocks.updateOwn,
@@ -181,6 +183,7 @@ describe("MyAlumniProfile", () => {
       .mockReturnValue(IDEMPOTENCY_KEYS[2]);
     mocks.claim.mockResolvedValue({ status: "claimed" });
     mocks.getOwn.mockResolvedValue(ownProfile());
+    mocks.ensureOwnDraft.mockResolvedValue(ownProfile());
     mocks.previewOwn.mockResolvedValue(ownProfile());
     mocks.updateOwn.mockResolvedValue(ownProfile({ revision: 4 }));
     mocks.publishOwn.mockResolvedValue(
@@ -616,11 +619,19 @@ describe("MyAlumniProfile", () => {
     mocks.getOwn.mockRejectedValue(
       Object.assign(new Error("Not found"), { status: 404 }),
     );
+    mocks.ensureOwnDraft.mockRejectedValue(
+      Object.assign(new Error("Complete your account profile"), { status: 409 }),
+    );
     mocks.claim.mockRejectedValue(new Error("Temporary claim failure"));
     renderProfile();
     expect(
       await screen.findByRole("heading", { name: "Alumni profile not available" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Complete account profile" })).toHaveAttribute(
+      "href",
+      "/dashboard/profile?mode=complete",
+    );
+    expect(screen.queryByText(/invitation email/i)).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "Open another invitation" }),
@@ -631,6 +642,17 @@ describe("MyAlumniProfile", () => {
     expect(
       screen.queryByRole("heading", { name: "Alumni profile not available" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("creates a private draft through the writable endpoint when an owner lookup is missing", async () => {
+    mocks.getOwn.mockRejectedValueOnce(
+      Object.assign(new Error("Not found"), { status: 404 }),
+    );
+    renderProfile();
+
+    expect(await screen.findByRole("heading", { name: "My Alumni Profile" })).toBeInTheDocument();
+    expect(mocks.ensureOwnDraft).toHaveBeenCalledWith(expect.any(AbortSignal));
+    expect(screen.queryByText(/invitation email/i)).not.toBeInTheDocument();
   });
 
   it("keeps a failed claim in memory so Try Again can reuse the secure token and key", async () => {
@@ -674,7 +696,7 @@ describe("MyAlumniProfile", () => {
       `/dashboard/community/alumni/me?invitation=${IDS.invitation}&claim=secret-token&source=email`,
     );
 
-    expect(await screen.findByText(/Profile claiming is temporarily paused/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Alumni Profile updates are temporarily paused/i)).toBeInTheDocument();
     expect(mocks.claim).not.toHaveBeenCalled();
     expect(mocks.getOwn).toHaveBeenCalledWith(expect.any(AbortSignal));
     await waitFor(() =>

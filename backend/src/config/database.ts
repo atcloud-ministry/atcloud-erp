@@ -1,6 +1,6 @@
 import type { ConnectOptions } from "mongoose";
 
-/** Shared production-safe MongoDB client limits, including the Atlas Flex cap. */
+/** Shared production-safe MongoDB client limits for the approved Atlas tier. */
 export const MONGODB_CONNECTION_OPTIONS: Readonly<ConnectOptions> =
   Object.freeze({
     maxPoolSize: 10,

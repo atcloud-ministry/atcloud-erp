@@ -8,6 +8,7 @@ import { AutoEmailNotificationService } from "../../../../src/services/infrastru
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import GuestMigrationService from "../../../../src/services/GuestMigrationService";
 import { REGISTRATION_PRIVACY_NOTICE } from "../../../../src/config/registrationPrivacyNotice";
+import { ensurePrivateAlumniDraft } from "../../../../src/services/alumni/AlumniDraftProfileService";
 
 const registrationLog = vi.hoisted(() => ({
   error: vi.fn(),
@@ -35,6 +36,9 @@ vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
   };
 });
 vi.mock("../../../../src/services/GuestMigrationService");
+vi.mock("../../../../src/services/alumni/AlumniDraftProfileService", () => ({
+  ensurePrivateAlumniDraft: vi.fn().mockResolvedValue(true),
+}));
 
 describe("RegistrationController", () => {
   let mockReq: any;
@@ -303,7 +307,7 @@ describe("RegistrationController", () => {
           expect.objectContaining({
             success: false,
             statusCode: 400,
-            message: expect.stringContaining("phone: phone is required"),
+            message: expect.stringContaining("phone: Phone is required."),
           }),
         );
         expect(User.findOne).not.toHaveBeenCalled();
@@ -392,6 +396,9 @@ describe("RegistrationController", () => {
         );
 
         expect(mockSave).toHaveBeenCalled();
+        expect(ensurePrivateAlumniDraft).toHaveBeenCalledWith(
+          expect.objectContaining({ email: "new@example.com" }),
+        );
         expect(mockGenerateToken).toHaveBeenCalled();
         expect(EmailService.sendVerificationEmail).toHaveBeenCalledWith(
           "new@example.com",
@@ -415,6 +422,75 @@ describe("RegistrationController", () => {
               }),
             }),
           })
+        );
+      });
+
+      it("normalizes a US national phone at the registration boundary", async () => {
+        mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
+          phone: "5102581542",
+          username: "nationalphone",
+          email: "national@example.com",
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          acceptTerms: true,
+          registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        };
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        vi.mocked(User).mockReturnValue({
+          _id: "user-id",
+          email: "national@example.com",
+          username: "nationalphone",
+          role: "Participant",
+          isAtCloudLeader: false,
+          isVerified: false,
+          save: vi.fn().mockResolvedValue({}),
+          generateEmailVerificationToken: vi.fn().mockReturnValue("token"),
+        } as any);
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+
+        await RegistrationController.register(mockReq as Request, mockRes);
+
+        expect(User).toHaveBeenCalledWith(expect.objectContaining({
+          phone: "+15102581542",
+        }));
+        expect(statusMock).toHaveBeenCalledWith(201);
+      });
+
+      it("keeps a committed registration successful if draft provisioning fails", async () => {
+        mockReq.body = {
+          ...TEST_REGISTRATION_PROFILE,
+          username: "draftretry",
+          email: "draftretry@example.com",
+          password: "password123",
+          confirmPassword: "password123",
+          gender: "male",
+          acceptTerms: true,
+          registrationNoticeVersion: REGISTRATION_PRIVACY_NOTICE.version,
+        };
+        vi.mocked(User.findOne).mockResolvedValue(null);
+        vi.mocked(User).mockReturnValue({
+          _id: "user-id",
+          email: "draftretry@example.com",
+          username: "draftretry",
+          role: "Participant",
+          isAtCloudLeader: false,
+          isVerified: false,
+          save: vi.fn().mockResolvedValue({}),
+          generateEmailVerificationToken: vi.fn().mockReturnValue("token"),
+        } as any);
+        vi.mocked(ensurePrivateAlumniDraft).mockRejectedValueOnce(new Error("draft failed"));
+        vi.mocked(EmailService.sendVerificationEmail).mockResolvedValue(true);
+
+        await RegistrationController.register(mockReq as Request, mockRes);
+
+        expect(statusMock).toHaveBeenCalledWith(201);
+        expect(registrationLog.error).toHaveBeenCalledWith(
+          "Registration event failed",
+          undefined,
+          "Registration",
+          { eventCode: "REGISTRATION_ALUMNI_DRAFT_FAILED", userId: "user-id", errorName: "Error" },
         );
       });
 

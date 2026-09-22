@@ -23,6 +23,9 @@ vi.mock(
   "../../../../src/services/alumni/AlumniProfileProjectionSyncService",
   () => ({ synchronizeExistingAlumniProfileProjection: vi.fn() }),
 );
+vi.mock("../../../../src/services/alumni/AlumniDraftProfileService", () => ({
+  ensurePrivateAlumniDraft: vi.fn().mockResolvedValue(true),
+}));
 vi.mock(
   "../../../../src/services/reliability/MongoTransactionService",
   () => ({ mongoTransactionService: { run: vi.fn() } }),

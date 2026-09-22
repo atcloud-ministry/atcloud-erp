@@ -2,6 +2,11 @@ import {
   ISO_COUNTRY_CODES,
   ISO_SUBDIVISION_CODES,
 } from "./iso3166Codes.js";
+import {
+  isSupportedCountry,
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js/min";
 
 export {
   ISO_3166_DATASET_VERSION,
@@ -90,7 +95,32 @@ export function isEmploymentStatus(value: unknown): value is EmploymentStatus {
 }
 
 export function isE164Phone(value: unknown): value is string {
-  return typeof value === "string" && E164_PHONE_PATTERN.test(value);
+  if (typeof value !== "string" || !E164_PHONE_PATTERN.test(value)) return false;
+  const parsed = parsePhoneNumberFromString(value);
+  return parsed?.number === value && parsed.isValid();
+}
+
+/** Convert a selected country's national number or a full international number to E.164. */
+export function normalizePhoneToE164(
+  value: unknown,
+  countryCode?: unknown,
+): string | null {
+  if (typeof value !== "string") return null;
+  const input = value.trim();
+  if (!input) return null;
+  const defaultCountry =
+    typeof countryCode === "string" &&
+    isSupportedCountry(countryCode as CountryCode)
+      ? (countryCode as CountryCode)
+      : undefined;
+  if (!input.startsWith("+") && !defaultCountry) return null;
+  const parsed = parsePhoneNumberFromString(input, {
+    defaultCountry,
+    extract: false,
+  });
+  return parsed?.isValid() && !parsed.ext && isE164Phone(parsed.number)
+    ? parsed.number
+    : null;
 }
 
 export function getCurrentUtcYear(now = new Date()): number {
@@ -234,18 +264,18 @@ export function validateRegistrationProfile(
     input.phone === null ||
     (typeof input.phone === "string" && phone === "")
   ) {
-    issues.push({ field: "phone", code: "required", message: "phone is required" });
+    issues.push({ field: "phone", code: "required", message: "Phone is required." });
   } else if (typeof input.phone !== "string") {
     issues.push({
       field: "phone",
       code: "invalid_type",
-      message: "phone must be a string",
+      message: "Enter a valid phone number.",
     });
   } else if (!isE164Phone(phone)) {
     issues.push({
       field: "phone",
       code: "invalid_format",
-      message: "phone must be in E.164 format",
+      message: "Enter a valid phone number, including its country code.",
     });
   }
 

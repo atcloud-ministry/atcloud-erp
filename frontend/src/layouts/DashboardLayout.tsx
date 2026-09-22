@@ -3,6 +3,7 @@ import { useLocation, Outlet, Navigate } from "react-router-dom";
 import { Header, Sidebar } from "./dashboard";
 import { Footer } from "../components/common";
 import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
+import AlumniProfileOnboardingNotice from "../components/profile/AlumniProfileOnboardingNotice";
 import { useAuth } from "../hooks/useAuth";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
@@ -150,6 +151,12 @@ export default function DashboardLayout() {
               <ProfileCompletionNotice
                 profile={currentUser}
                 className="mb-4"
+              />
+            )}
+            {!isGuest && !isChatRoomRoute && (
+              <AlumniProfileOnboardingNotice
+                user={currentUser}
+                pathname={location.pathname}
               />
             )}
             <Outlet key={location.pathname} />

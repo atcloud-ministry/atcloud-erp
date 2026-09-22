@@ -49,7 +49,7 @@ export const registrationProfileFormSchemaFields = {
     .required("Phone is required")
     .test(
       "e164-phone",
-      "Enter a valid phone number for the selected country",
+      "Enter a valid number for the selected country, or include + and the country code",
       function validatePhone(value) {
         if (!value || !this.parent.phoneCountryCode) return true;
         return Boolean(

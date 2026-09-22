@@ -205,7 +205,6 @@ function baseEligibilityPipeline(): PipelineStage[] {
         as: "affiliations",
       },
     },
-    { $match: { "affiliations.0": { $exists: true } } },
   ];
 }
 
