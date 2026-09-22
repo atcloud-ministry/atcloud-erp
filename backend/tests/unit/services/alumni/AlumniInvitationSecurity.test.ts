@@ -4,7 +4,6 @@ import {
   ALUMNI_CONTACT_LOOKUP_KEY_ENV,
   ALUMNI_INVITATION_TOKEN_KEY_ENV,
   AlumniInvitationSecurityConfigurationError,
-  assertAlumniInvitationReleaseConfiguration,
   assertAlumniInvitationSecurityConfiguration,
   readAlumniContactLookupKey,
 } from "../../../../src/config/alumniInvitationSecurity";
@@ -72,20 +71,6 @@ describe("alumni invitation secret configuration", () => {
       AlumniInvitationSecurityConfigurationError,
     );
     expect(observed?.message).not.toContain(CONTACT_KEY.toString("base64url"));
-  });
-
-  it("requires the durable outbox worker before release is available", () => {
-    const disabled = validEnvironment();
-    disabled.NOTIFICATION_OUTBOX_ENABLED = "false";
-    expect(() =>
-      assertAlumniInvitationReleaseConfiguration(disabled),
-    ).toThrow(/NOTIFICATION_OUTBOX_ENABLED/);
-
-    const enabled = validEnvironment();
-    enabled.NOTIFICATION_OUTBOX_ENABLED = "true";
-    expect(() =>
-      assertAlumniInvitationReleaseConfiguration(enabled),
-    ).not.toThrow();
   });
 });
 

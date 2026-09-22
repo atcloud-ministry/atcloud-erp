@@ -23,7 +23,7 @@ export class AlumniProfileController {
   getOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const profile = await this.service.getOwn(actor.id);
       res.status(200).json({ success: true, data: { profile } });
     } catch (error) {
@@ -34,7 +34,7 @@ export class AlumniProfileController {
   ensureOwnDraft = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const profile = await this.service.ensureOwnDraft(actor.id);
       res.status(200).json({ success: true, data: { profile } });
     } catch (error) {
@@ -45,7 +45,7 @@ export class AlumniProfileController {
   previewOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const profile = await this.service.previewOwn(actor.id);
       res.status(200).json({ success: true, data: { profile } });
     } catch (error) {
@@ -56,12 +56,12 @@ export class AlumniProfileController {
   updateOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const body = parseAlumniProfileUpdateBody(req.body);
       await this.service.updateOwn({
         ...body,
         actor,
-        idempotencyKey: getAlumniIdempotencyKey(req),
+        idempotencyKey: getAlumniIdempotencyKey(req, "profile"),
         correlationId: req.correlationId,
       });
       const profile = await this.service.getOwn(actor.id);
@@ -74,12 +74,12 @@ export class AlumniProfileController {
   publishOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const body = parseAlumniProfilePublishBody(req.body);
       await this.service.publishOwn({
         ...body,
         actor,
-        idempotencyKey: getAlumniIdempotencyKey(req),
+        idempotencyKey: getAlumniIdempotencyKey(req, "profile"),
         correlationId: req.correlationId,
       });
       const profile = await this.service.getOwn(actor.id);
@@ -92,12 +92,12 @@ export class AlumniProfileController {
   withdrawOwn = async (req: Request, res: Response): Promise<void> => {
     setAlumniNoStore(res);
     try {
-      const actor = getAlumniRequestActor(req);
+      const actor = getAlumniRequestActor(req, "profile");
       const body = parseAlumniProfileWithdrawBody(req.body);
       await this.service.withdrawOwn({
         ...body,
         actor,
-        idempotencyKey: getAlumniIdempotencyKey(req),
+        idempotencyKey: getAlumniIdempotencyKey(req, "profile"),
         correlationId: req.correlationId,
       });
       const profile = await this.service.getOwn(actor.id);

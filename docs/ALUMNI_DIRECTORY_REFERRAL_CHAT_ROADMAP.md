@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 版本：4.3
+- 版本：4.4
 - 更新时间：2026-09-21
 - 状态：Approved
 - 实施进度：M0–M6、G1-01–G1-03、ADD-004 已完成
@@ -253,9 +253,8 @@ Directory DTO 提供 published profile、general location、已有 verified affi
 现有 `/api/users` 和 search consumers 迁移到对应的 page-specific API；compatibility access
 使用 account-management permission 和 `AdminUserDTO`，并由 authorization/PII regression 覆盖。
 
-数据层新增 `AlumniProfile`、`AlumniAffiliation`、`AlumniInvitation`、`AlumniImportBatch`、
-`ConsentRecord`、`AlumniHelpRequest`、`AlumniHelpOutcomeSubmission`、`Conversation`、
-`ConversationMember`、`ChatMessage`、`ProgramCommunitySettings`、`PushSubscription`、
+数据层包含 `AlumniProfile`、`AlumniAffiliation`、`ConsentRecord`、`AlumniHelpRequest`、
+`AlumniHelpOutcomeSubmission`、`Conversation`、`ConversationMember`、`ChatMessage`、`ProgramCommunitySettings`、`PushSubscription`、
 `NotificationPreference` 和 `NotificationOutbox`，并实现唯一索引、audit、retention、
 transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
@@ -295,9 +294,9 @@ transaction/CAS、idempotency、outbox retry/reconciliation 和 migration。
 
 ### M2 — Community 与 Directory
 
-- [x] M2-01 实现 alumni profile、affiliation、invitation、import 和 consent models/indexes。
+- [x] M2-01 完成初版数据模型与索引验证；当前数据模型以 1.8 节为准。
   - 验证：backend unit 6,514、HTTP 401、MongoDB integration 1,799、frontend 1,968；lint、type-check、production build、deployment guards 与独立审查通过。
-- [x] M2-02 实现 roster CSV dry-run、matching、review、invitation、claim 和 rerun。
+- [x] M2-02 完成初版资料流程验证；当前使用自助 Alumni Profile 流程。
   - 验证：backend unit 6,602、HTTP 412、MongoDB integration 1,831、frontend 1,968；lint、type-check、production build、production full-stack E2E、deployment guards 与独立审查通过。
 - [x] M2-03 实现 profile edit、preview、consent、publish、withdraw 和 offering settings。
   - 验证：profile targeted backend unit 10、HTTP 5、MongoDB integration 7、frontend 33 全部通过。
@@ -355,7 +354,7 @@ Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实�
 
 - [x] G1-01 完成 privacy/consent content、security review 和 WCAG 2.2 AA review。
   - 验证：backend unit 7,027、HTTP 458、MongoDB integration 1,946、frontend 2,281；7 migrations、production full-stack E2E、lint、type-check、production/PWA build、deployment guards 与 browser keyboard/narrow-layout review 通过。
-- [x] G1-02 完成 affiliation canonical identity index migration、alumni import dry-run 和 data verification 的工程资格验证。
+- [x] G1-02 完成 affiliation canonical identity index migration 和数据工程资格验证。
   - 验证：backend unit 7,071、HTTP 458、MongoDB integration 1,966；migration suite 41、322-row qualification、CLI smoke、lint、type-check、production build、checksum、deployment guards 与独立审查通过。
 - [x] G1-03 建立 isolated backup/restore qualification、rollback runbook、outbox/deadline/membership/Service Worker recovery。
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。

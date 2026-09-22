@@ -4,7 +4,6 @@ import {
 } from "../../config/reliability";
 import IdempotencyRecord from "../../models/IdempotencyRecord";
 import NotificationOutbox from "../../models/NotificationOutbox";
-import { alumniInvitationEmailDeliveryHandler } from "../alumni/AlumniInvitationEmailDeliveryHandler";
 import { alumniHelpWorkflowDeliveryHandler } from "../alumni/AlumniHelpWorkflowDeliveryHandler";
 import { alumniHelpExternalNotificationDeliveryHandler } from "../alumni/AlumniHelpExternalNotification";
 import { chatMessageDeliveryHandler } from "../chat/ChatMessageDeliveryHandler";
@@ -173,7 +172,6 @@ const DEFAULT_DEPENDENCIES = Object.freeze({
 
 export function createProductionNotificationOutboxDeliveryRegistry(): NotificationOutboxDeliveryRegistry {
   return new NotificationOutboxDeliveryRegistry([
-    alumniInvitationEmailDeliveryHandler,
     alumniHelpWorkflowDeliveryHandler,
     alumniHelpExternalNotificationDeliveryHandler,
     chatMessageDeliveryHandler,

@@ -22,7 +22,6 @@ import { useToastReplacement } from "../contexts/NotificationModalContext";
 import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
 import {
   alumniDirectoryService,
-  alumniInvitationsService,
   type DirectoryDetailDTO,
   type DirectoryHelpOfferingsDTO,
   type OwnAlumniProfileDTO,
@@ -40,11 +39,6 @@ interface AlumniProfileFormState {
 interface MutationKey {
   payload: string;
   key: string;
-}
-
-interface PendingClaim {
-  invitationId: string;
-  token: string;
 }
 
 const REGISTRATION_PROFILE_FIELDS = new Set([
@@ -223,8 +217,7 @@ export default function MyAlumniProfile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notClaimed, setNotClaimed] = useState(false);
-  const [claimPaused, setClaimPaused] = useState(false);
+  const [profileUnavailable, setProfileUnavailable] = useState(false);
   const [view, setView] = useState<"edit" | "preview">("preview");
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
@@ -233,16 +226,19 @@ export default function MyAlumniProfile() {
   const keepPublishedButtonRef = useRef<HTMLButtonElement | null>(null);
   const publicationHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const mutationKeys = useRef(new Map<string, MutationKey>());
-  const pendingClaim = useRef<PendingClaim | null>(null);
   const activeLoadController = useRef<AbortController | null>(null);
   const previewController = useRef<AbortController | null>(null);
   const previewSequence = useRef(0);
   const initialLoadStarted = useRef(false);
-  const lastClaimSignature = useRef<string | null>(null);
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
-  const urlClaimToken = searchParams.get("claim");
-  const urlInvitationId = searchParams.get("invitation") ?? "invitation";
+  // Older invitation links may still circulate. Drop their secret parameters
+  // without attempting to claim a roster record or displaying the token.
+  useEffect(() => {
+    if (!searchParams.has("claim") && !searchParams.has("invitation")) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("claim");
+    next.delete("invitation");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const writable = config.alumniNetwork.writable;
 
   const keyFor = useCallback((operation: string, payload: unknown) => {
@@ -261,55 +257,17 @@ export default function MyAlumniProfile() {
     setProfile(next);
     setPreview(next);
     setForm(formFrom(next));
-    setNotClaimed(false);
-    setClaimPaused(false);
+    setProfileUnavailable(false);
     setConsentAccepted(false);
   }, []);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    const currentSearchParams = searchParamsRef.current;
-    const claimTokenFromUrl = currentSearchParams.get("claim");
     if (!signal?.aborted) {
       setLoading(true);
       setError(null);
-      setNotClaimed(false);
-      setClaimPaused(false);
+      setProfileUnavailable(false);
     }
     try {
-      if (claimTokenFromUrl) {
-        pendingClaim.current = {
-          invitationId:
-            currentSearchParams.get("invitation") ?? "invitation",
-          token: claimTokenFromUrl,
-        };
-      }
-      const claimAttempt = pendingClaim.current;
-      if (claimAttempt) {
-        try {
-          if (!writable) {
-            setClaimPaused(true);
-            pendingClaim.current = null;
-          } else {
-            const claimPayload = {
-              invitationId: claimAttempt.invitationId,
-              claimToken: claimAttempt.token,
-            };
-            await alumniInvitationsService.claim(
-              claimAttempt.token,
-              keyFor("claim", claimPayload),
-              signal,
-            );
-            if (signal?.aborted) return;
-            mutationKeys.current.delete("claim");
-            pendingClaim.current = null;
-            notification.success("Your alumni invitation has been claimed.");
-          }
-        } catch (claimError) {
-          // A consumed link can still belong to an already-created owner profile.
-          if (!isNotFound(claimError)) throw claimError;
-          pendingClaim.current = null;
-        }
-      }
       let nextProfile: OwnAlumniProfileDTO;
       try {
         nextProfile = await alumniDirectoryService.getOwn(signal);
@@ -325,7 +283,7 @@ export default function MyAlumniProfile() {
               "status" in createError &&
               (createError as { status?: unknown }).status === 409)
           ) {
-            setNotClaimed(true);
+            setProfileUnavailable(true);
             return;
           }
           throw createError;
@@ -337,8 +295,7 @@ export default function MyAlumniProfile() {
         return;
       }
       if (isNotFound(loadError)) {
-        setNotClaimed(true);
-        setClaimPaused(!writable);
+        setProfileUnavailable(true);
       } else if (
         !(loadError instanceof DOMException && loadError.name === "AbortError")
       ) {
@@ -351,27 +308,12 @@ export default function MyAlumniProfile() {
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
-        if (claimTokenFromUrl) {
-          const next = new URLSearchParams(currentSearchParams);
-          next.delete("claim");
-          next.delete("invitation");
-          setSearchParams(next, { replace: true });
-        }
       }
     }
-  }, [acceptProfile, keyFor, notification, setSearchParams, writable]);
+  }, [acceptProfile, writable]);
 
   useEffect(() => {
-    const claimSignature = urlClaimToken
-      ? JSON.stringify([urlInvitationId, urlClaimToken])
-      : null;
-    if (claimSignature) {
-      if (lastClaimSignature.current === claimSignature) return;
-      lastClaimSignature.current = claimSignature;
-    } else if (initialLoadStarted.current) {
-      lastClaimSignature.current = null;
-      return;
-    }
+    if (initialLoadStarted.current) return;
     initialLoadStarted.current = true;
     const controller = new AbortController();
     let settled = false;
@@ -391,12 +333,9 @@ export default function MyAlumniProfile() {
       previewController.current?.abort();
       if (!settled) {
         initialLoadStarted.current = false;
-        if (lastClaimSignature.current === claimSignature) {
-          lastClaimSignature.current = null;
-        }
       }
     };
-  }, [load, urlClaimToken, urlInvitationId]);
+  }, [load]);
 
   const retryLoad = useCallback(() => {
     activeLoadController.current?.abort();
@@ -551,7 +490,7 @@ export default function MyAlumniProfile() {
       </div>
     );
   }
-  if (notClaimed) {
+  if (profileUnavailable) {
     return (
       <div className="mx-auto max-w-2xl">
         <PageHeader title="My Alumni Profile" />
@@ -561,11 +500,11 @@ export default function MyAlumniProfile() {
               Alumni profile not available
             </h2>
             <p className="mt-2 text-sm leading-6 text-gray-600">
-              {claimPaused
+              {!writable
                 ? "Alumni Profile updates are temporarily paused. Please try again when editing is available."
                 : "Complete your ERP account information to create your private Alumni Profile. If your account information is already complete, try again."}
             </p>
-            {!claimPaused && (
+            {writable && (
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   className="inline-flex min-h-10 items-center rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"

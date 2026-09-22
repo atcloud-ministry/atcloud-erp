@@ -19,8 +19,6 @@ import { TokenService } from "./middleware/auth";
 import { isSchedulerEnabled } from "./config/scheduler";
 import { reliabilityFoundationService } from "./services/reliability/ReliabilityFoundationService";
 import { readHttpBindHost } from "./config/httpBinding";
-import { readAlumniNetworkReleaseAvailable } from "./config/alumniNetworkFeature";
-import { assertAlumniInvitationReleaseConfiguration } from "./config/alumniInvitationSecurity";
 import { MONGODB_CONNECTION_OPTIONS } from "./config/database";
 import { assertWebPushConfiguration } from "./config/webPush";
 import { assertRateLimitProductionConfiguration } from "./middleware/rateLimiting";
@@ -294,9 +292,6 @@ const startServer = async () => {
     // Never start production HTTP/Socket authentication with fallback secrets.
     TokenService.assertProductionConfiguration();
     assertRateLimitProductionConfiguration();
-    if (readAlumniNetworkReleaseAvailable()) {
-      assertAlumniInvitationReleaseConfiguration();
-    }
     assertWebPushConfiguration();
 
     // Validate runtime concurrency constraints for in-memory locking

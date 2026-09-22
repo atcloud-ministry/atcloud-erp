@@ -52,6 +52,8 @@ import {
   alumniInputError,
   alumniInvitationUnavailable,
 } from "./AlumniFlowErrors";
+import type { AlumniFlowActor } from "./AlumniFlowActor";
+export type { AlumniFlowActor } from "./AlumniFlowActor";
 import {
   ALUMNI_PROFILE_SEARCH_USER_PROJECTION,
   buildAlumniProfileSearchProjection,
@@ -83,11 +85,6 @@ const INVITATION_ADMIN_LIST_SELECTION = [
 ].join(" ");
 const MAX_INVITATION_AFFILIATIONS = 50;
 const MAX_INVITATION_SOURCE_BATCHES = 50;
-
-export interface AlumniFlowActor {
-  readonly id: string;
-  readonly role: string;
-}
 
 export interface ApprovedRosterAffiliation {
   readonly programId?: mongoose.Types.ObjectId;
