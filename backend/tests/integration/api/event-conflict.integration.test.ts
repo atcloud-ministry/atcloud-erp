@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
 import User from "../../../src/models/User";
@@ -10,6 +10,20 @@ import { ensureIntegrationDB } from "../setup/connect";
 import mongoose from "mongoose";
 
 describe("EventConflictController - GET /api/events/check-conflict", () => {
+  let originalTimeZone: string | undefined;
+
+  beforeAll(() => {
+    // Requests without timeZone use the process-local timezone. These fixtures
+    // describe Pacific wall-clock times, including on UTC CI runners.
+    originalTimeZone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+  });
+
+  afterAll(() => {
+    if (originalTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimeZone;
+  });
+
   beforeEach(async () => {
     await ensureIntegrationDB();
     await User.deleteMany({});
