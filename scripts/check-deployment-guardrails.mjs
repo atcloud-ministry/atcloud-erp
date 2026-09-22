@@ -196,7 +196,7 @@ function checkRenderTemplateContract() {
     ["WEB_PUSH_ENABLED", "false"],
     ["ENABLE_RATE_LIMITING", "true"],
     ["RATE_LIMIT_WINDOW_MS", "900000"],
-    ["RATE_LIMIT_MAX_REQUESTS", "100"],
+    ["RATE_LIMIT_MAX_REQUESTS", "600"],
     ["AUTH_RATE_LIMIT_WINDOW_MS", "900000"],
     ["AUTH_RATE_LIMIT_MAX_REQUESTS", "20"],
     ["DIRECTORY_SEARCH_RATE_LIMIT_WINDOW_MS", "60000"],
