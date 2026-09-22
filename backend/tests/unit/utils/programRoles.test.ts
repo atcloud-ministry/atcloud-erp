@@ -6,6 +6,30 @@ import {
 } from "../../../src/utils/programRoles";
 
 describe("programRoles utilities", () => {
+  it("preserves the legacy Class Representative role ID while normalizing", () => {
+    const roles = normalizeProgramRoles({
+      programRoles: {
+        studentRoles: [
+          {
+            id: "classRep",
+            name: "Class Representative",
+            discountEligible: true,
+          },
+          {
+            id: "class-rep",
+            name: "Different Role",
+            discountEligible: false,
+          },
+        ],
+      },
+    });
+
+    expect(roles.studentRoles.map((role) => role.id)).toEqual([
+      "classRep",
+      "class-rep",
+    ]);
+  });
+
   it("preserves zero tuition discount roles in explicit programRoles", () => {
     const roles = normalizeProgramRoles({
       programRoles: {

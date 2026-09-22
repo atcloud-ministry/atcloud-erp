@@ -7,6 +7,7 @@ import {
   UserAssignmentSnapshotService,
 } from "../../services/UserAssignmentSnapshotService";
 import {
+  ProgramRoleInUseError,
   preserveProgramRoleCounts,
   selectMutableProgramFields,
 } from "../../services/ProgramPayloadService";
@@ -102,9 +103,21 @@ export default class UpdateController {
         payload.mentors = resolvedMentors;
       }
       if (Object.prototype.hasOwnProperty.call(payload, "programRoles")) {
+        const purchasedRoleIds = await Purchase.distinct("studentRoleId", {
+          purchaseType: "program",
+          programId: program._id,
+          status: "completed",
+          unenrolledAt: { $exists: false },
+          studentRoleId: { $type: "string" },
+        });
         payload.programRoles = preserveProgramRoleCounts(
           program,
           payload.programRoles,
+          new Set(
+            purchasedRoleIds.filter(
+              (roleId): roleId is string => typeof roleId === "string",
+            ),
+          ),
         );
       }
       program.set(payload);
@@ -126,6 +139,10 @@ export default class UpdateController {
       });
       res.status(200).json({ success: true, data: updated });
     } catch (error) {
+      if (error instanceof ProgramRoleInUseError) {
+        res.status(409).json({ success: false, message: error.message });
+        return;
+      }
       if (error instanceof AssignmentSnapshotError) {
         res.status(400).json({ success: false, message: error.message });
         return;
