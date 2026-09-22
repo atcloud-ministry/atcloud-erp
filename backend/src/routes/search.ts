@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { SearchController } from "../controllers/searchController";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorizePermission } from "../middleware/auth";
+import { PERMISSIONS } from "../utils/roleUtils";
 import {
   validateSearch,
   handleValidationErrors,
@@ -16,6 +17,7 @@ router.use(searchLimiter);
 // Search users
 router.get(
   "/users",
+  authorizePermission(PERMISSIONS.MANAGE_USERS),
   validateSearch,
   handleValidationErrors,
   SearchController.searchUsers

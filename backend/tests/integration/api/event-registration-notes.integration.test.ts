@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Integration Test: Ensure registration notes are returned in event detail API
  * Focuses on regression where notes stopped appearing in API responses
@@ -22,6 +23,7 @@ describe("Event registration notes exposure", () => {
 
     // Register & verify user
     const userRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "noteuser",
       email: "noteuser@example.com",
       password: "NoteUserPass123!",
@@ -32,6 +34,7 @@ describe("Event registration notes exposure", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findByIdAndUpdate(userId, { isVerified: true });

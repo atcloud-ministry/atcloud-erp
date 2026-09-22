@@ -185,7 +185,7 @@ describe("Login page", () => {
   });
 
   describe("authenticated user redirect", () => {
-    it("redirects authenticated user to /dashboard by default", () => {
+    it("redirects authenticated user to /dashboard by default", async () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { id: "user1", username: "testuser" },
         isLoading: false,
@@ -200,10 +200,10 @@ describe("Login page", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
+      expect(await screen.findByText("Dashboard Page")).toBeInTheDocument();
     });
 
-    it("redirects authenticated user to ?redirect param if present", () => {
+    it("redirects authenticated user to ?redirect param if present", async () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { id: "user1", username: "testuser" },
         isLoading: false,
@@ -221,10 +221,10 @@ describe("Login page", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Event Detail Page")).toBeInTheDocument();
+      expect(await screen.findByText("Event Detail Page")).toBeInTheDocument();
     });
 
-    it("redirects authenticated user to program detail ?redirect param", () => {
+    it("redirects authenticated user to program detail ?redirect param", async () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { id: "user1", username: "testuser" },
         isLoading: false,
@@ -246,10 +246,10 @@ describe("Login page", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Program Detail Page")).toBeInTheDocument();
+      expect(await screen.findByText("Program Detail Page")).toBeInTheDocument();
     });
 
-    it("ignores unsafe authenticated-user redirect params", () => {
+    it("ignores unsafe authenticated-user redirect params", async () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { id: "user1", username: "testuser" },
         isLoading: false,
@@ -264,37 +264,36 @@ describe("Login page", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
+      expect(await screen.findByText("Dashboard Page")).toBeInTheDocument();
     });
 
-    it("clears sessionStorage returnUrl when authenticated user is present", () => {
-      // Set up the mock - authenticated user
+    it("restores the session-expired deep link and cannot overwrite it with /dashboard", async () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { id: "user1", username: "testuser" },
         isLoading: false,
       } as any);
 
-      // Set the returnUrl before rendering
-      window.sessionStorage.setItem("returnUrl", "/dashboard/donate");
-      expect(window.sessionStorage.getItem("returnUrl")).toBe(
-        "/dashboard/donate",
+      window.sessionStorage.setItem(
+        "returnUrl",
+        "/dashboard/chat-rooms/507f1f77bcf86cd799439011",
       );
 
       render(
         <MemoryRouter initialEntries={["/login"]}>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/dashboard/donate" element={<div>Donate Page</div>} />
+            <Route
+              path="/dashboard/chat-rooms/:conversationId"
+              element={<div>Restored Chat Room</div>}
+            />
             <Route path="/dashboard" element={<div>Dashboard Page</div>} />
             <Route path="*" element={<div>Not Found</div>} />
           </Routes>
         </MemoryRouter>,
       );
 
-      // The key behavior: sessionStorage should be cleared after Login processes it
-      // Note: Due to the nature of React rendering, the component may go to either
-      // the returnUrl destination OR the default dashboard. The important thing
-      // is that the sessionStorage gets cleaned up.
+      expect(await screen.findByText("Restored Chat Room")).toBeInTheDocument();
+      expect(screen.queryByText("Dashboard Page")).not.toBeInTheDocument();
       expect(window.sessionStorage.getItem("returnUrl")).toBeNull();
     });
   });

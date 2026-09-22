@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hasPermission, PERMISSIONS } from "./roleUtils";
 
 /** Hash email with sha256 after trimming & lowercasing (PII minimization). */
 export function hashEmail(email: string): string {
@@ -43,7 +44,36 @@ const SENSITIVE_CONTACT_FIELDS = ["email", "phone"] as const;
 interface UserWithContact {
   email?: string;
   phone?: string;
+  birthYear?: number;
   [key: string]: unknown;
+}
+
+/**
+ * Exact phone numbers and birth years are account-private fields. They may be
+ * returned only to the account owner or a caller with user-management access.
+ */
+export function canViewExactPrivateProfileFields(
+  viewerId: unknown,
+  viewerRole: string | undefined,
+  subjectId: unknown,
+): boolean {
+  const normalizedViewerId = viewerId == null ? "" : String(viewerId);
+  const normalizedSubjectId = subjectId == null ? "" : String(subjectId);
+
+  return (
+    (normalizedViewerId.length > 0 &&
+      normalizedViewerId === normalizedSubjectId) ||
+    hasPermission(viewerRole || "", PERMISSIONS.MANAGE_USERS)
+  );
+}
+
+/** Return a shallow copy without account-private exact values. */
+export function stripExactPrivateProfileFields<T extends UserWithContact>(
+  user: T,
+): Omit<T, "phone" | "birthYear"> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { phone: _phone, birthYear: _birthYear, ...sanitized } = user;
+  return sanitized as Omit<T, "phone" | "birthYear">;
 }
 
 /**
@@ -127,6 +157,8 @@ export default {
   hashEmail,
   truncateIpToCidr,
   stripContactInfo,
+  canViewExactPrivateProfileFields,
+  stripExactPrivateProfileFields,
   sanitizeMentor,
   sanitizeMentors,
   sanitizeParticipant,

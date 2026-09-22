@@ -1,4 +1,9 @@
 // API Response Types
+import type {
+  EmploymentStatus,
+  IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   message: string;
@@ -18,6 +23,11 @@ export interface AuthResponse {
     username: string;
     email: string;
     phone?: string;
+    birthYear?: number;
+    residenceCity?: string;
+    residenceRegion?: string | null;
+    residenceCountryCode?: IsoCountryCode;
+    employmentStatus?: EmploymentStatus;
     firstName?: string;
     lastName?: string;
     gender?: string;
@@ -27,8 +37,8 @@ export interface AuthResponse {
     avatar?: string;
     weeklyChurch?: string;
     churchAddress?: string;
-    occupation?: string;
-    company?: string;
+    occupation?: string | null;
+    company?: string | null;
     homeAddress?: string;
     lastLogin?: string;
     createdAt?: string;

@@ -5,6 +5,7 @@ import { User } from "../../../../src/models";
 import { EmailService } from "../../../../src/services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 import { UnifiedMessageController } from "../../../../src/controllers/unifiedMessageController";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 vi.mock("../../../../src/models");
 vi.mock("../../../../src/services/infrastructure/EmailServiceFacade");
@@ -18,6 +19,11 @@ vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
   };
 });
 vi.mock("../../../../src/controllers/unifiedMessageController");
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    revokeAllForUser: vi.fn().mockResolvedValue(1),
+  },
+}));
 
 describe("PasswordResetController", () => {
   let mockReq: any;
@@ -397,7 +403,12 @@ describe("PasswordResetController", () => {
         expect(mockUser.password).toBe("newpassword123");
         expect(mockUser.passwordResetToken).toBeUndefined();
         expect(mockUser.passwordResetExpires).toBeUndefined();
+        expect(mockUser.passwordChangedAt).toBeInstanceOf(Date);
         expect(mockUser.save).toHaveBeenCalled();
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          "user-id",
+          "password_reset",
+        );
         expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
           "user-id"
         );

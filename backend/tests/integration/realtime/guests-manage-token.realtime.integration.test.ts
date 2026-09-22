@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -21,6 +22,7 @@ describe("Guests Manage Token Realtime Emission", () => {
     ]);
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -31,6 +33,7 @@ describe("Guests Manage Token Realtime Emission", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     await request(app).post("/api/auth/register").send(adminData);

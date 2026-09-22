@@ -49,6 +49,7 @@ async function main() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   };
   await request(app).post("/api/auth/register").send(admin);
   await User.findOneAndUpdate({ email: admin.email }, { isVerified: true });

@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { createRegistrationProfileKpis } from "./registrationProfileKpis";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -115,6 +116,111 @@ export function installDefaultFetchMock() {
               hasNext: false,
               hasPrev: false,
             },
+          },
+        });
+      }
+
+      if (pathname === "/api/admin/users" || pathname === "/admin/users") {
+        return jsonResponse({
+          success: true,
+          message: "ok",
+          data: {
+            users: [],
+            pagination: {
+              currentPage: 1,
+              totalPages: 0,
+              totalUsers: 0,
+              hasNext: false,
+              hasPrev: false,
+            },
+          },
+        });
+      }
+
+      if (
+        pathname === "/api/community/members" ||
+        pathname === "/community/members"
+      ) {
+        return jsonResponse({
+          success: true,
+          message: "ok",
+          data: {
+            members: [],
+            pagination: {
+              currentPage: 1,
+              totalPages: 0,
+              totalMembers: 0,
+              hasNext: false,
+              hasPrev: false,
+            },
+          },
+        });
+      }
+
+      if (
+        pathname === "/api/user-options" ||
+        pathname === "/user-options"
+      ) {
+        return jsonResponse({
+          success: true,
+          message: "ok",
+          data: {
+            options: [],
+            pagination: {
+              currentPage: 1,
+              totalPages: 0,
+              totalOptions: 0,
+              hasNext: false,
+              hasPrev: false,
+            },
+          },
+        });
+      }
+
+      if (
+        pathname === "/api/analytics/users" ||
+        pathname === "/analytics/users"
+      ) {
+        return jsonResponse({
+          success: true,
+          message: "ok",
+          data: {
+            usersByRole: [],
+            usersByAtCloudStatus: [],
+            usersByChurch: [],
+            registrationTrends: [],
+            usersByOccupation: [],
+            totalUsers: 0,
+            activeUsers: 0,
+            demographics: {
+              roleStats: {
+                total: 0,
+                superAdmin: 0,
+                administrators: 0,
+                leaders: 0,
+                guestExperts: 0,
+                participants: 0,
+                atCloudLeaders: 0,
+              },
+              churchAnalytics: {
+                weeklyChurchStats: {},
+                churchAddressStats: {},
+                usersWithChurchInfo: 0,
+                usersWithoutChurchInfo: 0,
+                totalChurches: 0,
+                totalChurchLocations: 0,
+                churchParticipationRate: 0,
+              },
+              occupationAnalytics: {
+                occupationStats: {},
+                usersWithOccupation: 0,
+                usersWithoutOccupation: 0,
+                totalOccupationTypes: 0,
+                topOccupations: [],
+                occupationCompletionRate: 0,
+              },
+            },
+            registrationProfileKpis: createRegistrationProfileKpis(),
           },
         });
       }

@@ -6,8 +6,13 @@ vi.mock("../../../src/models", () => ({
   Event: { find: vi.fn(), countDocuments: vi.fn() },
 }));
 vi.mock("../../../src/utils/roleUtils", () => ({
-  hasPermission: vi.fn(),
-  PERMISSIONS: { VIEW_USER_PROFILES: "view_user_profiles" },
+  ROLES: {
+    SUPER_ADMIN: "Super Admin",
+    ADMINISTRATOR: "Administrator",
+    LEADER: "Leader",
+    GUEST_EXPERT: "Guest Expert",
+    PARTICIPANT: "Participant",
+  },
 }));
 vi.mock("../../../src/services/infrastructure/CacheService", () => ({
   CachePatterns: { getSearchResults: vi.fn() },
@@ -16,7 +21,6 @@ vi.mock("../../../src/services/infrastructure/CacheService", () => ({
 import { SearchController } from "../../../src/controllers/searchController";
 import { Event, User } from "../../../src/models";
 import { CachePatterns } from "../../../src/services/infrastructure/CacheService";
-import { hasPermission } from "../../../src/utils/roleUtils";
 
 describe("SearchController", () => {
   let userQuery: Record<string, ReturnType<typeof vi.fn>>;
@@ -33,7 +37,6 @@ describe("SearchController", () => {
     vi.mocked(Event.find).mockReturnValue(eventQuery as any);
     vi.mocked(User.countDocuments).mockResolvedValue(0);
     vi.mocked(Event.countDocuments).mockResolvedValue(0);
-    vi.mocked(hasPermission).mockReturnValue(true);
     vi.mocked(CachePatterns.getSearchResults).mockImplementation(
       async (_key, callback) => callback(),
     );
@@ -118,13 +121,11 @@ describe("SearchController", () => {
     );
   });
 
-  it("uses public user projection when profile permission is absent", async () => {
-    vi.mocked(hasPermission).mockReturnValue(false);
-
+  it("uses the account-management DTO projection for legacy user search", async () => {
     await SearchController.searchUsers(request({ q: "john" }), response);
 
     expect(userQuery.select).toHaveBeenCalledWith(
-      "username firstName lastName avatar role isAtCloudLeader weeklyChurch",
+      expect.stringContaining("email"),
     );
   });
 
@@ -158,8 +159,15 @@ describe("SearchController", () => {
     });
   });
 
-  it("runs bounded global user and event text searches", async () => {
-    userQuery.lean.mockResolvedValue([{ _id: "user-2", username: "john" }]);
+  it("keeps global user search and response within community-visible fields", async () => {
+    userQuery.lean.mockResolvedValue([
+      {
+        _id: "user-2",
+        username: "john",
+        email: "private@example.com",
+        homeAddress: "Private",
+      },
+    ]);
     eventQuery.lean.mockResolvedValue([{ _id: "event-1", title: "John Talk" }]);
 
     await SearchController.globalSearch(
@@ -169,7 +177,13 @@ describe("SearchController", () => {
 
     expect(User.find).toHaveBeenCalledWith({
       isActive: true,
-      $text: { $search: '"john"' },
+      isVerified: true,
+      $or: [
+        { username: { $regex: "john", $options: "i" } },
+        { firstName: { $regex: "john", $options: "i" } },
+        { lastName: { $regex: "john", $options: "i" } },
+        { roleInAtCloud: { $regex: "john", $options: "i" } },
+      ],
     });
     expect(Event.find).toHaveBeenCalledWith({
       $or: [
@@ -182,14 +196,21 @@ describe("SearchController", () => {
     });
     expect(userQuery.limit).toHaveBeenCalledWith(100);
     expect(eventQuery.limit).toHaveBeenCalledWith(100);
-    expect(json).toHaveBeenCalledWith({
-      success: true,
-      data: {
-        users: [{ id: "user-2", username: "john" }],
-        events: [{ id: "event-1", title: "John Talk" }],
-        totalResults: 2,
-      },
+    expect(userQuery.select).toHaveBeenCalledWith(
+      expect.not.stringContaining("email"),
+    );
+    const responseBody = json.mock.calls[0][0];
+    expect(responseBody.data.users[0]).toEqual({
+      id: "user-2",
+      username: "john",
+      firstName: null,
+      lastName: null,
+      avatar: null,
+      gender: null,
+      roleInAtCloud: null,
     });
+    expect(responseBody.data.users[0]).not.toHaveProperty("email");
+    expect(responseBody.data.totalResults).toBe(2);
   });
 
   it("returns a controlled error when the search cache fails", async () => {

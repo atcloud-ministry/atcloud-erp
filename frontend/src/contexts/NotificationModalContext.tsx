@@ -3,8 +3,6 @@ import React, {
   useContext,
   useState,
   useCallback,
-  useEffect,
-  useRef,
   useMemo,
 } from "react";
 import NotificationModal from "../components/common/NotificationModal";
@@ -65,31 +63,19 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
     null,
   );
   const [locked, setLocked] = useState(false);
-  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear any pending auto-close timer
-  const clearAutoCloseTimer = useCallback(() => {
-    if (autoCloseTimerRef.current) {
-      clearTimeout(autoCloseTimerRef.current);
-      autoCloseTimerRef.current = null;
-    }
-  }, []);
-
   const showNotification = useCallback(
     (options: NotificationOptions) => {
       // If locked, ignore attempts to replace until current modal is closed
       if (locked) return;
       // Suppress error notifications when session has expired (SessionExpiredModal handles it)
       if (options.type === "error" && isSessionExpiredPromptShown()) return;
-      clearAutoCloseTimer();
       setNotification(options);
       if (options.lockUntilClose) setLocked(true);
     },
-    [locked, clearAutoCloseTimer],
+    [locked],
   );
 
   const hideNotification = useCallback(() => {
-    clearAutoCloseTimer();
     // Capture current, clear, then invoke its onClose
     setNotification((current) => {
       if (current) {
@@ -98,17 +84,7 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({
       return null;
     });
     setLocked(false);
-  }, [clearAutoCloseTimer]);
-
-  // Auto-close timer: start when notification has autoClose enabled
-  useEffect(() => {
-    if (notification?.autoClose && notification.autoCloseDelay) {
-      autoCloseTimerRef.current = setTimeout(() => {
-        hideNotification();
-      }, notification.autoCloseDelay);
-    }
-    return () => clearAutoCloseTimer();
-  }, [notification, hideNotification, clearAutoCloseTimer]);
+  }, []);
 
   // Keep context value stable across renders to avoid unnecessary re-renders
   // and prevent dependency loops in consumers that include the whole context in deps.

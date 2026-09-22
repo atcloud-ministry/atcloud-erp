@@ -11,6 +11,18 @@ import {
 } from "../../test-utils/eventTestHelpers";
 
 let openedLocal = false;
+const originalShortLinkEnvironment = {
+  TEST_DISABLE_PUBLIC_RL: process.env.TEST_DISABLE_PUBLIC_RL,
+  SLC_RESERVED_KEYS: process.env.SLC_RESERVED_KEYS,
+};
+
+function restoreEnvironment(
+  name: keyof typeof originalShortLinkEnvironment,
+  value: string | undefined,
+): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 beforeAll(async () => {
   process.env.TEST_DISABLE_PUBLIC_RL = "true"; // simplify (we are not testing rate limit here)
@@ -25,6 +37,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  restoreEnvironment(
+    "TEST_DISABLE_PUBLIC_RL",
+    originalShortLinkEnvironment.TEST_DISABLE_PUBLIC_RL,
+  );
+  restoreEnvironment(
+    "SLC_RESERVED_KEYS",
+    originalShortLinkEnvironment.SLC_RESERVED_KEYS,
+  );
   if (openedLocal && mongoose.connection.readyState !== 0) {
     // Shared integration harness owns connection lifecycle.
   }

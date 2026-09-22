@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
 import type { LoginFormData } from "../schemas/loginSchema";
 import { useAuth } from "./useAuth";
@@ -10,7 +9,6 @@ import {
   getRemainingCooldown,
   formatCooldownTime,
 } from "../utils/emailValidationUtils";
-import { getRedirectParam } from "../utils/loginRedirect";
 
 export function useLogin() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -19,9 +17,7 @@ export function useLogin() {
   const [userEmailForResend, setUserEmailForResend] = useState<string>("");
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const notification = useToastReplacement();
-  const navigate = useNavigate();
   const { login } = useAuth();
-  const location = useLocation();
 
   const handleLogin = async (data: LoginFormData) => {
     const isEmailInput = data.emailOrUsername.includes("@");
@@ -39,51 +35,17 @@ export function useLogin() {
     setIsSubmitting(true);
 
     try {
-      // Capture redirect from query (?redirect=...)
-      const explicitRedirect = getRedirectParam(location.search || "");
-
       // Call the AuthContext login method
       const result = await login(data);
 
       if (result.success) {
-        // Check for return URL in sessionStorage (set by pages like DonationPage)
-        const returnUrl = sessionStorage.getItem("returnUrl");
-        if (returnUrl) {
-          sessionStorage.removeItem("returnUrl"); // Clean up
-          notification.success("Welcome back! Redirecting you...", {
-            title: "Login Successful",
-            autoCloseDelay: 2000,
-          });
-          navigate(returnUrl, { replace: true });
-          return;
-        }
-
-        type From = { pathname?: string; search?: string };
-        type StateWithFrom = { from?: From };
-        const stateUnknown: unknown = location.state;
-        const state = (
-          typeof stateUnknown === "object" && stateUnknown !== null
-            ? (stateUnknown as StateWithFrom)
-            : {}
-        ) as StateWithFrom;
-        const from = state.from;
-        const attemptedPath =
-          from && typeof from.pathname === "string"
-            ? from.pathname + (from.search || "")
-            : null;
-        const targetPath = explicitRedirect || attemptedPath || "/dashboard";
-
-        const isDashboard = targetPath === "/dashboard";
         notification.success(
-          isDashboard
-            ? "Welcome back! Redirecting to your dashboard..."
-            : "Welcome back! Redirecting you to your previous page...",
+          "Welcome back! Redirecting you securely...",
           {
             title: "Login Successful",
             autoCloseDelay: 2000,
           },
         );
-        navigate(targetPath, { replace: true });
       } else {
         // Failed login
         const newAttempts = loginAttempts + 1;

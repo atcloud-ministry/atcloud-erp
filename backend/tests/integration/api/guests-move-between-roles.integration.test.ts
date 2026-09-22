@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -22,6 +23,7 @@ describe("Guest move between roles triggers email", () => {
     ]);
 
     const admin = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "admin",
       email: "admin@example.com",
       password: "AdminPass123!",
@@ -32,6 +34,7 @@ describe("Guest move between roles triggers email", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     await request(app).post("/api/auth/register").send(admin);

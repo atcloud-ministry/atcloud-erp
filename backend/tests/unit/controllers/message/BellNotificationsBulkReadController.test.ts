@@ -29,7 +29,7 @@ import { socketService } from "../../../../src/services/infrastructure/SocketSer
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
 
 interface MockRequest {
-  user?: { id?: string };
+  user?: { id?: string; role?: string };
 }
 
 describe("BellNotificationsBulkReadController", () => {
@@ -52,7 +52,7 @@ describe("BellNotificationsBulkReadController", () => {
       json: jsonMock as unknown as Response["json"],
     };
 
-    mockReq = { user: { id: "user123" } };
+    mockReq = { user: { id: "user123", role: "Participant" } };
 
     (Message as any).getUnreadCountsForUser = vi.fn().mockResolvedValue({
       bellNotifications: 0,
@@ -123,6 +123,17 @@ describe("BellNotificationsBulkReadController", () => {
         );
         expect(mockMessages[0].save).toHaveBeenCalled();
         expect(mockMessages[1].save).toHaveBeenCalled();
+        expect(Message.find).toHaveBeenCalledWith({
+          isActive: true,
+          "userStates.user123": { $exists: true },
+          "userStates.user123.isRemovedFromBell": { $ne: true },
+          "userStates.user123.isReadInBell": { $ne: true },
+          $or: [
+            { targetRoles: { $exists: false } },
+            { targetRoles: { $size: 0 } },
+            { targetRoles: "Participant" },
+          ],
+        });
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,
@@ -208,6 +219,10 @@ describe("BellNotificationsBulkReadController", () => {
         expect(socketService.emitUnreadCountUpdate).toHaveBeenCalledWith(
           "user123",
           { bellNotifications: 0, systemMessages: 5, total: 5 }
+        );
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          "user123",
+          "Participant"
         );
       });
     });

@@ -22,6 +22,16 @@ vi.mock("../../../../src/services/infrastructure/CacheService", async () => {
   };
 });
 vi.mock("../../../../src/services/GuestMigrationService");
+vi.mock(
+  "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger",
+  () => ({
+    programMembershipMutationSyncTrigger: {
+      userEligibilityChanged: vi.fn(),
+    },
+  }),
+);
+
+import { programMembershipMutationSyncTrigger } from "../../../../src/services/programs/ProgramMembershipMutationSyncTrigger";
 
 describe("EmailVerificationController", () => {
   let mockReq: any;
@@ -98,6 +108,7 @@ describe("EmailVerificationController", () => {
           _id: "user-id",
           email: "test@example.com",
           firstName: "John",
+          role: "Participant",
           isVerified: false,
           emailVerificationToken: "test-token",
           emailVerificationExpires: new Date(),
@@ -105,6 +116,7 @@ describe("EmailVerificationController", () => {
         };
 
         mockReq.user = mockUser;
+        mockReq.correlationId = "verify-email-1";
         process.env.ENABLE_GUEST_AUTO_MIGRATION = "false"; // Disable migration for this test
 
         vi.mocked(EmailService.sendWelcomeEmail).mockResolvedValue(true);
@@ -118,6 +130,17 @@ describe("EmailVerificationController", () => {
         expect(mockUser.emailVerificationToken).toBeUndefined();
         expect(mockUser.emailVerificationExpires).toBeUndefined();
         expect(mockUser.save).toHaveBeenCalled();
+        expect(
+          programMembershipMutationSyncTrigger.userEligibilityChanged,
+        ).toHaveBeenCalledWith("user-id", {
+          actor: {
+            type: "user",
+            id: "user-id",
+            role: "Participant",
+          },
+          source: "http",
+          correlationId: "verify-email-1",
+        });
         expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
           "user-id"
         );

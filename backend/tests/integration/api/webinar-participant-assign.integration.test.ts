@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import app from "../../../src/app";
@@ -26,6 +27,7 @@ describe("Webinar participant assignment (regression)", () => {
     const regAdmin = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Admin",
         lastName: "User",
         email: adminEmail,
@@ -35,6 +37,7 @@ describe("Webinar participant assignment (regression)", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     adminId = regAdmin.body.data.user.id;
@@ -51,6 +54,7 @@ describe("Webinar participant assignment (regression)", () => {
     const regPart = await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         firstName: "Pat",
         lastName: "Icipant",
         email: participantEmail,
@@ -60,6 +64,7 @@ describe("Webinar participant assignment (regression)", () => {
         gender: "female",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
     participantId = regPart.body.data.user.id;

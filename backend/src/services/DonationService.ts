@@ -157,8 +157,8 @@ class DonationService {
         : [];
 
     return {
-      transactions: transactions as IDonationTransaction[],
-      pending: pending as IDonation[],
+      transactions: transactions as unknown as IDonationTransaction[],
+      pending: pending as unknown as IDonation[],
       pagination: {
         page,
         limit,
@@ -179,7 +179,7 @@ class DonationService {
       .sort({ nextPaymentDate: 1 })
       .lean();
 
-    return donations as IDonation[];
+    return donations as unknown as IDonation[];
   }
 
   /**

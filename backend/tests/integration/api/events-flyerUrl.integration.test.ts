@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -15,6 +16,7 @@ describe("Events API - flyerUrl optional", () => {
     await Event.deleteMany({});
 
     const adminData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminflyer",
       email: "admin-flyer@example.com",
       password: "AdminPass123!",
@@ -24,6 +26,7 @@ describe("Events API - flyerUrl optional", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     } as const;
 
     await request(app).post("/api/auth/register").send(adminData);

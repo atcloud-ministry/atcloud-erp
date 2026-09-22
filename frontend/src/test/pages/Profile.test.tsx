@@ -62,6 +62,19 @@ describe("Profile", () => {
       screen.getByRole("button", { name: /edit profile/i })
     ).toBeInTheDocument();
 
+    expect(
+      screen.getByRole("heading", { name: /contact and personal details/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /^phone/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^birth year/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^country of residence/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^city/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^employment status/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^occupation/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^home address$/i)).not.toBeInTheDocument();
+
     // System info section
     expect(screen.getByText(/system authorization level/i)).toBeInTheDocument();
     expect(screen.getByText(/participant/i)).toBeInTheDocument();

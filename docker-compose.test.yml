@@ -1,0 +1,24 @@
+services:
+  mongodb-replica:
+    image: mongo:7.0
+    container_name: atcloud-mongodb-test-rs
+    command:
+      - mongod
+      - --replSet
+      - rs0
+      - --bind_ip_all
+      - --port
+      - "27018"
+    ports:
+      - "127.0.0.1:27018:27018"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host 127.0.0.1 --port 27018
+          --eval 'quit(db.adminCommand({ ping: 1 }).ok === 1 ? 0 : 1)'
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 2s
+    stop_grace_period: 10s

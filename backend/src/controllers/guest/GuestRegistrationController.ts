@@ -474,7 +474,6 @@ export class GuestRegistrationController {
                 name: asString(o["name"]) || "Organizer",
                 role: asString(o["role"]) || "Organizer",
                 email: asString(o["email"]) || "",
-                phone: asString(o["phone"]) || undefined,
               }))
               .filter((o) => !!o.email)
           : undefined;
@@ -490,7 +489,6 @@ export class GuestRegistrationController {
               lastName: asString(createdByObj["lastName"]),
               username: asString(createdByObj["username"]),
               email: asString(createdByObj["email"]),
-              phone: asString(createdByObj["phone"]),
               avatar: asString(createdByObj["avatar"]),
               gender: asString(createdByObj["gender"]),
             }

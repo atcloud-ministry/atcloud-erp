@@ -4,22 +4,15 @@ import OrganizerSelection from "../../components/events/OrganizerSelection";
 import { NotificationProvider } from "../../contexts/NotificationModalContext";
 import { AuthProvider } from "../../contexts/AuthContext";
 
-// Return empty first-page users from hook (simulate page-capped local list)
-vi.mock("../../hooks/useUserData", () => ({
-  useUserData: () => ({ users: [] }),
-}));
-
-// Mock userService.getUsers to simulate multiple paginated pages for each role
-const getUsersMock = vi.fn();
+const listOptionsMock = vi.fn();
 vi.mock("../../services/api", async () => {
   const actual = await vi.importActual<typeof import("../../services/api")>(
     "../../services/api"
   );
   return {
     ...actual,
-    userService: {
-      ...actual.userService,
-      getUsers: (...args: any[]) => getUsersMock(...args),
+    userOptionsService: {
+      list: (...args: unknown[]) => listOptionsMock(...args),
     },
   };
 });
@@ -32,15 +25,16 @@ const Wrapper = ({ children }: { children: React.ReactNode }) => (
 
 describe("OrganizerSelection — loads all authorized users without search", () => {
   it("loads multiple pages and renders authorized users list when dropdown opens", async () => {
-    // Prepare mock pages: Leaders two pages, Admins one page
+    // Prepare two resource-scoped option pages.
     const page1Leaders = Array.from({ length: 20 }).map((_, i) => ({
       id: `L${i + 1}`,
       username: `leader${i + 1}`,
       firstName: `Leader${i + 1}`,
       lastName: "User",
-      email: `leader${i + 1}@x.com`,
       role: "Leader",
-      isActive: true,
+      avatar: null,
+      gender: "male",
+      roleInAtCloud: null,
     }));
     const page2Leaders = [
       {
@@ -48,35 +42,37 @@ describe("OrganizerSelection — loads all authorized users without search", () 
         username: "leader21",
         firstName: "Leader21",
         lastName: "User",
-        email: "leader21@x.com",
         role: "Leader",
-        isActive: true,
+        avatar: null,
+        gender: "male",
+        roleInAtCloud: null,
       },
     ];
-    const page1Admins = [
+    page1Leaders.push(
       {
         id: "A1",
         username: "admin1",
         firstName: "Admin",
         lastName: "One",
-        email: "admin1@x.com",
         role: "Administrator",
-        isActive: true,
+        avatar: null,
+        gender: "male",
+        roleInAtCloud: null,
       },
-    ];
+    );
 
-    getUsersMock.mockImplementation(async (params: any) => {
-      const role = params?.role;
+    listOptionsMock.mockImplementation(async (params: { page?: number }) => {
       const page = params?.page || 1;
-      if (role === "Leader") {
-        if (page === 1)
-          return { users: page1Leaders, pagination: { hasNext: true } };
-        return { users: page2Leaders, pagination: { hasNext: false } };
-      }
-      if (role === "Administrator") {
-        return { users: page1Admins, pagination: { hasNext: false } };
-      }
-      return { users: [], pagination: { hasNext: false } };
+      return {
+        options: page === 1 ? page1Leaders : page2Leaders,
+        pagination: {
+          currentPage: page,
+          totalPages: 2,
+          totalOptions: 22,
+          hasNext: page === 1,
+          hasPrev: page > 1,
+        },
+      };
     });
 
     const mainOrganizer = {
@@ -86,7 +82,6 @@ describe("OrganizerSelection — loads all authorized users without search", () 
       systemAuthorizationLevel: "Administrator",
       gender: "male" as const,
       avatar: null,
-      email: "owner@x.com",
     };
 
     render(

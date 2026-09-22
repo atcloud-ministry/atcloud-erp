@@ -1,7 +1,11 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Program, Purchase, User } from "../../models";
-import { sanitizeParticipants } from "../../utils/privacy";
+import {
+  canViewExactPrivateProfileFields,
+  sanitizeParticipant,
+  stripExactPrivateProfileFields,
+} from "../../utils/privacy";
 import {
   getDiscountStudentRole,
   normalizeProgramRoles,
@@ -172,20 +176,49 @@ export default class ParticipantsController {
         );
       });
       const canViewContact = isAdmin || isMentor || isClassRep;
+      const viewerId = user?._id;
+      const viewerRole = user?.role || req.userRole;
+      const sanitizeForViewer = <
+        T extends { user: Record<string, unknown> },
+      >(
+        participant: T,
+      ): T => {
+        const participantUserId =
+          participant.user._id || participant.user.id || "";
+        const isSelf =
+          String(viewerId || "") !== "" &&
+          String(viewerId) === String(participantUserId);
+        const contactSanitized = sanitizeParticipant(
+          participant,
+          canViewContact || isSelf,
+        );
+
+        if (
+          canViewExactPrivateProfileFields(
+            viewerId,
+            viewerRole,
+            participantUserId,
+          )
+        ) {
+          return contactSanitized;
+        }
+
+        return {
+          ...contactSanitized,
+          user: stripExactPrivateProfileFields(contactSanitized.user),
+        };
+      };
 
       res.status(200).json({
         success: true,
         data: {
-          mentees: sanitizeParticipants(allMentees, canViewContact),
-          classReps: sanitizeParticipants(allClassReps, canViewContact),
+          mentees: allMentees.map(sanitizeForViewer),
+          classReps: allClassReps.map(sanitizeForViewer),
           studentRoles: studentRoleGroups.map((group) => ({
             roleId: group.roleId,
             name: group.name,
             discountEligible: group.discountEligible,
-            participants: sanitizeParticipants(
-              group.participants,
-              canViewContact,
-            ),
+            participants: group.participants.map(sanitizeForViewer),
           })),
         },
       });

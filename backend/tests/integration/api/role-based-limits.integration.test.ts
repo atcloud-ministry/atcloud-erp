@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -26,6 +27,7 @@ describe("Role-based registration limits per event", () => {
     await request(app)
       .post("/api/auth/register")
       .send({
+        ...TEST_REGISTRATION_PROFILE,
         username: "adminlimits",
         email: "admin_limits@example.com",
         password: "Password123!",
@@ -36,6 +38,7 @@ describe("Role-based registration limits per event", () => {
         gender: "male",
         isAtCloudLeader: false,
         acceptTerms: true,
+        registrationNoticeVersion: "registration-privacy-v1",
       })
       .expect(201);
 
@@ -95,6 +98,7 @@ describe("Role-based registration limits per event", () => {
       await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           username: "participantlimit",
           email: "participant_limit@example.com",
           password: "Password123!",
@@ -105,6 +109,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -158,6 +163,7 @@ describe("Role-based registration limits per event", () => {
       await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           username: "guestexpertlimit",
           email: "guestexpert_limit@example.com",
           password: "Password123!",
@@ -168,6 +174,7 @@ describe("Role-based registration limits per event", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -221,6 +228,7 @@ describe("Role-based registration limits per event", () => {
       await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           username: "leaderlimit",
           email: "leader_limit@example.com",
           password: "Password123!",
@@ -231,6 +239,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -284,6 +293,7 @@ describe("Role-based registration limits per event", () => {
       await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           username: "superadminlimit",
           email: "superadmin_limit@example.com",
           password: "Password123!",
@@ -294,6 +304,7 @@ describe("Role-based registration limits per event", () => {
           gender: "male",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 
@@ -336,6 +347,7 @@ describe("Role-based registration limits per event", () => {
       await request(app)
         .post("/api/auth/register")
         .send({
+          ...TEST_REGISTRATION_PROFILE,
           username: "administratorlimit",
           email: "administrator_limit@example.com",
           password: "Password123!",
@@ -346,6 +358,7 @@ describe("Role-based registration limits per event", () => {
           gender: "female",
           isAtCloudLeader: false,
           acceptTerms: true,
+          registrationNoticeVersion: "registration-privacy-v1",
         })
         .expect(201);
 

@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { Request, Response } from "express";
 import ChangePasswordController from "../../../../src/controllers/profile/ChangePasswordController";
+import { RefreshSessionService } from "../../../../src/services/auth/RefreshSessionService";
 
 // Mock dependencies
 vi.mock("../../../../src/models", () => ({
   User: {
     findById: vi.fn(),
+  },
+}));
+vi.mock("../../../../src/services/auth/RefreshSessionService", () => ({
+  RefreshSessionService: {
+    revokeAllForUser: vi.fn().mockResolvedValue(1),
   },
 }));
 
@@ -258,6 +264,10 @@ describe("ChangePasswordController", () => {
         expect(mockUser.password).toBe("newPassword456");
         expect(mockUser.passwordChangedAt).toBeInstanceOf(Date);
         expect(mockUser.save).toHaveBeenCalled();
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          userId,
+          "password_changed",
+        );
         expect(statusMock).toHaveBeenCalledWith(200);
         expect(jsonMock).toHaveBeenCalledWith({
           success: true,

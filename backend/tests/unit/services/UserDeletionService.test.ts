@@ -55,12 +55,46 @@ vi.mock("../../../src/models/ShortLink", () => ({
   },
 }));
 
-// Mock filesystem operations
-vi.mock("fs/promises", () => ({
-  default: {
-    unlink: vi.fn(),
+vi.mock(
+  "../../../src/services/authorization/ResourceAuthorizationInvalidationService",
+  () => ({
+    resourceAuthorizationInvalidationService: {
+      invalidateEventRoom: vi.fn(),
+    },
+  })
+);
+
+vi.mock("../../../src/services/infrastructure/SocketService", () => ({
+  socketService: {
+    disconnectUser: vi.fn(),
   },
 }));
+
+vi.mock(
+  "../../../src/services/alumni/AlumniAccountDeletionService",
+  () => ({
+    alumniAccountDeletionService: {
+      deleteAccount: vi.fn(),
+    },
+  }),
+);
+
+vi.mock(
+  "../../../src/services/privacy/FileCleanupService",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../src/services/privacy/FileCleanupService")
+      >();
+    return {
+      ...actual,
+      fileCleanupService: {
+        enqueueInTransaction: vi.fn(),
+        processTargets: vi.fn(),
+      },
+    };
+  },
+);
 
 // Now import mocked modules and service
 import User from "../../../src/models/User";
@@ -70,10 +104,18 @@ import Message from "../../../src/models/Message";
 import PromoCode from "../../../src/models/PromoCode";
 import Program from "../../../src/models/Program";
 import ShortLink from "../../../src/models/ShortLink";
-import fs from "fs/promises";
 import { UserDeletionService } from "../../../src/services/UserDeletionService";
+import { resourceAuthorizationInvalidationService } from "../../../src/services/authorization/ResourceAuthorizationInvalidationService";
+import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { alumniAccountDeletionService } from "../../../src/services/alumni/AlumniAccountDeletionService";
+import { fileCleanupService } from "../../../src/services/privacy/FileCleanupService";
 
 describe("UserDeletionService", () => {
+  const trustedOriginEnvironment = {
+    BACKEND_URL: process.env.BACKEND_URL,
+    RENDER_EXTERNAL_URL: process.env.RENDER_EXTERNAL_URL,
+    API_BASE_URL: process.env.API_BASE_URL,
+  };
   const mockUserId = "507f1f77bcf86cd799439011";
   const mockPerformedBy = {
     _id: new mongoose.Types.ObjectId(),
@@ -88,21 +130,52 @@ describe("UserDeletionService", () => {
     lastName: "Doe",
     role: "User",
     createdAt: new Date("2024-01-01"),
+    avatar: "/default-avatar-female.jpg",
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.BACKEND_URL = "https://legacy-api.example.org";
+    process.env.RENDER_EXTERNAL_URL = "";
+    process.env.API_BASE_URL = "https://api.example.org/api";
+    vi.mocked(fileCleanupService.enqueueInTransaction).mockResolvedValue([]);
+    vi.mocked(fileCleanupService.processTargets).mockResolvedValue([]);
+    vi.mocked(alumniAccountDeletionService.deleteAccount).mockImplementation(
+      async (_input, transactionWork) => {
+        await transactionWork?.({
+          targetUserId: new mongoose.Types.ObjectId(mockUserId),
+          now: new Date("2032-01-31T20:15:00.000Z"),
+          session: {} as never,
+        });
+        return {
+          profileScheduled: false,
+          affiliationsScheduled: 0,
+          consentsTerminated: 0,
+          helpRequestsTerminated: 0,
+          helpRoomsArchived: 0,
+          accessWindowsClosed: 0,
+        };
+      },
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    for (const [key, value] of Object.entries(trustedOriginEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   describe("deleteUserCompletely", () => {
     describe("Successful deletions", () => {
       it("should successfully delete a user with minimal data", async () => {
         // Arrange
-        vi.mocked(User.findById).mockResolvedValue(mockUser);
+        const userWithDefaultAvatar = {
+          ...mockUser,
+          avatar: "/default-avatar-male.jpg",
+        };
+        vi.mocked(User.findById).mockResolvedValue(userWithDefaultAvatar);
         vi.mocked(Registration.deleteMany).mockResolvedValue({
           deletedCount: 2,
         } as any);
@@ -128,7 +201,9 @@ describe("UserDeletionService", () => {
         vi.mocked(ShortLink.deleteMany).mockResolvedValue({
           deletedCount: 0,
         } as any);
-        vi.mocked(User.findByIdAndDelete).mockResolvedValue(mockUser);
+        vi.mocked(User.findByIdAndDelete).mockResolvedValue(
+          userWithDefaultAvatar,
+        );
 
         // Act
         const result = await UserDeletionService.deleteUserCompletely(
@@ -161,6 +236,10 @@ describe("UserDeletionService", () => {
           },
           errors: [],
         });
+        expect(fileCleanupService.enqueueInTransaction).toHaveBeenCalledWith(
+          [],
+          expect.anything(),
+        );
 
         // Verify all cleanup operations were called
         expect(User.findById).toHaveBeenCalledWith(mockUserId);
@@ -172,7 +251,23 @@ describe("UserDeletionService", () => {
         expect(PromoCode.deleteMany).toHaveBeenCalled();
         expect(Program.updateMany).toHaveBeenCalled();
         expect(ShortLink.deleteMany).toHaveBeenCalled();
-        expect(User.findByIdAndDelete).toHaveBeenCalledWith(mockUserId);
+        expect(fileCleanupService.enqueueInTransaction).toHaveBeenCalledWith(
+          [],
+          expect.anything(),
+        );
+        expect(alumniAccountDeletionService.deleteAccount).toHaveBeenCalledWith(
+          {
+            targetUserId: mockUserId,
+            actor: {
+              id: mockPerformedBy._id.toString(),
+              role: "Super Admin",
+            },
+            correlationId: undefined,
+          },
+          expect.any(Function),
+        );
+        expect(socketService.disconnectUser).toHaveBeenCalledOnce();
+        expect(socketService.disconnectUser).toHaveBeenCalledWith(mockUserId);
       });
 
       it("should delete user with created events and handle statistics update", async () => {
@@ -232,8 +327,19 @@ describe("UserDeletionService", () => {
         expect(result.deletedData.eventOrganizations).toBe(1);
         expect(result.updatedStatistics.events).toHaveLength(2);
         expect(Event.findByIdAndDelete).toHaveBeenCalledTimes(2);
-        expect(mockEvents[0].save).toHaveBeenCalled();
-        expect(mockEvents[1].save).toHaveBeenCalled();
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRoom
+        ).toHaveBeenNthCalledWith(1, mockEvents[0]._id.toString());
+        expect(
+          resourceAuthorizationInvalidationService.invalidateEventRoom
+        ).toHaveBeenNthCalledWith(2, mockEvents[1]._id.toString());
+        expect(
+          vi.mocked(Event.findByIdAndDelete).mock.invocationCallOrder[0]
+        ).toBeLessThan(
+          vi.mocked(
+            resourceAuthorizationInvalidationService.invalidateEventRoom
+          ).mock.invocationCallOrder[0]
+        );
       });
 
       it("should handle user with organizer roles correctly", async () => {
@@ -284,7 +390,8 @@ describe("UserDeletionService", () => {
                 userId: new mongoose.Types.ObjectId(mockUserId),
               },
             },
-          }
+          },
+          { session: expect.anything() },
         );
       });
 
@@ -331,15 +438,19 @@ describe("UserDeletionService", () => {
         // Optimized: now only updates messages where the user state key actually exists
         expect(Message.updateMany).toHaveBeenCalledWith(
           { [`userStates.${mockUserId}`]: { $exists: true } },
-          { $unset: { [`userStates.${mockUserId}`]: 1 } }
+          { $unset: { [`userStates.${mockUserId}`]: 1 } },
+          { session: expect.anything() },
         );
 
-        expect(Message.deleteMany).toHaveBeenCalledWith({
-          $or: [
-            { "creator.id": mockUserId },
-            { createdBy: new mongoose.Types.ObjectId(mockUserId) },
-          ],
-        });
+        expect(Message.deleteMany).toHaveBeenCalledWith(
+          {
+            $or: [
+              { "creator.id": mockUserId },
+              { createdBy: new mongoose.Types.ObjectId(mockUserId) },
+            ],
+          },
+          { session: expect.anything() },
+        );
       });
     });
 
@@ -478,8 +589,6 @@ describe("UserDeletionService", () => {
         // Verify all complex operations
         expect(Event.findByIdAndDelete).toHaveBeenCalledTimes(2);
         expect(Registration.deleteMany).toHaveBeenCalledTimes(4); // 2 for user registrations + 2 for event registrations
-        expect(complexEvents[0].save).toHaveBeenCalled();
-        expect(complexEvents[1].save).toHaveBeenCalled();
       });
     });
 
@@ -522,9 +631,10 @@ describe("UserDeletionService", () => {
 
         // Assert
         expect(result.deletedData.promoCodes).toBe(3);
-        expect(PromoCode.deleteMany).toHaveBeenCalledWith({
-          ownerId: new mongoose.Types.ObjectId(mockUserId),
-        });
+        expect(PromoCode.deleteMany).toHaveBeenCalledWith(
+          { ownerId: new mongoose.Types.ObjectId(mockUserId) },
+          { session: expect.anything() },
+        );
       });
 
       it("should remove user from program mentors array", async () => {
@@ -572,7 +682,8 @@ describe("UserDeletionService", () => {
             $pull: {
               mentors: { userId: new mongoose.Types.ObjectId(mockUserId) },
             },
-          }
+          },
+          { session: expect.anything() },
         );
       });
 
@@ -631,7 +742,8 @@ describe("UserDeletionService", () => {
             $inc: {
               classRepCount: -1,
             },
-          }
+          },
+          { session: expect.anything() },
         );
         expect(Program.updateMany).toHaveBeenCalledWith(
           {
@@ -643,7 +755,8 @@ describe("UserDeletionService", () => {
                 mockUserId
               ),
             },
-          }
+          },
+          { session: expect.anything() },
         );
       });
 
@@ -712,10 +825,16 @@ describe("UserDeletionService", () => {
         const userWithAvatar = {
           _id: mockUserId,
           email: "user@example.com",
-          avatar: "user123.jpg",
+          avatar:
+            "https://legacy-api.example.org/uploads/avatars/user123.jpg?t=42#cached",
         };
 
-        vi.mocked(User.findById).mockResolvedValue(userWithAvatar as any);
+        vi.mocked(User.findById)
+          .mockResolvedValueOnce({
+            ...userWithAvatar,
+            avatar: "/uploads/avatars/stale-before-transaction.jpg",
+          } as any)
+          .mockResolvedValueOnce(userWithAvatar as any);
         vi.mocked(Registration.deleteMany).mockResolvedValue({
           deletedCount: 0,
         } as any);
@@ -744,7 +863,17 @@ describe("UserDeletionService", () => {
         vi.mocked(User.findByIdAndDelete).mockResolvedValue(
           userWithAvatar as any
         );
-        vi.mocked(fs.unlink).mockResolvedValue(undefined);
+        const avatarTarget = {
+          jobKey: "a".repeat(64),
+          storageArea: "avatars" as const,
+          filename: "user123.jpg",
+        };
+        vi.mocked(fileCleanupService.enqueueInTransaction).mockResolvedValue([
+          avatarTarget,
+        ]);
+        vi.mocked(fileCleanupService.processTargets).mockResolvedValue([
+          { target: avatarTarget, outcome: "deleted" },
+        ]);
 
         // Act
         const result = await UserDeletionService.deleteUserCompletely(
@@ -754,9 +883,18 @@ describe("UserDeletionService", () => {
 
         // Assert
         expect(result.deletedData.avatarFile).toBe(true);
-        expect(fs.unlink).toHaveBeenCalled();
-        const callArg = vi.mocked(fs.unlink).mock.calls[0][0];
-        expect(callArg).toContain("uploads/avatars/user123.jpg");
+        expect(fileCleanupService.enqueueInTransaction).toHaveBeenCalledWith(
+          [
+            {
+              storageArea: "avatars",
+              filename: "user123.jpg",
+            },
+          ],
+          expect.anything(),
+        );
+        expect(fileCleanupService.processTargets).toHaveBeenCalledWith([
+          avatarTarget,
+        ]);
       });
 
       it("should delete event flyer files", async () => {
@@ -765,19 +903,21 @@ describe("UserDeletionService", () => {
           {
             _id: new mongoose.Types.ObjectId(),
             title: "Event 1",
-            flyerUrl: "flyer1.jpg",
+            flyerUrl:
+              "https://legacy-api.example.org/uploads/images/flyer1.jpg?revision=1",
+            secondaryFlyerUrl: "/uploads/images/flyer1-secondary.jpg#preview",
             save: vi.fn(),
           },
           {
             _id: new mongoose.Types.ObjectId(),
             title: "Event 2",
-            flyerUrl: "flyer2.jpg",
+            flyerUrl: "/uploads/events/flyer2.jpg",
             save: vi.fn(),
           },
           {
             _id: new mongoose.Types.ObjectId(),
             title: "Event 3",
-            // No flyer
+            flyerUrl: "https://cdn.example.org/event-flyer.jpg",
             save: vi.fn(),
           },
         ];
@@ -812,7 +952,29 @@ describe("UserDeletionService", () => {
           deletedCount: 0,
         } as any);
         vi.mocked(User.findByIdAndDelete).mockResolvedValue(mockUser);
-        vi.mocked(fs.unlink).mockResolvedValue(undefined);
+        const flyerTargets = [
+          {
+            jobKey: "b".repeat(64),
+            storageArea: "images" as const,
+            filename: "flyer1.jpg",
+          },
+          {
+            jobKey: "c".repeat(64),
+            storageArea: "images" as const,
+            filename: "flyer1-secondary.jpg",
+          },
+          {
+            jobKey: "e".repeat(64),
+            storageArea: "events" as const,
+            filename: "flyer2.jpg",
+          },
+        ];
+        vi.mocked(fileCleanupService.enqueueInTransaction).mockResolvedValue(
+          flyerTargets,
+        );
+        vi.mocked(fileCleanupService.processTargets).mockResolvedValue(
+          flyerTargets.map((target) => ({ target, outcome: "deleted" as const })),
+        );
 
         // Act
         const result = await UserDeletionService.deleteUserCompletely(
@@ -821,16 +983,32 @@ describe("UserDeletionService", () => {
         );
 
         // Assert
-        expect(result.deletedData.eventFlyerFiles).toBe(2);
-        expect(fs.unlink).toHaveBeenCalledTimes(2); // Only 2 events have flyers
+        expect(result.deletedData.eventFlyerFiles).toBe(3);
+        expect(fileCleanupService.enqueueInTransaction).toHaveBeenCalledWith(
+          [
+            {
+              storageArea: "images",
+              filename: "flyer1.jpg",
+            },
+            {
+              storageArea: "images",
+              filename: "flyer1-secondary.jpg",
+            },
+            {
+              storageArea: "events",
+              filename: "flyer2.jpg",
+            },
+          ],
+          expect.anything(),
+        );
       });
 
-      it("should handle file deletion errors gracefully", async () => {
+      it("keeps a failed file deletion in the durable retry queue", async () => {
         // Arrange
         const userWithAvatar = {
           _id: mockUserId,
           email: "user@example.com",
-          avatar: "user123.jpg",
+          avatar: "/uploads/avatars/user123.jpg?t=42",
         };
 
         vi.mocked(User.findById).mockResolvedValue(userWithAvatar as any);
@@ -862,7 +1040,17 @@ describe("UserDeletionService", () => {
         vi.mocked(User.findByIdAndDelete).mockResolvedValue(
           userWithAvatar as any
         );
-        vi.mocked(fs.unlink).mockRejectedValue(new Error("File not found"));
+        const avatarTarget = {
+          jobKey: "d".repeat(64),
+          storageArea: "avatars" as const,
+          filename: "user123.jpg",
+        };
+        vi.mocked(fileCleanupService.enqueueInTransaction).mockResolvedValue([
+          avatarTarget,
+        ]);
+        vi.mocked(fileCleanupService.processTargets).mockResolvedValue([
+          { target: avatarTarget, outcome: "retry_scheduled" },
+        ]);
 
         // Act
         const result = await UserDeletionService.deleteUserCompletely(
@@ -870,10 +1058,14 @@ describe("UserDeletionService", () => {
           mockPerformedBy as any
         );
 
-        // Assert - deletion should still succeed even if file deletion fails
+        // The account deletion commits while the atomically enqueued cleanup
+        // job remains available for the maintenance worker.
         expect(result.deletedData.userRecord).toBe(true);
-        expect(result.deletedData.avatarFile).toBe(false); // False when deletion fails
-        expect(fs.unlink).toHaveBeenCalled();
+        expect(result.deletedData.avatarFile).toBe(false);
+        expect(fileCleanupService.enqueueInTransaction).toHaveBeenCalledOnce();
+        expect(fileCleanupService.processTargets).toHaveBeenCalledWith([
+          avatarTarget,
+        ]);
       });
     });
   });
@@ -1096,19 +1288,19 @@ describe("UserDeletionService", () => {
         // Arrange
         const userWithAvatar = {
           ...mockUser,
-          avatar: "user123.jpg",
+          avatar: "/uploads/avatars/user123.jpg?t=42",
         };
         const mockEvents = [
           {
             _id: new mongoose.Types.ObjectId(),
             title: "Event 1",
-            flyerUrl: "flyer1.jpg",
+            flyerUrl: "/uploads/images/flyer1.jpg",
             signedUp: 5,
           },
           {
             _id: new mongoose.Types.ObjectId(),
             title: "Event 2",
-            flyerUrl: "flyer2.jpg",
+            flyerUrl: "https://api.example.org/uploads/images/flyer2.jpg",
             signedUp: 3,
           },
         ];

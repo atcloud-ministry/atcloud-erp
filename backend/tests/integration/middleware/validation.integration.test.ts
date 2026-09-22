@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import app from "../../../src/app";
@@ -15,8 +16,11 @@ describe("Validation middleware integration", () => {
     await User.deleteMany({});
   });
 
-  const registerAndLogin = async () => {
+  const registerAndLogin = async (
+    role: "Participant" | "Administrator" = "Participant",
+  ) => {
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "valtestuser",
       email: "valtest@example.com",
       password: "ValTestPass123!",
@@ -26,13 +30,14 @@ describe("Validation middleware integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     await request(app).post("/api/auth/register").send(userData).expect(201);
     // Mark verified to allow login
     await User.findOneAndUpdate(
       { email: userData.email },
-      { isVerified: true }
+      { isVerified: true, role }
     );
 
     const loginRes = await request(app)
@@ -96,7 +101,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("GET /api/search/users -> 400 when q too short", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .get("/api/search/users?q=a")
@@ -127,7 +132,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 on missing required fields", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .post("/api/notifications/system")
@@ -143,7 +148,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 when title/content too short", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const res = await request(app)
       .post("/api/notifications/system")
@@ -167,7 +172,7 @@ describe("Validation middleware integration", () => {
   });
 
   it("POST /api/notifications/system -> 400 when title/content too long", async () => {
-    authToken = await registerAndLogin();
+    authToken = await registerAndLogin("Administrator");
 
     const longTitle = "T".repeat(201); // max 200
     const longContent = "C".repeat(3501); // max 3500

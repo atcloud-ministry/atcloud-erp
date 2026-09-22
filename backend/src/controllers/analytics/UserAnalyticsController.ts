@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { User } from "../../models";
 import { hasPermission, PERMISSIONS } from "../../utils/roleUtils";
 import { CorrelatedLogger } from "../../services/CorrelatedLogger";
+import { buildUserDemographics } from "../../contracts/userAnalyticsContracts";
+import RegistrationProfileKpiAnalyticsService from "../../services/RegistrationProfileKpiAnalyticsService";
 
 export default class UserAnalyticsController {
   static async getUserAnalytics(req: Request, res: Response): Promise<void> {
@@ -38,7 +40,11 @@ export default class UserAnalyticsController {
       // User statistics by church
       const usersByChurch = await User.aggregate([
         {
-          $match: { isActive: true, weeklyChurch: { $exists: true, $ne: "" } },
+          $match: {
+            isActive: true,
+            weeklyChurch: { $type: "string" },
+            $expr: { $ne: [{ $trim: { input: "$weeklyChurch" } }, ""] },
+          },
         },
         { $group: { _id: "$weeklyChurch", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
@@ -66,6 +72,57 @@ export default class UserAnalyticsController {
         { $sort: { "_id.year": 1, "_id.month": 1 } },
       ]);
 
+      // These rows never leave the server. They preserve the existing
+      // authorization/church population without exposing individual users.
+      const demographicRows = await User.aggregate([
+        {
+          $project: {
+            _id: 0,
+            role: 1,
+            isActive: 1,
+            isAtCloudLeader: 1,
+            weeklyChurch: 1,
+            churchAddress: 1,
+          },
+        },
+      ]);
+      const demographics = buildUserDemographics(demographicRows);
+      const activeUsers = demographicRows.filter(
+        (row: { isActive?: unknown }) => row.isActive === true,
+      ).length;
+      const registrationProfileKpis =
+        await RegistrationProfileKpiAnalyticsService.getRegistrationProfileKpis();
+      const usersByOccupation =
+        registrationProfileKpis.occupations.buckets.map(
+          ({ occupation, count }) => ({ _id: occupation, count }),
+        );
+      const reportableOccupationCount = usersByOccupation.reduce(
+        (total, bucket) => total + bucket.count,
+        0,
+      );
+      const privacySafeDemographics = {
+        ...demographics,
+        occupationAnalytics: {
+          occupationStats: Object.fromEntries(
+            usersByOccupation.map(({ _id, count }) => [_id, count]),
+          ),
+          usersWithOccupation: reportableOccupationCount,
+          // Compatibility fields remain numeric for older frontends, but do
+          // not disclose exact missing/suppressed populations or a derived rate.
+          usersWithoutOccupation: 0,
+          totalOccupationTypes: usersByOccupation.length,
+          topOccupations: usersByOccupation.slice(0, 5).map(
+            ({ _id, count }) => ({ occupation: _id, count }),
+          ),
+          occupationCompletionRate: 0,
+        },
+      };
+      // The frontend and backend are deployed as independent Render services.
+      // Opt-in keeps the response compatible regardless of which service is
+      // deployed first; the new frontend tolerates an old backend omitting it.
+      const includeRegistrationProfileKpis =
+        req.query.includeRegistrationProfileKpis === "1";
+      res.setHeader("Cache-Control", "no-store");
       res.status(200).json({
         success: true,
         data: {
@@ -73,6 +130,13 @@ export default class UserAnalyticsController {
           usersByAtCloudStatus,
           usersByChurch,
           registrationTrends,
+          usersByOccupation,
+          totalUsers: demographicRows.length,
+          activeUsers,
+          demographics: privacySafeDemographics,
+          ...(includeRegistrationProfileKpis
+            ? { registrationProfileKpis }
+            : {}),
         },
       });
     } catch (error: unknown) {

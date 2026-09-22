@@ -1,4 +1,6 @@
+import { useId } from "react";
 import { createPortal } from "react-dom";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 import Icon from "./Icon";
 
 interface ConfirmationModalProps {
@@ -24,7 +26,12 @@ export default function ConfirmationModal({
   type = "danger",
   isLoading = false,
 }: ConfirmationModalProps) {
-  if (!isOpen) return null;
+  const titleId = useId();
+  const messageId = useId();
+  const closeDialog = () => {
+    if (!isLoading) onClose();
+  };
+  const dialogRef = useAccessibleDialog(isOpen, closeDialog);
 
   const getTypeStyles = () => {
     switch (type) {
@@ -38,7 +45,7 @@ export default function ConfirmationModal({
         return {
           icon: "x-circle" as const,
           iconColor: "text-yellow-600",
-          buttonColor: "bg-yellow-600 hover:bg-yellow-700",
+          buttonColor: "bg-yellow-700 hover:bg-yellow-800",
         };
       case "info":
         return {
@@ -60,11 +67,21 @@ export default function ConfirmationModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black bg-opacity-50 p-4">
+      <div
+        aria-busy={isLoading}
+        aria-describedby={messageId}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white shadow-xl"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="p-6">
           <div className="flex items-center mb-4">
             <div
+              aria-hidden="true"
               className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
                 type === "danger"
                   ? "bg-red-100"
@@ -79,28 +96,36 @@ export default function ConfirmationModal({
               />
             </div>
             <div className="ml-4">
-              <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+              <h2 className="text-lg font-medium text-gray-900" id={titleId}>
+                {title}
+              </h2>
             </div>
           </div>
 
           <div className="mb-6">
-            <p className="text-sm text-gray-500 whitespace-pre-line">
+            <p
+              className="whitespace-pre-line text-sm text-gray-700"
+              id={messageId}
+            >
               {message}
             </p>
           </div>
 
-          <div className="flex items-center justify-end space-x-4">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
             <button
-              onClick={onClose}
+              data-dialog-initial-focus
+              onClick={closeDialog}
               disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-gray-500 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50"
+              type="button"
             >
               {cancelText}
             </button>
             <button
               onClick={onConfirm}
               disabled={isLoading}
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors disabled:opacity-50 ${styles.buttonColor}`}
+              className={`min-h-11 rounded-md px-4 py-2 text-sm font-medium text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 ${styles.buttonColor}`}
+              type="button"
             >
               {isLoading ? "Processing..." : confirmText}
             </button>

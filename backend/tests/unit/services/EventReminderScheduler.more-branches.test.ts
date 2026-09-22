@@ -5,21 +5,23 @@ import {
   vi,
   beforeEach,
   afterEach,
-  MockedFunction,
 } from "vitest";
 import mongoose from "mongoose";
 import EventReminderScheduler from "../../../src/services/EventReminderScheduler";
+
+const dispatchMocks = vi.hoisted(() => ({ dispatch: vi.fn() }));
+
+vi.mock(
+  "../../../src/services/notifications/EventReminderDispatchService",
+  () => ({
+    eventReminderDispatchService: { dispatch: dispatchMocks.dispatch },
+  }),
+);
 
 // Use the existing models mock shape minimally if needed (we'll bypass with spies)
 vi.mock("../../../src/models", () => ({
   Event: { find: vi.fn() },
 }));
-
-// Local fetch mock (not relying on other files)
-const mockFetch = vi.fn() as MockedFunction<typeof fetch>;
-// Assign mocked fetch into global scope for the service under test
-// @ts-ignore - override in test environment
-global.fetch = mockFetch;
 
 const makeEvent = (title: string) => ({
   _id: new mongoose.Types.ObjectId(),
@@ -62,10 +64,7 @@ describe("EventReminderScheduler - additional branches", () => {
       evt,
     ]);
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ message: "OK" }),
-    } as Response);
+    dispatchMocks.dispatch.mockResolvedValue({ message: "OK" });
 
     await scheduler.triggerManualCheck();
 

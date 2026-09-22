@@ -9,12 +9,24 @@ import {
 import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { NotificationProvider as NotificationModalProvider } from "./contexts/NotificationModalContext";
+import { RuntimeConfigProvider } from "./contexts/RuntimeConfigContext";
+import { AlumniHelpProvider } from "./contexts/AlumniHelpContext";
+import { ChatRoomsProvider } from "./contexts/ChatRoomsContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import SessionExpiredModal from "./components/common/SessionExpiredModal";
 import LoadingSpinner from "./components/common/LoadingSpinner";
+import PwaExperience from "./components/pwa/PwaExperience";
+import PwaBadgeSync from "./components/pwa/PwaBadgeSync";
+import RouteDocumentTitle from "./components/common/RouteDocumentTitle";
+import {
+  AlumniNetworkReadableRoute,
+  LegacyManagementEntry,
+  UserManagementAccessRoute,
+} from "./components/common/AlumniNetworkRouteGuards";
 
 const Home = lazy(() => import("./pages/Home"));
 const SignUp = lazy(() => import("./pages/SignUp"));
+const PrivacyDataUse = lazy(() => import("./pages/PrivacyDataUse"));
 const Login = lazy(() => import("./pages/Login"));
 const CheckEmail = lazy(() => import("./pages/CheckEmail"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification"));
@@ -43,6 +55,18 @@ const CreateNewProgram = lazy(() => import("./pages/CreateNewProgram"));
 const EditProgram = lazy(() => import("./pages/EditProgram"));
 const CreateEvent = lazy(() => import("./pages/CreateEvent"));
 const Management = lazy(() => import("./pages/Management"));
+const CommunityLayout = lazy(() => import("./layouts/CommunityLayout"));
+const CommunityMembers = lazy(() => import("./pages/CommunityMembers"));
+const AdminUserManagement = lazy(() => import("./pages/AdminUserManagement"));
+const AlumniDirectory = lazy(() => import("./pages/AlumniDirectory"));
+const AlumniDirectoryDetail = lazy(
+  () => import("./pages/AlumniDirectoryDetail"),
+);
+const MyAlumniProfile = lazy(() => import("./pages/MyAlumniProfile"));
+const HelpRequests = lazy(() => import("./pages/HelpRequests"));
+const HelpRequestDetail = lazy(() => import("./pages/HelpRequestDetail"));
+const ChatRooms = lazy(() => import("./pages/ChatRooms"));
+const ChatRoom = lazy(() => import("./pages/ChatRoom"));
 const Profile = lazy(() => import("./pages/Profile"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
 const RequestPasswordChange = lazy(
@@ -53,6 +77,9 @@ const CompletePasswordChange = lazy(
 );
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SystemMessages = lazy(() => import("./pages/SystemMessages"));
+const NotificationSettings = lazy(
+  () => import("./pages/NotificationSettings"),
+);
 const Analytics = lazy(() => import("./pages/Analytics"));
 const SystemMonitor = lazy(() => import("./pages/SystemMonitor"));
 const EditEvent = lazy(() => import("./pages/EditEvent"));
@@ -99,6 +126,20 @@ function PrRedirect() {
   return <Navigate to={`/dashboard/programs/${id}`} replace />;
 }
 
+function LegacyHelpRequestRedirect() {
+  const { requestId } = useParams<{ requestId?: string }>();
+  return (
+    <Navigate
+      replace
+      to={
+        requestId
+          ? `/dashboard/community/help-requests/${encodeURIComponent(requestId)}`
+          : "/dashboard/community/help-requests"
+      }
+    />
+  );
+}
+
 function RootRoute() {
   const [searchParams] = useSearchParams();
   const verificationToken = searchParams.get("verifyEmailToken");
@@ -112,14 +153,22 @@ function RootRoute() {
 
 function App() {
   return (
-    <AuthProvider>
-      <NotificationModalProvider>
-        <NotificationProvider>
-          <SessionExpiredModal />
-          <Suspense fallback={<LoadingSpinner size="lg" />}>
-            <Routes>
+    <>
+      <RouteDocumentTitle />
+      <PwaExperience />
+      <RuntimeConfigProvider>
+        <AuthProvider>
+          <NotificationModalProvider>
+            <NotificationProvider>
+              <ChatRoomsProvider>
+                <AlumniHelpProvider>
+              <PwaBadgeSync />
+              <SessionExpiredModal />
+              <Suspense fallback={<LoadingSpinner size="lg" />}>
+                <Routes>
             <Route path="/" element={<RootRoute />} />
             <Route path="/signup" element={<SignUp />} />
+            <Route path="/privacy" element={<PrivacyDataUse />} />
             <Route path="/login" element={<Login />} />
             {/* Public guest routes (migrated to root) */}
             <Route path="/guest-register/:id" element={<GuestRegistration />} />
@@ -280,7 +329,70 @@ function App() {
                       "Guest Expert",
                     ]}
                   >
-                    <Management />
+                    <LegacyManagementEntry>
+                      <Management />
+                    </LegacyManagementEntry>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="community"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <CommunityLayout />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="alumni" replace />} />
+                <Route path="alumni" element={<AlumniDirectory />} />
+                <Route path="alumni/me" element={<MyAlumniProfile />} />
+                <Route
+                  path="alumni/:profileId"
+                  element={<AlumniDirectoryDetail />}
+                />
+                <Route path="members" element={<CommunityMembers />} />
+                <Route path="help-requests" element={<HelpRequests />} />
+                <Route
+                  path="help-requests/:requestId"
+                  element={<HelpRequestDetail />}
+                />
+              </Route>
+              <Route path="help-requests" element={<LegacyHelpRequestRedirect />} />
+              <Route
+                path="help-requests/:requestId"
+                element={<LegacyHelpRequestRedirect />}
+              />
+              <Route
+                path="chat-rooms"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <ChatRooms />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="chat-rooms/:conversationId"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <ChatRoom />
+                    </AlumniNetworkReadableRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="admin/users"
+                element={
+                  <ProtectedRoute>
+                    <AlumniNetworkReadableRoute>
+                      <UserManagementAccessRoute>
+                        <AdminUserManagement />
+                      </UserManagementAccessRoute>
+                    </AlumniNetworkReadableRoute>
                   </ProtectedRoute>
                 }
               />
@@ -291,6 +403,10 @@ function App() {
                 element={<RequestPasswordChange />}
               />
               <Route path="system-messages" element={<SystemMessages />} />
+              <Route
+                path="notification-settings"
+                element={<NotificationSettings />}
+              />
               <Route path="get-involved" element={<GetInvolved />} />
               <Route
                 path="edit-event/:id"
@@ -436,6 +552,14 @@ function App() {
               element={<EventDetailAccessRoute />}
             />
             <Route path="/logout" element={<Home />} />
+            <Route
+              path="/admin/users"
+              element={<Navigate to="/dashboard/admin/users" replace />}
+            />
+            <Route
+              path="/admin/users/:legacyIdentifier"
+              element={<Navigate to="/dashboard/admin/users" replace />}
+            />
             {/* Public events list page (unauthenticated) */}
             <Route path="/events" element={<PublicEventsList />} />
             {/* Public published event page (unauthenticated) */}
@@ -444,11 +568,15 @@ function App() {
             <Route path="/pr/:id" element={<PrRedirect />} />
             {/* SPA fallback for short link resolution (dev / proxy safety) */}
             <Route path="/s/:key" element={<ShortLinkRedirect />} />
-            </Routes>
-          </Suspense>
-        </NotificationProvider>
-      </NotificationModalProvider>
-    </AuthProvider>
+                </Routes>
+              </Suspense>
+                </AlumniHelpProvider>
+              </ChatRoomsProvider>
+            </NotificationProvider>
+          </NotificationModalProvider>
+        </AuthProvider>
+      </RuntimeConfigProvider>
+    </>
   );
 }
 

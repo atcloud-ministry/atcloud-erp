@@ -1,5 +1,22 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { USER_PERSISTED_EMAIL_PATTERN } from "../contracts/userEmail";
 import bcrypt from "bcryptjs";
+import {
+  EMPLOYMENT_STATUSES,
+  ISO_COUNTRY_CODES,
+  employmentRequiresCompany,
+  isBirthYear,
+  isE164Phone,
+  isEmploymentStatus,
+  isIsoSubdivisionCode,
+  isValidDisplayText,
+  normalizeCountryCode,
+  normalizeDisplayText,
+  normalizeNullableDisplayText,
+  normalizeSubdivisionCode,
+  type EmploymentStatus,
+  type IsoCountryCode,
+} from "@atcloud/shared-time/registration-profile";
 import { ROLES, UserRole, RoleUtils } from "../utils/roleUtils";
 
 export interface IUser extends Document {
@@ -16,7 +33,14 @@ export interface IUser extends Document {
   gender?: "male" | "female";
   avatar?: string;
 
-  // Address Information
+  // Registration / KPI Information
+  birthYear?: number;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: IsoCountryCode;
+  employmentStatus?: EmploymentStatus;
+
+  // Legacy Address Information
   homeAddress?: string;
 
   // @Cloud Ministry Specific Fields
@@ -24,8 +48,8 @@ export interface IUser extends Document {
   roleInAtCloud?: string; // Required if isAtCloudLeader is true
 
   // Professional Information
-  occupation?: string;
-  company?: string;
+  occupation?: string | null;
+  company?: string | null;
   weeklyChurch?: string;
   churchAddress?: string;
 
@@ -52,6 +76,9 @@ export interface IUser extends Document {
   loginAttempts: number;
   lockUntil?: Date;
   hasReceivedWelcomeMessage: boolean; // Track if user has received welcome message
+  registrationPrivacyNoticeVersion?: string;
+  registrationPrivacyNoticeDocumentHash?: string;
+  registrationPrivacyNoticeAcceptedAt?: Date;
 
   // Timestamps
   createdAt: Date;
@@ -108,22 +135,32 @@ const userSchema: Schema = new Schema(
       trim: true,
       lowercase: true,
       match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+        USER_PERSISTED_EMAIL_PATTERN,
         "Please provide a valid email address",
       ],
     },
     phone: {
       type: String,
       trim: true,
+      required: [
+        function (this: IUser) {
+          return this.employmentStatus !== undefined;
+        },
+        "Phone number is required for a complete registration profile",
+      ],
       maxlength: [20, "Phone number cannot exceed 20 characters"],
       validate: {
-        validator: function (value: string) {
+        validator: function (this: IUser, value: string) {
           if (!value || value === "") return true; // Allow empty string
+          if (this.employmentStatus !== undefined) {
+            return isE164Phone(value);
+          }
           // More flexible phone validation - allow various formats
           const cleanPhone = value.replace(/[\s()+-]/g, "");
           return /^\d{7,15}$/.test(cleanPhone);
         },
-        message: "Please provide a valid phone number",
+        message:
+          "Please provide a valid phone number; complete profiles require E.164 format",
       },
     },
     password: {
@@ -182,16 +219,119 @@ const userSchema: Schema = new Schema(
       },
     },
 
+    // Registration / KPI Information. Fields remain optional at schema level
+    // until a profile is completed so existing accounts can be backfilled.
+    birthYear: {
+      type: Schema.Types.Int32,
+      select: false,
+      required: [
+        function (this: IUser) {
+          return this.employmentStatus !== undefined;
+        },
+        "Birth year is required for a complete registration profile",
+      ],
+      validate: {
+        validator: (value: number) => value == null || isBirthYear(value),
+        message: "Birth year must be an integer from 1900 to the current UTC year",
+      },
+    },
+    residenceCountryCode: {
+      type: String,
+      trim: true,
+      set: (value: unknown) =>
+        typeof value === "string" ? normalizeCountryCode(value) : value,
+      enum: {
+        values: [...ISO_COUNTRY_CODES],
+        message: "Residence country must be an ISO 3166-1 alpha-2 code",
+      },
+      required: [
+        function (this: IUser) {
+          return this.employmentStatus !== undefined;
+        },
+        "Residence country is required for a complete registration profile",
+      ],
+    },
+    residenceRegion: {
+      type: String,
+      trim: true,
+      set: (value: unknown) =>
+        typeof value === "string"
+          ? normalizeSubdivisionCode(value) || null
+          : value,
+      required: [
+        function (this: IUser) {
+          return this.residenceCountryCode === "US";
+        },
+        "Residence region is required for US residences",
+      ],
+      validate: {
+        validator: function (this: IUser, value: string | null | undefined) {
+          return (
+            value == null ||
+            isIsoSubdivisionCode(value, this.residenceCountryCode)
+          );
+        },
+        message: "Residence region must match the selected country",
+      },
+    },
+    residenceCity: {
+      type: String,
+      set: (value: unknown) =>
+        typeof value === "string" ? normalizeDisplayText(value) : value,
+      required: [
+        function (this: IUser) {
+          return this.employmentStatus !== undefined;
+        },
+        "Residence city is required for a complete registration profile",
+      ],
+      validate: {
+        validator: (value: string | null | undefined) =>
+          value == null || isValidDisplayText(value),
+        message: "Residence city must be 1-100 characters on one line",
+      },
+    },
+    employmentStatus: {
+      type: String,
+      enum: {
+        values: [...EMPLOYMENT_STATUSES],
+        message: "Employment status is invalid",
+      },
+      validate: {
+        validator: (value: unknown) =>
+          value === undefined || isEmploymentStatus(value),
+        message: "Employment status is invalid",
+      },
+    },
+
     // Professional Information
     occupation: {
       type: String,
-      trim: true,
-      maxlength: [100, "Occupation cannot exceed 100 characters"],
+      set: (value: unknown) =>
+        typeof value === "string" ? normalizeNullableDisplayText(value) : value,
+      validate: {
+        validator: (value: string | null | undefined) =>
+          value == null || isValidDisplayText(value),
+        message: "Occupation cannot exceed 100 characters and must be on one line",
+      },
     },
     company: {
       type: String,
-      trim: true,
-      maxlength: [100, "Company name cannot exceed 100 characters"],
+      set: (value: unknown) =>
+        typeof value === "string" ? normalizeNullableDisplayText(value) : value,
+      required: [
+        function (this: IUser) {
+          return (
+            this.employmentStatus !== undefined &&
+            employmentRequiresCompany(this.employmentStatus)
+          );
+        },
+        "Company is required when employed or self-employed",
+      ],
+      validate: {
+        validator: (value: string | null | undefined) =>
+          value == null || isValidDisplayText(value),
+        message: "Company cannot exceed 100 characters and must be on one line",
+      },
     },
     weeklyChurch: {
       type: String,
@@ -282,6 +422,22 @@ const userSchema: Schema = new Schema(
       type: Boolean,
       default: false, // New users haven't received welcome message yet
     },
+    registrationPrivacyNoticeVersion: {
+      type: String,
+      immutable: true,
+      select: false,
+    },
+    registrationPrivacyNoticeDocumentHash: {
+      type: String,
+      immutable: true,
+      select: false,
+      match: /^[a-f\d]{64}$/,
+    },
+    registrationPrivacyNoticeAcceptedAt: {
+      type: Date,
+      immutable: true,
+      select: false,
+    },
   },
   {
     timestamps: true,
@@ -295,6 +451,13 @@ const userSchema: Schema = new Schema(
           emailVerificationExpires?: unknown;
           passwordResetToken?: unknown;
           passwordResetExpires?: unknown;
+          passwordChangeToken?: unknown;
+          passwordChangeExpires?: unknown;
+          pendingPassword?: unknown;
+          passwordChangedAt?: unknown;
+          registrationPrivacyNoticeVersion?: unknown;
+          registrationPrivacyNoticeDocumentHash?: unknown;
+          registrationPrivacyNoticeAcceptedAt?: unknown;
         };
         r.id = r._id as unknown as string;
         delete r._id;
@@ -304,6 +467,13 @@ const userSchema: Schema = new Schema(
         delete r.emailVerificationExpires;
         delete r.passwordResetToken;
         delete r.passwordResetExpires;
+        delete r.passwordChangeToken;
+        delete r.passwordChangeExpires;
+        delete r.pendingPassword;
+        delete r.passwordChangedAt;
+        delete r.registrationPrivacyNoticeVersion;
+        delete r.registrationPrivacyNoticeDocumentHash;
+        delete r.registrationPrivacyNoticeAcceptedAt;
         return r;
       },
     },
@@ -369,6 +539,18 @@ userSchema.pre<IUser>("validate", function (next) {
     // enforce lowercase in canonical field expectations
     // The UI/backend validation already enforces lowercase; this is a safeguard for programmatic inserts
     this.usernameLower = this.username.toLowerCase();
+  }
+  next();
+});
+
+// Once employment status is explicit, company has one canonical meaning.
+// Legacy records without employmentStatus retain their current company value.
+userSchema.pre<IUser>("validate", function (next) {
+  if (
+    isEmploymentStatus(this.employmentStatus) &&
+    !employmentRequiresCompany(this.employmentStatus)
+  ) {
+    this.company = null;
   }
   next();
 });

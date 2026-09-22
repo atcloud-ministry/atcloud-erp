@@ -16,9 +16,22 @@ vi.mock("../../../src/utils/event/eventPermissions", () => ({
   isAffiliatedProgramEditor: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("../../../src/services/authorization/AuthorizationAuditService", () => ({
+  recordAuthorizationDenial: vi.fn(),
+}));
+
 import { authorizeEventManagement } from "../../../src/middleware/auth";
 import { Event, User } from "../../../src/models";
 import { isAffiliatedProgramEditor } from "../../../src/utils/event/eventPermissions";
+
+function activeUser(_id: string, role: string) {
+  return {
+    _id,
+    role: role === "member" ? "Participant" : role,
+    isActive: true,
+    isVerified: true,
+  } as any;
+}
 
 describe("authorizeEventManagement middleware", () => {
   let mockReq: Partial<Request>;
@@ -72,10 +85,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should allow Administrator role to manage any event", async () => {
-    mockReq.user = {
-      _id: "admin-user-id",
-      role: "Administrator",
-    } as any;
+    mockReq.user = activeUser("admin-user-id", "Administrator");
 
     await authorizeEventManagement(
       mockReq as Request,
@@ -88,10 +98,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should allow Super Admin role to manage any event", async () => {
-    mockReq.user = {
-      _id: "super-admin-id",
-      role: "Super Admin",
-    } as any;
+    mockReq.user = activeUser("super-admin-id", "Super Admin");
 
     await authorizeEventManagement(
       mockReq as Request,
@@ -104,10 +111,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should return 400 when event ID is not provided", async () => {
-    mockReq.user = {
-      _id: "regular-user",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("regular-user", "Participant");
     mockReq.params = {};
 
     await authorizeEventManagement(
@@ -125,10 +129,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should use params.id if params.eventId is not present", async () => {
-    mockReq.user = {
-      _id: "creator-user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("creator-user-id", "Participant");
     mockReq.params = { id: "event-123" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -148,10 +149,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should return 404 when event is not found", async () => {
-    mockReq.user = {
-      _id: "user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("user-id", "Participant");
     mockReq.params = { eventId: "nonexistent-event" };
 
     vi.mocked(Event.findById).mockResolvedValue(null);
@@ -171,10 +169,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should allow event creator to manage the event", async () => {
-    mockReq.user = {
-      _id: "creator-user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("creator-user-id", "Participant");
     mockReq.params = { eventId: "event-123" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -194,10 +189,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should allow listed organizer to manage the event", async () => {
-    mockReq.user = {
-      _id: "organizer-user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("organizer-user-id", "Participant");
     mockReq.params = { eventId: "event-456" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -220,10 +212,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should allow Leader mentor/class rep of an affiliated program to manage the event", async () => {
-    mockReq.user = {
-      _id: "program-leader-id",
-      role: "Leader",
-    } as any;
+    mockReq.user = activeUser("program-leader-id", "Leader");
     mockReq.params = { eventId: "event-456" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -250,10 +239,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should return 403 for non-admin, non-creator, non-organizer", async () => {
-    mockReq.user = {
-      _id: "random-user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("random-user-id", "Participant");
     mockReq.params = { eventId: "event-789" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -278,10 +264,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should return 500 when an error occurs", async () => {
-    mockReq.user = {
-      _id: "user-id",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("user-id", "Participant");
     mockReq.params = { eventId: "event-error" };
 
     vi.mocked(Event.findById).mockRejectedValue(new Error("Database error"));
@@ -298,17 +281,17 @@ describe("authorizeEventManagement middleware", () => {
       message: "Authorization check failed.",
     });
     expect(console.error).toHaveBeenCalledWith(
-      "Event management authorization error:",
-      expect.any(Error),
+      "Application operation failed",
+      {
+        eventCode: "AUTH_EVENT_MANAGEMENT_POLICY_FAILED",
+        errorName: "AuthorizationPolicyError",
+      },
     );
     expect(mockNext).not.toHaveBeenCalled();
   });
 
   it("should handle event with null organizerDetails", async () => {
-    mockReq.user = {
-      _id: "random-user",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("random-user", "Participant");
     mockReq.params = { eventId: "event-no-organizers" };
 
     vi.mocked(Event.findById).mockResolvedValue({
@@ -328,10 +311,7 @@ describe("authorizeEventManagement middleware", () => {
   });
 
   it("should handle organizer without userId", async () => {
-    mockReq.user = {
-      _id: "random-user",
-      role: "member",
-    } as any;
+    mockReq.user = activeUser("random-user", "Participant");
     mockReq.params = { eventId: "event-bad-organizers" };
 
     vi.mocked(Event.findById).mockResolvedValue({

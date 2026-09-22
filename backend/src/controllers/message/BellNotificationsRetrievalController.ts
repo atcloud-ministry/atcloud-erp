@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import Message from "../../models/Message";
 import User from "../../models/User";
+import { isMessageRoleVisible } from "../../utils/messageAuthorization";
+import { serializeSystemMessageMetadata } from "../../serializers/systemMessageRealtimeSerializer";
 
 // Minimal runtime shapes to reduce explicit any usage without changing behavior
 type UserStateRecord = {
@@ -38,6 +40,13 @@ type MessageDocLike = {
   targetUserId?: string;
 };
 
+type BellCreatorDTO = {
+  firstName?: string;
+  lastName?: string;
+  authLevel?: string;
+  roleInAtCloud?: string;
+};
+
 function getUserState(
   message: MessageDocLike,
   userId: string
@@ -48,6 +57,19 @@ function getUserState(
     return states.get(userId);
   }
   return (states as Record<string, UserStateRecord>)[userId];
+}
+
+function serializeBellCreator(
+  message: MessageDocLike,
+): BellCreatorDTO | undefined {
+  if (message.hideCreator === true || !message.creator) return undefined;
+
+  return {
+    firstName: message.creator.firstName,
+    lastName: message.creator.lastName,
+    authLevel: message.creator.authLevel,
+    roleInAtCloud: message.creator.roleInAtCloud,
+  };
 }
 
 /**
@@ -117,23 +139,8 @@ export default class BellNotificationsRetrievalController {
           return false;
         }
 
-        // 🔒 ROLE-BASED FILTERING: Check if user's role matches targetRoles
-        // If targetRoles is defined and not empty, only show message if user's role is in the list
-        if (
-          message.targetRoles &&
-          Array.isArray(message.targetRoles) &&
-          message.targetRoles.length > 0
-        ) {
-          const userRole = currentUser.role;
-          const isAuthorized = message.targetRoles.includes(userRole);
-          if (!isAuthorized) {
-            console.log(
-              `User ${userId} (role: ${userRole}) not authorized for bell notification ${
-                message._id
-              } (targetRoles: ${message.targetRoles.join(", ")})`
-            );
-            return false;
-          }
+        if (!isMessageRoleVisible(message.targetRoles, currentUser.role)) {
+          return false;
         }
 
         return true;
@@ -145,6 +152,8 @@ export default class BellNotificationsRetrievalController {
         const userState = getUserState(m, userId) as
           | UserStateRecord
           | undefined;
+        const creator = serializeBellCreator(m);
+        const metadata = serializeSystemMessageMetadata(m.metadata);
         return {
           id: m._id,
           title: m.getBellDisplayTitle ? m.getBellDisplayTitle() : m.title,
@@ -157,13 +166,8 @@ export default class BellNotificationsRetrievalController {
           showRemoveButton: m.canRemoveFromBell
             ? m.canRemoveFromBell(userId)
             : true,
-          // REQ 4: Include "From" information for bell notifications
-          creator: {
-            firstName: m.creator.firstName,
-            lastName: m.creator.lastName,
-            authLevel: m.creator.authLevel,
-            roleInAtCloud: m.creator.roleInAtCloud,
-          },
+          ...(metadata ? { metadata } : {}),
+          ...(creator ? { creator } : {}),
         };
       });
 

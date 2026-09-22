@@ -206,6 +206,70 @@ describe("Webhook Handler Integration Tests", () => {
       expect(purchase?.paymentMethod?.last4).toBe("4242");
     });
 
+    it("recovers completion by signed purchaseId metadata when the local session ID was not saved", async () => {
+      await Purchase.updateOne(
+        { _id: purchaseId },
+        { $unset: { stripeSessionId: 1 } },
+      );
+      const event: Stripe.Event = {
+        id: "evt_recover_purchase_id",
+        object: "event",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_recovered_session",
+            payment_intent: "pi_test_123",
+            metadata: { purchaseId },
+            customer_details: {
+              name: "Webhook User",
+              email: "webhook@example.com",
+            },
+          } as Stripe.Checkout.Session,
+        },
+      } as Stripe.Event;
+
+      const response = await request(app)
+        .post("/api/webhooks/stripe")
+        .set("stripe-signature", "test_signature")
+        .send(event);
+
+      expect(response.status).toBe(200);
+      const purchase = await Purchase.findById(purchaseId);
+      expect(purchase?.status).toBe("completed");
+      expect(purchase?.stripeSessionId).toBe("cs_recovered_session");
+      expect(emailSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("completes a retried checkout and replaces its old non-empty session ID using signed purchaseId metadata", async () => {
+      await Purchase.updateOne(
+        { _id: purchaseId },
+        { $set: { stripeSessionId: "cs_newer_session" } },
+      );
+      const event: Stripe.Event = {
+        id: "evt_mismatched_purchase_id",
+        object: "event",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_stale_session",
+            payment_intent: "pi_test_123",
+            metadata: { purchaseId },
+          } as Stripe.Checkout.Session,
+        },
+      } as Stripe.Event;
+
+      const response = await request(app)
+        .post("/api/webhooks/stripe")
+        .set("stripe-signature", "test_signature")
+        .send(event);
+
+      expect(response.status).toBe(200);
+      const purchase = await Purchase.findById(purchaseId);
+      expect(purchase?.status).toBe("completed");
+      expect(purchase?.stripeSessionId).toBe("cs_stale_session");
+      expect(emailSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("should send purchase confirmation email", async () => {
       const event: Stripe.Event = {
         id: "evt_test_124",

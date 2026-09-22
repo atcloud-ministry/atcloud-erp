@@ -18,6 +18,7 @@ class NotificationService extends BaseApiClient {
       createdAt: string;
       type?: string;
       creator?: BackendCreator;
+      metadata?: Record<string, unknown>;
     };
 
     const response = await this.request<{
@@ -68,6 +69,9 @@ class NotificationService extends BaseApiClient {
         isRead: notification.isRead,
         createdAt: notification.createdAt,
         userId: "", // Not needed for system messages
+        ...(notification.metadata
+          ? { metadata: notification.metadata }
+          : {}),
         // Include system message details for proper "From" information display
         systemMessage: {
           id: notification.id,

@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -25,6 +26,7 @@ describe("Workshop features - topics and signup restrictions", () => {
 
     // Create Administrator
     const adminRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "adm1",
       email: "adm1@example.com",
       password: "Pass123!@#",
@@ -35,6 +37,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findOneAndUpdate(
@@ -49,6 +52,7 @@ describe("Workshop features - topics and signup restrictions", () => {
 
     // Create Participant user
     const userRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "user1",
       email: "user1@example.com",
       password: "Pass123!@#",
@@ -59,6 +63,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     userId = userRes.body.data.user.id;
     await User.findOneAndUpdate(
@@ -73,6 +78,7 @@ describe("Workshop features - topics and signup restrictions", () => {
 
     // Create another user who will be Group A Leader later
     const leaderRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "lead1",
       email: "lead1@example.com",
       password: "Pass123!@#",
@@ -83,6 +89,7 @@ describe("Workshop features - topics and signup restrictions", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     leaderId = leaderRes.body.data.user.id;
     await User.findOneAndUpdate(

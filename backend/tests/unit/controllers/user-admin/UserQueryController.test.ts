@@ -11,6 +11,8 @@ vi.mock("../../../../src/models", () => ({
 }));
 
 vi.mock("../../../../src/utils/roleUtils", () => ({
+  PERMISSIONS: { MANAGE_USERS: "manage_users" },
+  hasPermission: vi.fn(() => true),
   RoleUtils: {
     canAccessUserProfile: vi.fn(),
   },

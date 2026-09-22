@@ -128,7 +128,7 @@ describe("authenticate middleware - test token shortcuts", () => {
 
       const mockUser = {
         _id: validObjectId,
-        role: "member",
+        role: "Participant",
         isActive: true,
         isVerified: true,
       };
@@ -141,6 +141,51 @@ describe("authenticate middleware - test token shortcuts", () => {
       expect((mockReq as any).user).toEqual(mockUser);
       expect((mockReq as any).userId).toBe(validObjectId);
       expect((mockReq as any).userRole).toBe("Participant");
+    });
+
+    it("uses the persisted role instead of the test-token prefix role", async () => {
+      const validObjectId = new mongoose.Types.ObjectId().toString();
+      mockReq.headers = {
+        authorization: `Bearer test-admin-${validObjectId}`,
+      };
+
+      const mockUser = {
+        _id: validObjectId,
+        role: "Participant",
+        isActive: true,
+        isVerified: true,
+      };
+      vi.mocked(User.findById).mockResolvedValue(mockUser);
+
+      await authenticate(mockReq as Request, mockRes as Response, mockNext);
+
+      expect((mockReq as any).userRole).toBe("Participant");
+      expect((mockReq as any).authPrincipal).toEqual({
+        kind: "user",
+        userId: validObjectId,
+        role: "Participant",
+        isActive: true,
+        isVerified: true,
+      });
+      expect(mockNext).toHaveBeenCalledOnce();
+    });
+
+    it("rejects an inactive persisted user", async () => {
+      const validObjectId = new mongoose.Types.ObjectId().toString();
+      mockReq.headers = {
+        authorization: `Bearer test-admin-${validObjectId}`,
+      };
+      vi.mocked(User.findById).mockResolvedValue({
+        _id: validObjectId,
+        role: "Administrator",
+        isActive: false,
+        isVerified: true,
+      });
+
+      await authenticate(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(401);
+      expect(mockNext).not.toHaveBeenCalled();
     });
 
     it("should create fallback participant user when user not found (test-)", async () => {

@@ -11,6 +11,8 @@ import { socketService } from "../../services/infrastructure/SocketService";
 import { AutoEmailNotificationService } from "../../services/infrastructure/autoEmailNotificationService";
 import { EmailService } from "../../services/infrastructure/EmailServiceFacade";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
+import { RefreshSessionService } from "../../services/auth/RefreshSessionService";
 
 /**
  * UserDeactivationController
@@ -41,7 +43,7 @@ export default class UserDeactivationController {
         return;
       }
 
-      const targetUser = await User.findById(id);
+      const targetUser = await User.findById(id, "+passwordChangedAt");
 
       if (!targetUser) {
         res.status(404).json({
@@ -99,7 +101,30 @@ export default class UserDeactivationController {
 
       // Deactivate user
       targetUser.isActive = false;
+      const priorSecurityStamp = targetUser.passwordChangedAt?.getTime() ?? 0;
+      targetUser.passwordChangedAt = new Date(
+        Math.max(Date.now(), priorSecurityStamp + 1_000),
+      );
       await targetUser.save();
+      await RefreshSessionService.revokeAllForUser(
+        String(targetUser._id),
+        "account_deactivated",
+      );
+      programMembershipMutationSyncTrigger.userEligibilityChanged(
+        String(targetUser._id),
+        {
+          actor: {
+            type: "user",
+            id: String(req.user._id),
+            role: req.user.role,
+          },
+          source: "http",
+          correlationId: req.correlationId,
+        },
+      );
+
+      // Revoke the persisted account's live access before slower side effects.
+      socketService.disconnectUser(String(targetUser._id));
 
       // Audit log for user deactivation
       try {

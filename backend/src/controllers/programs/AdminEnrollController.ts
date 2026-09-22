@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Program } from "../../models";
 import AuditLog from "../../models/AuditLog";
+import { programMembershipMutationSyncTrigger } from "../../services/programs/ProgramMembershipMutationSyncTrigger";
 
 export default class AdminEnrollController {
   /**
@@ -93,6 +94,15 @@ export default class AdminEnrollController {
       }
 
       await program.save();
+      programMembershipMutationSyncTrigger.programAssignmentsChanged(id, {
+        actor: {
+          type: "user",
+          id: String(req.user._id),
+          role: req.user.role,
+        },
+        source: "http",
+        correlationId: req.correlationId,
+      });
 
       // Audit log
       try {

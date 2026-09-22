@@ -35,7 +35,7 @@ export class ShortLinkController {
           .json({ success: false, message: "eventId is required" });
         return;
       }
-      const userLike = req.user as { id?: string; _id?: string };
+      const userLike = req.user as unknown as { id?: string; _id?: string };
       const userId =
         (userLike && (userLike.id || userLike._id)) ||
         "000000000000000000000000"; // 24-char sentinel ObjectId

@@ -14,15 +14,19 @@ import WelcomeNotificationController from "../controllers/message/WelcomeNotific
 import EventCreatedController from "../controllers/emailNotifications/EventCreatedController";
 import SystemAuthorizationChangeController from "../controllers/emailNotifications/SystemAuthorizationChangeController";
 import CoOrganizerAssignedController from "../controllers/emailNotifications/CoOrganizerAssignedController";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorizePermission } from "../middleware/auth";
 import {
   validateSystemMessage,
   validateError,
   handleValidationErrors,
 } from "../middleware/validation";
 import { param } from "express-validator";
+import { PERMISSIONS } from "../utils/roleUtils";
 
 const router = Router();
+const requireNotificationManagement = authorizePermission(
+  PERMISSIONS.MANAGE_NOTIFICATIONS,
+);
 
 // All routes require authentication
 router.use(authenticate);
@@ -56,10 +60,11 @@ router.patch(
 /**
  * @route POST /api/notifications/system
  * @desc Create a new system message
- * @access Private
+ * @access Private (MANAGE_NOTIFICATIONS)
  */
 router.post(
   "/system",
+  requireNotificationManagement,
   validateSystemMessage,
   validateError,
   SystemMessagesCreationController.createSystemMessage
@@ -126,30 +131,33 @@ router.delete(
 /**
  * @route POST /api/notifications/email/event-created
  * @desc Manually trigger event creation notification emails
- * @access Private
+ * @access Private (MANAGE_NOTIFICATIONS)
  */
 router.post(
   "/email/event-created",
+  requireNotificationManagement,
   EventCreatedController.sendEventCreatedNotification
 );
 
 /**
  * @route POST /api/notifications/email/role-change
  * @desc Manually trigger role change notification emails
- * @access Private
+ * @access Private (MANAGE_NOTIFICATIONS)
  */
 router.post(
   "/email/role-change",
+  requireNotificationManagement,
   SystemAuthorizationChangeController.sendSystemAuthorizationChangeNotification
 );
 
 /**
  * @route POST /api/notifications/email/co-organizer-assigned
  * @desc Manually trigger co-organizer assignment notification emails
- * @access Private
+ * @access Private (MANAGE_NOTIFICATIONS)
  */
 router.post(
   "/email/co-organizer-assigned",
+  requireNotificationManagement,
   CoOrganizerAssignedController.sendCoOrganizerAssignedNotification
 );
 
@@ -165,9 +173,13 @@ router.get("/unread-counts", UnreadCountsController.getUnreadCounts);
 /**
  * @route POST /api/notifications/cleanup
  * @desc Clean up expired notifications and messages
- * @access Private
+ * @access Private (MANAGE_NOTIFICATIONS)
  */
-router.post("/cleanup", MessageCleanupController.cleanupExpiredMessages);
+router.post(
+  "/cleanup",
+  requireNotificationManagement,
+  MessageCleanupController.cleanupExpiredMessages,
+);
 
 // ===== WELCOME SYSTEM =====
 

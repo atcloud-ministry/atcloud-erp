@@ -99,13 +99,13 @@ export const useUserPermissions = (
                 label: "Promote to Guest Expert",
                 onClick: () => onPromoteUser(user.id, "Guest Expert"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               },
               {
                 label: "Promote to Leader",
                 onClick: () => onPromoteUser(user.id, "Leader"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               },
               {
                 label: "Promote to Administrator",
@@ -119,7 +119,7 @@ export const useUserPermissions = (
                 label: "Promote to Leader",
                 onClick: () => onPromoteUser(user.id, "Leader"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               },
               {
                 label: "Promote to Administrator",
@@ -130,7 +130,7 @@ export const useUserPermissions = (
                 label: "Demote to Participant", // Changed from "Demote to User"
                 onClick: () => onDemoteUser(user.id, "Participant"), // Changed from "User"
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               }
             );
           } else if (user.role === "Leader") {
@@ -144,13 +144,13 @@ export const useUserPermissions = (
                 label: "Demote to Guest Expert",
                 onClick: () => onDemoteUser(user.id, "Guest Expert"),
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               },
               {
                 label: "Demote to Participant", // Changed from "Demote to User"
                 onClick: () => onDemoteUser(user.id, "Participant"), // Changed from "User"
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               }
             );
           } else if (user.role === "Administrator") {
@@ -159,19 +159,19 @@ export const useUserPermissions = (
                 label: "Demote to Leader",
                 onClick: () => onDemoteUser(user.id, "Leader"),
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               },
               {
                 label: "Demote to Guest Expert",
                 onClick: () => onDemoteUser(user.id, "Guest Expert"),
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               },
               {
                 label: "Demote to Participant", // Changed from "Demote to User"
                 onClick: () => onDemoteUser(user.id, "Participant"), // Changed from "User"
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               }
             );
           }
@@ -183,7 +183,7 @@ export const useUserPermissions = (
                 label: "Deactivate User",
                 onClick: () => onDeactivateUser(user.id),
                 className:
-                  "text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50",
+                  "text-yellow-700 hover:text-yellow-900 hover:bg-yellow-50",
               });
             } else {
               actions.push({
@@ -212,13 +212,13 @@ export const useUserPermissions = (
                 label: "Promote to Guest Expert",
                 onClick: () => onPromoteUser(user.id, "Guest Expert"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               },
               {
                 label: "Promote to Leader",
                 onClick: () => onPromoteUser(user.id, "Leader"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               }
             );
           } else if (user.role === "Guest Expert") {
@@ -227,13 +227,13 @@ export const useUserPermissions = (
                 label: "Promote to Leader",
                 onClick: () => onPromoteUser(user.id, "Leader"),
                 className:
-                  "text-green-600 hover:text-green-900 hover:bg-green-50",
+                  "text-green-700 hover:text-green-900 hover:bg-green-50",
               },
               {
                 label: "Demote to Participant", // Changed from "Demote to User"
                 onClick: () => onDemoteUser(user.id, "Participant"), // Changed from "User"
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               }
             );
           } else if (user.role === "Leader") {
@@ -242,13 +242,13 @@ export const useUserPermissions = (
                 label: "Demote to Guest Expert",
                 onClick: () => onDemoteUser(user.id, "Guest Expert"),
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               },
               {
                 label: "Demote to Participant", // Changed from "Demote to User"
                 onClick: () => onDemoteUser(user.id, "Participant"), // Changed from "User"
                 className:
-                  "text-orange-600 hover:text-orange-900 hover:bg-orange-50",
+                  "text-orange-700 hover:text-orange-900 hover:bg-orange-50",
               }
             );
           }
@@ -260,7 +260,7 @@ export const useUserPermissions = (
                 label: "Deactivate User",
                 onClick: () => onDeactivateUser(user.id),
                 className:
-                  "text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50",
+                  "text-yellow-700 hover:text-yellow-900 hover:bg-yellow-50",
               });
             } else {
               actions.push({
@@ -281,7 +281,7 @@ export const useUserPermissions = (
                 label: "Deactivate User",
                 onClick: () => onDeactivateUser(user.id),
                 className:
-                  "text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50",
+                  "text-yellow-700 hover:text-yellow-900 hover:bg-yellow-50",
               });
             } else {
               actions.push({

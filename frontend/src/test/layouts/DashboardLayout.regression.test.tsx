@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { Link, MemoryRouter, Routes, Route } from "react-router-dom";
 
 // A tiny smoke test to ensure header offset + footer presence in DashboardLayout
 
 describe("DashboardLayout layout regression", () => {
   it("renders main with pt-16 and includes Footer", async () => {
+    const user = userEvent.setup();
     // Mock auth hook to avoid requiring AuthProvider wrapping
     vi.doMock("../../hooks/useAuth", async () => ({
       __esModule: true,
@@ -72,7 +74,7 @@ describe("DashboardLayout layout regression", () => {
     const { default: Layout } = await import("../../layouts/DashboardLayout");
 
     function Dummy() {
-      return <div>Content</div>;
+      return <Link to="/dashboard/programs">Open programs</Link>;
     }
 
     render(
@@ -80,6 +82,19 @@ describe("DashboardLayout layout regression", () => {
         <Routes>
           <Route path="/dashboard" element={<Layout />}>
             <Route index element={<Dummy />} />
+            <Route
+              path="programs"
+              element={
+                <>
+                  <div>Programs</div>
+                  <Link to="/dashboard/chat-rooms/room-1">Open Chat Room</Link>
+                </>
+              }
+            />
+            <Route
+              path="chat-rooms/:conversationId"
+              element={<div>Chat Room detail</div>}
+            />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -92,9 +107,31 @@ describe("DashboardLayout layout regression", () => {
     expect(main).toBeTruthy();
     if (main) {
       expect((main as HTMLElement).className).toContain("pt-16");
+      expect(main).toHaveAttribute("id", "dashboard-main-content");
     }
+
+    expect(
+      screen.getByRole("link", { name: "Skip to main content" }),
+    ).toHaveAttribute("href", "#dashboard-main-content");
+
+    await user.click(screen.getByRole("link", { name: "Open programs" }));
+    expect(await screen.findByText("Programs")).toBeInTheDocument();
+    expect(screen.getByRole("main", { hidden: true })).toHaveFocus();
 
     // footer exists
     expect(screen.getByTestId("footer")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "Open Chat Room" }));
+    const chatRoomMain = screen.getByRole("main", { hidden: true });
+    expect(chatRoomMain).toHaveClass(
+      "h-[100dvh]",
+      "overflow-hidden",
+      "lg:h-auto",
+      "lg:overflow-y-auto",
+    );
+    expect(screen.getByTestId("dashboard-footer")).toHaveClass(
+      "hidden",
+      "lg:block",
+    );
   });
 });

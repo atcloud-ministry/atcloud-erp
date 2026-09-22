@@ -9,7 +9,9 @@ vi.mock("../../../../src/models/Message", () => {
     _id: "msg123",
     userStates: new Map(),
     save: vi.fn().mockResolvedValue(true),
-    toJSON: vi.fn().mockReturnValue(data),
+    toJSON: vi.fn(() => {
+      throw new Error("raw document serialization must not be used for realtime");
+    }),
     getBellDisplayTitle: vi.fn().mockReturnValue(data.title),
     createdAt: new Date(),
     createdBy: data.creator?.id,
@@ -52,8 +54,33 @@ vi.mock("../../../../src/services/LoggerService", () => ({
 }));
 
 import User from "../../../../src/models/User";
+import Message from "../../../../src/models/Message";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
+
+const FORBIDDEN_REALTIME_KEYS = new Set([
+  "_id",
+  "__v",
+  "createdBy",
+  "userStates",
+  "targetRoles",
+  "recipients",
+  "recipientIds",
+  "targetUserIds",
+]);
+
+function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectKeys(entry, keys));
+    return keys;
+  }
+  if (!value || typeof value !== "object") return keys;
+  Object.entries(value).forEach(([key, entry]) => {
+    keys.add(key);
+    collectKeys(entry, keys);
+  });
+  return keys;
+}
 
 interface MockRequest {
   user?: {
@@ -65,12 +92,17 @@ interface MockRequest {
     content?: string;
     type?: string;
     priority?: string;
-    targetRoles?: string[];
-    excludeUserIds?: string[];
+    targetRoles?: unknown;
+    excludeUserIds?: unknown;
     includeCreator?: boolean;
     hideCreator?: boolean;
   };
 }
+
+const CREATOR_ID = "507f1f77bcf86cd799439010";
+const USER_ID_1 = "507f1f77bcf86cd799439011";
+const USER_ID_2 = "507f1f77bcf86cd799439012";
+const USER_ID_3 = "507f1f77bcf86cd799439013";
 
 describe("SystemMessagesCreationController", () => {
   let mockReq: MockRequest;
@@ -81,21 +113,21 @@ describe("SystemMessagesCreationController", () => {
   let consoleLogSpy: any;
 
   const createMockCreator = (overrides = {}) => ({
-    _id: "admin123",
+    _id: CREATOR_ID,
     firstName: "Admin",
     lastName: "User",
     username: "admin",
     avatar: "/avatar.jpg",
     gender: "male",
     roleInAtCloud: "Ministry Leader",
-    role: "Admin",
+    role: "Administrator",
     ...overrides,
   });
 
   const createMockUsers = () => [
-    { _id: "user1" },
-    { _id: "user2" },
-    { _id: "user3" },
+    { _id: USER_ID_1, role: "Participant" },
+    { _id: USER_ID_2, role: "Leader" },
+    { _id: USER_ID_3, role: "Administrator" },
   ];
 
   beforeEach(() => {
@@ -114,8 +146,8 @@ describe("SystemMessagesCreationController", () => {
 
     mockReq = {
       user: {
-        id: "admin123",
-        _id: "admin123",
+        id: CREATOR_ID,
+        _id: CREATOR_ID,
       },
       body: {
         title: "Test Announcement",
@@ -188,6 +220,32 @@ describe("SystemMessagesCreationController", () => {
       });
     });
 
+    describe("Recipient selector validation", () => {
+      it.each([
+        ["a scalar target role", "targetRoles", "Administrator"],
+        ["a null target role", "targetRoles", null],
+        ["an empty target role array", "targetRoles", []],
+        ["an invalid target role", "targetRoles", ["Admin"]],
+        ["a scalar excluded user", "excludeUserIds", USER_ID_2],
+        ["an invalid excluded user", "excludeUserIds", ["not-an-object-id"]],
+      ])("rejects %s without side effects", async (_label, field, value) => {
+        (mockReq.body as Record<string, unknown>)[field] = value;
+
+        await SystemMessagesCreationController.createSystemMessage(
+          mockReq as unknown as Request,
+          mockRes as Response,
+        );
+
+        expect(statusMock).toHaveBeenCalledWith(400);
+        expect(User.findById).not.toHaveBeenCalled();
+        expect(User.find).not.toHaveBeenCalled();
+        expect(Message).not.toHaveBeenCalled();
+        expect(CachePatterns.invalidateUserCache).not.toHaveBeenCalled();
+        expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalled();
+        expect(socketService.emitUnreadCountUpdate).not.toHaveBeenCalled();
+      });
+    });
+
     describe("Successful Creation", () => {
       beforeEach(() => {
         vi.mocked(User.findById).mockReturnValue({
@@ -219,6 +277,22 @@ describe("SystemMessagesCreationController", () => {
 
         expect(socketService.emitSystemMessageUpdate).toHaveBeenCalledTimes(3);
         expect(socketService.emitUnreadCountUpdate).toHaveBeenCalledTimes(3);
+        vi.mocked(socketService.emitSystemMessageUpdate).mock.calls.forEach(
+          ([, , payload]) => {
+            const keys = collectKeys(payload);
+            FORBIDDEN_REALTIME_KEYS.forEach((key) =>
+              expect(keys.has(key)).toBe(false),
+            );
+          },
+        );
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          USER_ID_1,
+          "Participant",
+        );
+        expect(Message.getUnreadCountsForUser).toHaveBeenCalledWith(
+          USER_ID_2,
+          "Leader",
+        );
       });
 
       it("should invalidate cache for all users", async () => {
@@ -239,8 +313,10 @@ describe("SystemMessagesCreationController", () => {
       });
 
       it("should target specific roles when targetRoles is provided", async () => {
-        mockReq.body.targetRoles = ["Leader", "Admin"];
-        vi.mocked(User.find).mockResolvedValue([{ _id: "leader1" }] as any);
+        mockReq.body.targetRoles = ["Leader", "Administrator"];
+        vi.mocked(User.find).mockResolvedValue(
+          [{ _id: USER_ID_2, role: "Leader" }] as any,
+        );
 
         await SystemMessagesCreationController.createSystemMessage(
           mockReq as unknown as Request,
@@ -248,13 +324,13 @@ describe("SystemMessagesCreationController", () => {
         );
 
         expect(User.find).toHaveBeenCalledWith(
-          { role: { $in: ["Leader", "Admin"] } },
+          { role: { $in: ["Leader", "Administrator"] } },
           "_id role",
         );
       });
 
-      it("should exclude users when excludeUserIds is provided", async () => {
-        mockReq.body.excludeUserIds = ["user2"];
+      it("should canonicalize uppercase excludeUserIds before filtering", async () => {
+        mockReq.body.excludeUserIds = [USER_ID_2.toUpperCase()];
         vi.mocked(User.find).mockResolvedValue(createMockUsers() as any);
 
         await SystemMessagesCreationController.createSystemMessage(
@@ -262,8 +338,13 @@ describe("SystemMessagesCreationController", () => {
           mockRes as Response,
         );
 
-        // Should emit to user1 and user3, but not user2
+        // Should emit to user1 and user3, but not user2.
         expect(socketService.emitSystemMessageUpdate).toHaveBeenCalledTimes(2);
+        expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalledWith(
+          USER_ID_2,
+          expect.anything(),
+          expect.anything(),
+        );
       });
     });
 
@@ -335,6 +416,9 @@ describe("SystemMessagesCreationController", () => {
               }),
             }),
           }),
+        );
+        vi.mocked(socketService.emitSystemMessageUpdate).mock.calls.forEach(
+          ([, , payload]) => expect(payload.message).not.toHaveProperty("creator"),
         );
       });
     });

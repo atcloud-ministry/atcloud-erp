@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import mongoose from "mongoose";
@@ -7,6 +8,7 @@ import Event from "../../../src/models/Event";
 
 async function createAdminAndLogin() {
   const admin = {
+    ...TEST_REGISTRATION_PROFILE,
     username: "fmtTransAdmin",
     email: "formattransitionadmin@example.com",
     password: "AdminPass123!",
@@ -17,6 +19,7 @@ async function createAdminAndLogin() {
     gender: "male",
     isAtCloudLeader: false,
     acceptTerms: true,
+    registrationNoticeVersion: "registration-privacy-v1",
   } as const;
   const registerRes = await request(app).post("/api/auth/register").send(admin);
   if (registerRes.status !== 201) {

@@ -1,19 +1,69 @@
 import { Request, Response } from "express";
+import {
+  REGISTRATION_PROFILE_FIELDS,
+  type EmploymentStatus,
+} from "@atcloud/shared-time/registration-profile";
 import { User } from "../../models";
-import AuditLog from "../../models/AuditLog";
-import { ROLES } from "../../utils/roleUtils";
+import { hasPermission, PERMISSIONS } from "../../utils/roleUtils";
 import { cleanupOldAvatar } from "../../utils/avatarCleanup";
 import { socketService } from "../../services/infrastructure/SocketService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import {
+  applyCanonicalRegistrationProfile,
+  containsRegistrationProfileUpdate,
+  validateMergedRegistrationProfile,
+} from "../../services/RegistrationProfileService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { ensurePrivateAlumniDraft } from "../../services/alumni/AlumniDraftProfileService";
+import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
+import { AuditLogService } from "../../services/AuditLogService";
+import { logSafeErrorEvent } from "../../utils/safeEventLogger";
 
-/**
- * AdminProfileEditController
- * Handles adminEditProfile - allows admins to edit limited user profile fields
- */
+interface AdminProfileEditRequest {
+  avatar?: string;
+  phone?: string;
+  birthYear?: number | string;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: string;
+  employmentStatus?: EmploymentStatus;
+  company?: string | null;
+  occupation?: string | null;
+  isAtCloudLeader?: boolean;
+  roleInAtCloud?: string;
+}
+
+const ADMIN_PROFILE_EDIT_FIELDS = [
+  "avatar",
+  ...REGISTRATION_PROFILE_FIELDS,
+  "isAtCloudLeader",
+  "roleInAtCloud",
+] as const;
+
+const AUDITED_PROFILE_FIELDS = [
+  "avatar",
+  ...REGISTRATION_PROFILE_FIELDS,
+  "homeAddress",
+  "isAtCloudLeader",
+  "roleInAtCloud",
+] as const;
+
+function selectAdminProfileEditFields(body: unknown): AdminProfileEditRequest {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+  const source = body as Record<string, unknown>;
+  const selected: AdminProfileEditRequest = {};
+  for (const field of ADMIN_PROFILE_EDIT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      Object.assign(selected, { [field]: source[field] });
+    }
+  }
+  return selected;
+}
+
+/** Allows users with the existing User Management permission to edit profiles. */
 export default class AdminProfileEditController {
-  /**
-   * Admin edit profile - allows Super Admin/Administrator to edit limited fields of other users
-   */
   static async adminEditProfile(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user) {
@@ -24,170 +74,145 @@ export default class AdminProfileEditController {
         return;
       }
 
-      // Only Super Admin and Administrator can use this endpoint
-      if (
-        req.user.role !== ROLES.SUPER_ADMIN &&
-        req.user.role !== ROLES.ADMINISTRATOR
-      ) {
+      if (!hasPermission(req.user.role, PERMISSIONS.MANAGE_USERS)) {
         res.status(403).json({
           success: false,
-          message:
-            "Only Super Admin and Administrator can edit other users' profiles.",
+          message: `Access denied. Required permission: ${PERMISSIONS.MANAGE_USERS}`,
         });
         return;
       }
 
       const { id: targetUserId } = req.params;
-      const { avatar, phone, isAtCloudLeader, roleInAtCloud } = req.body;
+      const auditActor = {
+        type: "user" as const,
+        id: String(req.user._id),
+        role: req.user.role,
+      };
+      const edit = selectAdminProfileEditFields(req.body);
+      const { avatar, isAtCloudLeader, roleInAtCloud } = edit;
 
-      // Validate that the user exists
-      const targetUser = await User.findById(targetUserId);
-      if (!targetUser) {
+      if (
+        (isAtCloudLeader !== undefined &&
+          typeof isAtCloudLeader !== "boolean") ||
+        (roleInAtCloud !== undefined && typeof roleInAtCloud !== "string") ||
+        (avatar !== undefined && typeof avatar !== "string")
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid admin profile edit payload.",
+        });
+        return;
+      }
+
+      const write = await mongoTransactionService.run(async (session) => {
+        const targetUser = await User.findById(targetUserId)
+          .select("+birthYear")
+          .session(session);
+        if (!targetUser) return { kind: "not_found" } as const;
+
+        const update = { ...edit };
+        const nextIsAtCloudLeader =
+          isAtCloudLeader ?? targetUser.isAtCloudLeader;
+        const nextRoleInAtCloud = roleInAtCloud ?? targetUser.roleInAtCloud;
+        if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+          return { kind: "role_required" } as const;
+        }
+
+        const oldValues = Object.fromEntries(
+          AUDITED_PROFILE_FIELDS.map((field) => [field, targetUser[field]]),
+        ) as Record<(typeof AUDITED_PROFILE_FIELDS)[number], unknown>;
+
+        const registrationProfileResult = containsRegistrationProfileUpdate(
+          update,
+        )
+          ? validateMergedRegistrationProfile(targetUser, update)
+          : undefined;
+        if (registrationProfileResult && !registrationProfileResult.success) {
+          return {
+            kind: "registration_invalid",
+            issues: registrationProfileResult.issues,
+          } as const;
+        }
+
+        if (isAtCloudLeader === false) {
+          update.roleInAtCloud = undefined;
+        }
+
+        Object.assign(targetUser, update);
+        if (registrationProfileResult?.success) {
+          applyCanonicalRegistrationProfile(
+            targetUser,
+            registrationProfileResult.value,
+          );
+        }
+        const updatedUser = await targetUser.save({ session });
+        await ensurePrivateAlumniDraft(updatedUser, session);
+        await synchronizeExistingAlumniProfileProjection(updatedUser, session);
+        const changedFields = AUDITED_PROFILE_FIELDS.filter(
+          (field) => oldValues[field] !== updatedUser[field],
+        );
+        if (changedFields.length > 0) {
+          await AuditLogService.recordRequiredInTransaction(
+            {
+              action: "admin_profile_edit",
+              actor: auditActor,
+              source: "http",
+              outcome: "success",
+              target: { model: "User", id: String(targetUserId) },
+              correlationId: req.correlationId,
+              details: { changedFields },
+            },
+            session,
+          );
+        }
+        return { kind: "updated", updatedUser, oldValues, update } as const;
+      });
+
+      if (write.kind === "not_found") {
         res.status(404).json({
           success: false,
           message: "User not found.",
         });
         return;
       }
-
-      // Validate @Cloud co-worker requirements
-      if (isAtCloudLeader && !roleInAtCloud) {
+      if (write.kind === "role_required") {
         res.status(400).json({
           success: false,
           message: "Role in @Cloud is required for @Cloud co-workers.",
         });
         return;
       }
-
-      // Store old values for audit logging
-      const oldValues = {
-        avatar: targetUser.avatar,
-        phone: targetUser.phone,
-        isAtCloudLeader: targetUser.isAtCloudLeader,
-        roleInAtCloud: targetUser.roleInAtCloud,
-      };
-
-      // Build update object with only allowed fields
-      const updateData: Record<string, unknown> = {};
-      const unsetData: Record<string, unknown> = {};
-
-      if (avatar !== undefined) updateData.avatar = avatar;
-      if (phone !== undefined) updateData.phone = phone;
-      if (isAtCloudLeader !== undefined)
-        updateData.isAtCloudLeader = isAtCloudLeader;
-      if (roleInAtCloud !== undefined) updateData.roleInAtCloud = roleInAtCloud;
-
-      // If user is no longer an @Cloud co-worker, clear the role
-      if (isAtCloudLeader === false) {
-        unsetData.roleInAtCloud = "";
-        delete updateData.roleInAtCloud; // Remove from $set if it was added
-      }
-
-      // Update the user
-      const updateQuery: Record<string, unknown> = {};
-      if (Object.keys(updateData).length > 0) {
-        updateQuery.$set = updateData;
-      }
-      if (Object.keys(unsetData).length > 0) {
-        updateQuery.$unset = unsetData;
-      }
-
-      const updatedUser = await User.findByIdAndUpdate(
-        targetUserId,
-        updateQuery,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedUser) {
-        res.status(404).json({
+      if (write.kind === "registration_invalid") {
+        res.status(400).json({
           success: false,
-          message: "Failed to update user.",
+          message: write.issues
+            .map((issue) => `${issue.field}: ${issue.message}`)
+            .join("; "),
+          errors: write.issues,
         });
         return;
       }
+      const { updatedUser, oldValues, update } = write;
 
-      // Cleanup old avatar file if a new avatar was uploaded (async, don't wait for it)
       if (
         avatar !== undefined &&
-        oldValues.avatar !== avatar &&
+        oldValues.avatar !== updatedUser.avatar &&
         oldValues.avatar
       ) {
-        cleanupOldAvatar(String(targetUserId), oldValues.avatar).catch(
+        cleanupOldAvatar(String(targetUserId), String(oldValues.avatar)).catch(
           (error) => {
             console.error(
               "Failed to cleanup old avatar during admin edit:",
-              error
+              error,
             );
-          }
+          },
         );
       }
 
-      // Create audit log entry
-      try {
-        const changes: Record<string, { old: unknown; new: unknown }> = {};
-
-        if (avatar !== undefined && oldValues.avatar !== avatar) {
-          changes.avatar = { old: oldValues.avatar, new: avatar };
-        }
-        if (phone !== undefined && oldValues.phone !== phone) {
-          changes.phone = { old: oldValues.phone, new: phone };
-        }
-        if (
-          isAtCloudLeader !== undefined &&
-          oldValues.isAtCloudLeader !== isAtCloudLeader
-        ) {
-          changes.isAtCloudLeader = {
-            old: oldValues.isAtCloudLeader,
-            new: isAtCloudLeader,
-          };
-        }
-        if (
-          roleInAtCloud !== undefined &&
-          oldValues.roleInAtCloud !== roleInAtCloud
-        ) {
-          changes.roleInAtCloud = {
-            old: oldValues.roleInAtCloud,
-            new: roleInAtCloud,
-          };
-        }
-
-        if (Object.keys(changes).length > 0) {
-          await AuditLog.create({
-            action: "admin_profile_edit",
-            actor: {
-              id: req.user._id,
-              role: req.user.role,
-              email: req.user.email,
-            },
-            targetModel: "User",
-            targetId: targetUserId,
-            details: {
-              targetUser: {
-                id: updatedUser._id,
-                email: updatedUser.email,
-                name:
-                  `${updatedUser.firstName || ""} ${
-                    updatedUser.lastName || ""
-                  }`.trim() || updatedUser.username,
-              },
-              changes,
-            },
-            ipAddress: req.ip,
-            userAgent: req.get("user-agent") || "unknown",
-          });
-        }
-      } catch (auditError) {
-        console.error(
-          "Failed to create audit log for admin profile edit:",
-          auditError
-        );
-        // Don't fail the request if audit logging fails
-      }
-
-      // Invalidate caches so updated profile appears immediately
       await CachePatterns.invalidateUserCache(targetUserId);
 
-      // Emit real-time update for Management page
+      // birthYear and the new structured profile values stay off the socket.
+      // Authorized admins receive change flags and can refetch the HTTP DTO.
       socketService.emitUserUpdate(String(updatedUser._id), {
         type: "profile_edited",
         user: {
@@ -205,7 +230,14 @@ export default class AdminProfileEditController {
         },
         changes: {
           avatar: avatar !== undefined,
-          phone: phone !== undefined,
+          phone: update.phone !== undefined,
+          birthYear: update.birthYear !== undefined,
+          residenceCity: update.residenceCity !== undefined,
+          residenceRegion: update.residenceRegion !== undefined,
+          residenceCountryCode: update.residenceCountryCode !== undefined,
+          employmentStatus: update.employmentStatus !== undefined,
+          company: update.company !== undefined,
+          occupation: update.occupation !== undefined,
           isAtCloudLeader: isAtCloudLeader !== undefined,
           roleInAtCloud: roleInAtCloud !== undefined,
         },
@@ -218,12 +250,40 @@ export default class AdminProfileEditController {
           id: updatedUser._id,
           avatar: updatedUser.avatar,
           phone: updatedUser.phone,
+          birthYear: updatedUser.birthYear,
+          residenceCity: updatedUser.residenceCity,
+          residenceRegion: updatedUser.residenceRegion,
+          residenceCountryCode: updatedUser.residenceCountryCode,
+          employmentStatus: updatedUser.employmentStatus,
+          company: updatedUser.company,
+          occupation: updatedUser.occupation,
           isAtCloudLeader: updatedUser.isAtCloudLeader,
           roleInAtCloud: updatedUser.roleInAtCloud,
         },
       });
     } catch (error: unknown) {
-      console.error("Admin edit profile error:", error);
+      logSafeErrorEvent(
+        "ADMIN_PROFILE_EDIT_FAILED",
+        error,
+        req.user?._id != null ? String(req.user._id) : undefined,
+      );
+      if (
+        error &&
+        typeof error === "object" &&
+        "name" in error &&
+        error.name === "ValidationError" &&
+        "errors" in error
+      ) {
+        const errors = (
+          error as { errors: Record<string, { message: string }> }
+        ).errors;
+        res.status(400).json({
+          success: false,
+          message: "Validation failed.",
+          errors: Object.values(errors).map((item) => item.message),
+        });
+        return;
+      }
       res.status(500).json({
         success: false,
         error: "Failed to update user profile",

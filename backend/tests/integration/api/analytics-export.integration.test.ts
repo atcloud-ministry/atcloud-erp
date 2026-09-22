@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, beforeEach, expect } from "vitest";
 import app from "../../../src/app";
@@ -12,6 +13,7 @@ describe("Analytics export endpoint", () => {
     await User.deleteMany({});
 
     const a = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "an_admin_export",
       email: "an_admin_export@example.com",
       password: "AdminPass123!",
@@ -21,6 +23,7 @@ describe("Analytics export endpoint", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
     await request(app).post("/api/auth/register").send(a).expect(201);
     await User.findOneAndUpdate(
@@ -40,6 +43,19 @@ describe("Analytics export endpoint", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .expect(200);
     expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.body.users).toHaveLength(1);
+    for (const privateField of [
+      "phone",
+      "birthYear",
+      "residenceCity",
+      "residenceRegion",
+      "residenceCountryCode",
+      "employmentStatus",
+      "company",
+      "occupation",
+    ]) {
+      expect(res.body.users[0]).not.toHaveProperty(privateField);
+    }
   });
 
   it("GET /api/analytics/export (xlsx) with range and row cap -> 200", async () => {

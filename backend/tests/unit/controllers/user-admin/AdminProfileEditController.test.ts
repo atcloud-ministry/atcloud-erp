@@ -1,596 +1,405 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { Request, Response } from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Request, Response } from "express";
 import AdminProfileEditController from "../../../../src/controllers/user-admin/AdminProfileEditController";
 
-// Mock dependencies
 vi.mock("../../../../src/models", () => ({
-  User: {
-    findById: vi.fn(),
-    findByIdAndUpdate: vi.fn(),
-  },
+  User: { findById: vi.fn() },
 }));
-
-vi.mock("../../../../src/models/AuditLog", () => ({
-  default: {
-    create: vi.fn(),
-  },
+vi.mock("../../../../src/services/AuditLogService", () => ({
+  AuditLogService: { recordRequiredInTransaction: vi.fn() },
 }));
-
-vi.mock("../../../../src/utils/roleUtils", () => ({
-  ROLES: {
-    SUPER_ADMIN: "Super Admin",
-    ADMINISTRATOR: "Administrator",
-    LEADER: "Leader",
-    STAFF: "Staff",
-    PARTICIPANT: "Participant",
-  },
-}));
-
 vi.mock("../../../../src/utils/avatarCleanup", () => ({
   cleanupOldAvatar: vi.fn(),
 }));
-
 vi.mock("../../../../src/services/infrastructure/SocketService", () => ({
-  socketService: {
-    emitUserUpdate: vi.fn(),
-  },
+  socketService: { emitUserUpdate: vi.fn() },
 }));
-
 vi.mock("../../../../src/services/infrastructure/CacheService", () => ({
-  CachePatterns: {
-    invalidateUserCache: vi.fn(),
-  },
+  CachePatterns: { invalidateUserCache: vi.fn() },
 }));
+vi.mock(
+  "../../../../src/services/alumni/AlumniProfileProjectionSyncService",
+  () => ({ synchronizeExistingAlumniProfileProjection: vi.fn() }),
+);
+vi.mock("../../../../src/services/alumni/AlumniDraftProfileService", () => ({
+  ensurePrivateAlumniDraft: vi.fn().mockResolvedValue(true),
+}));
+vi.mock(
+  "../../../../src/services/reliability/MongoTransactionService",
+  () => ({ mongoTransactionService: { run: vi.fn() } }),
+);
 
 import { User } from "../../../../src/models";
-import AuditLog from "../../../../src/models/AuditLog";
+import { AuditLogService } from "../../../../src/services/AuditLogService";
 import { cleanupOldAvatar } from "../../../../src/utils/avatarCleanup";
 import { socketService } from "../../../../src/services/infrastructure/SocketService";
 import { CachePatterns } from "../../../../src/services/infrastructure/CacheService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../../../src/services/alumni/AlumniProfileProjectionSyncService";
+import { mongoTransactionService } from "../../../../src/services/reliability/MongoTransactionService";
 
-interface MockRequest {
-  params: Record<string, string>;
-  body: Record<string, unknown>;
-  user?: {
-    _id: string;
-    id: string;
-    role: string;
-    email: string;
+const TRANSACTION_SESSION = { inTransaction: () => true };
+
+const BASE_PROFILE = {
+  phone: "+12065550123",
+  birthYear: 1990,
+  residenceCity: "Seattle",
+  residenceRegion: "US-WA",
+  residenceCountryCode: "US",
+  employmentStatus: "employed",
+  company: "AtCloud Test",
+  occupation: "Tester",
+} as const;
+
+function hydratedUser(overrides: Record<string, unknown> = {}) {
+  const user: Record<string, unknown> & { save: ReturnType<typeof vi.fn> } = {
+    _id: "targetUser123",
+    email: "target@test.com",
+    username: "targetuser",
+    firstName: "Target",
+    lastName: "User",
+    role: "Participant",
+    avatar: "/old-avatar.jpg",
+    homeAddress: "Legacy address",
+    isAtCloudLeader: false,
+    roleInAtCloud: undefined,
+    isActive: true,
+    ...BASE_PROFILE,
+    ...overrides,
+    save: vi.fn(),
   };
-  ip?: string;
-  get?: (header: string) => string;
+  user.save.mockImplementation(async () => user);
+  return user;
+}
+
+function mockFindById(result: Record<string, unknown> | null) {
+  const session = vi.fn().mockResolvedValue(result);
+  const select = vi.fn().mockReturnValue({ session });
+  vi.mocked(User.findById).mockReturnValue({ select } as never);
+  return { select, session };
 }
 
 describe("AdminProfileEditController", () => {
-  let mockReq: MockRequest;
-  let mockRes: Partial<Response>;
-  let statusMock: ReturnType<typeof vi.fn>;
-  let jsonMock: ReturnType<typeof vi.fn>;
-  let consoleErrorSpy: any;
+  let req: {
+    params: Record<string, string>;
+    body: Record<string, unknown>;
+    user?: { _id: string; role: string; email: string };
+    ip: string;
+    get: ReturnType<typeof vi.fn>;
+  };
+  let res: Partial<Response>;
+  let status: ReturnType<typeof vi.fn>;
+  let json: ReturnType<typeof vi.fn>;
+  let consoleError: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    jsonMock = vi.fn();
-    statusMock = vi.fn().mockReturnValue({ json: jsonMock });
-
-    mockRes = {
-      status: statusMock as unknown as Response["status"],
-      json: jsonMock as unknown as Response["json"],
-    };
-
-    mockReq = {
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    json = vi.fn();
+    status = vi.fn().mockReturnValue({ json });
+    res = { status, json } as Partial<Response>;
+    req = {
       params: { id: "targetUser123" },
       body: {},
       user: {
         _id: "admin123",
-        id: "admin123",
-        role: "Super Admin",
+        role: "Administrator",
         email: "admin@test.com",
       },
       ip: "127.0.0.1",
-      get: vi.fn().mockReturnValue("Mozilla/5.0"),
+      get: vi.fn().mockReturnValue("unit-test"),
     };
-
     vi.mocked(CachePatterns.invalidateUserCache).mockResolvedValue(undefined);
+    vi.mocked(AuditLogService.recordRequiredInTransaction).mockResolvedValue(
+      undefined,
+    );
+    vi.mocked(cleanupOldAvatar).mockResolvedValue(true);
+    vi.mocked(mongoTransactionService.run).mockImplementation(
+      async (operation) =>
+        operation(TRANSACTION_SESSION as never, { attempt: 1, maxAttempts: 3 }),
+    );
+    vi.mocked(synchronizeExistingAlumniProfileProjection).mockResolvedValue(
+      false,
+    );
   });
 
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
+  afterEach(() => consoleError.mockRestore());
+
+  async function invoke() {
+    await AdminProfileEditController.adminEditProfile(
+      req as unknown as Request,
+      res as Response,
+    );
+  }
+
+  it("requires authentication", async () => {
+    req.user = undefined;
+    await invoke();
+    expect(status).toHaveBeenCalledWith(401);
   });
 
-  describe("adminEditProfile", () => {
-    describe("Authentication", () => {
-      it("should return 401 if user is not authenticated", async () => {
-        mockReq.user = undefined;
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(401);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          message: "Authentication required.",
-        });
-      });
+  it("uses MANAGE_USERS permission semantics", async () => {
+    req.user!.role = "Leader";
+    await invoke();
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      message: "Access denied. Required permission: manage_users",
     });
+    expect(User.findById).not.toHaveBeenCalled();
+  });
 
-    describe("Authorization", () => {
-      it("should return 403 if user is not Super Admin or Administrator", async () => {
-        mockReq.user = {
-          _id: "user123",
-          id: "user123",
-          role: "Leader",
-          email: "leader@test.com",
-        };
+  it.each(["Administrator", "Super Admin"])(
+    "allows %s to reach the target lookup",
+    async (role) => {
+      req.user!.role = role;
+      mockFindById(null);
+      await invoke();
+      expect(status).toHaveBeenCalledWith(404);
+    },
+  );
 
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
+  it("selects hidden birthYear while loading the hydrated target", async () => {
+    const { select, session } = mockFindById(null);
+    await invoke();
+    expect(select).toHaveBeenCalledWith("+birthYear");
+    expect(session).toHaveBeenCalledWith(TRANSACTION_SESSION);
+  });
 
-        expect(statusMock).toHaveBeenCalledWith(403);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          message:
-            "Only Super Admin and Administrator can edit other users' profiles.",
-        });
-      });
+  it("saves and synchronizes an existing alumni projection atomically", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = { company: "Next Company" };
+    await invoke();
 
-      it("should allow Super Admin", async () => {
-        mockReq.user!.role = "Super Admin";
-        vi.mocked(User.findById).mockResolvedValue(null);
+    expect(target.save).toHaveBeenCalledWith({ session: TRANSACTION_SESSION });
+    expect(synchronizeExistingAlumniProfileProjection).toHaveBeenCalledWith(
+      target,
+      TRANSACTION_SESSION,
+    );
+  });
 
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).not.toHaveBeenCalledWith(403);
-      });
-
-      it("should allow Administrator", async () => {
-        mockReq.user!.role = "Administrator";
-        vi.mocked(User.findById).mockResolvedValue(null);
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).not.toHaveBeenCalledWith(403);
-      });
+  it("returns 400 for a non-boolean isAtCloudLeader without throwing", async () => {
+    req.body = { isAtCloudLeader: "false" };
+    await invoke();
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      message: "Invalid admin profile edit payload.",
     });
+    expect(User.findById).not.toHaveBeenCalled();
+    expect(status).not.toHaveBeenCalledWith(500);
+  });
 
-    describe("Validation", () => {
-      it("should return 404 if target user not found", async () => {
-        vi.mocked(User.findById).mockResolvedValue(null);
+  it("rejects an invalid merged registration profile", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = { birthYear: "not-a-year" };
+    await invoke();
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errors: expect.arrayContaining([
+          expect.objectContaining({ field: "birthYear" }),
+        ]),
+      }),
+    );
+    expect(target.save).not.toHaveBeenCalled();
+  });
 
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(404);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          message: "User not found.",
-        });
-      });
-
-      it("should return 400 if isAtCloudLeader is true but no roleInAtCloud", async () => {
-        vi.mocked(User.findById).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          avatar: null,
-          phone: null,
-          isAtCloudLeader: false,
-          roleInAtCloud: null,
-        });
-        mockReq.body = {
-          isAtCloudLeader: true,
-          // roleInAtCloud is missing
-        };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(400);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          message: "Role in @Cloud is required for @Cloud co-workers.",
-        });
-      });
+  it("requires roleInAtCloud for an enabled co-worker", async () => {
+    mockFindById(hydratedUser({ roleInAtCloud: undefined }));
+    req.body = { isAtCloudLeader: true };
+    await invoke();
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      message: "Role in @Cloud is required for @Cloud co-workers.",
     });
+  });
 
-    describe("Successful Update", () => {
-      const mockTargetUser = {
-        _id: "targetUser123",
-        email: "target@test.com",
-        username: "targetuser",
-        firstName: "Target",
-        lastName: "User",
-        role: "Participant",
-        avatar: "/old-avatar.jpg",
-        phone: "123456789",
-        isAtCloudLeader: false,
-        roleInAtCloud: null,
-        isActive: true,
-      };
+  it("canonicalizes all eight registration fields and clears homeAddress", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = {
+      phone: " +14155552671 ",
+      birthYear: "1988",
+      residenceCity: " San   José ",
+      residenceRegion: "ca-on",
+      residenceCountryCode: "ca",
+      employmentStatus: "employed",
+      company: " Example   Company ",
+      occupation: " Product   Manager ",
+    };
+    await invoke();
 
-      beforeEach(() => {
-        vi.mocked(User.findById).mockResolvedValue(mockTargetUser);
-        vi.mocked(cleanupOldAvatar).mockResolvedValue(true);
-        vi.mocked(AuditLog.create).mockResolvedValue({} as any);
-      });
-
-      it("should update avatar successfully", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          avatar: "/new-avatar.jpg",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { avatar: "/new-avatar.jpg" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
-          "targetUser123",
-          { $set: { avatar: "/new-avatar.jpg" } },
-          { new: true, runValidators: true }
-        );
-        expect(statusMock).toHaveBeenCalledWith(200);
-        expect(jsonMock).toHaveBeenCalledWith(
-          expect.objectContaining({
-            success: true,
-            message: "Profile updated successfully by admin.",
-          })
-        );
-      });
-
-      it("should update phone successfully", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          phone: "987654321",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
-          "targetUser123",
-          { $set: { phone: "987654321" } },
-          { new: true, runValidators: true }
-        );
-        expect(statusMock).toHaveBeenCalledWith(200);
-      });
-
-      it("should update isAtCloudLeader with roleInAtCloud", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          isAtCloudLeader: true,
-          roleInAtCloud: "Developer",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = {
-          isAtCloudLeader: true,
-          roleInAtCloud: "Developer",
-        };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
-          "targetUser123",
-          { $set: { isAtCloudLeader: true, roleInAtCloud: "Developer" } },
-          { new: true, runValidators: true }
-        );
-        expect(statusMock).toHaveBeenCalledWith(200);
-      });
-
-      it("should unset roleInAtCloud when isAtCloudLeader is set to false", async () => {
-        const targetUserWithRole = {
-          ...mockTargetUser,
-          isAtCloudLeader: true,
-          roleInAtCloud: "Developer",
-        };
-        vi.mocked(User.findById).mockResolvedValue(targetUserWithRole);
-
-        const updatedUser = {
-          ...targetUserWithRole,
-          isAtCloudLeader: false,
-          roleInAtCloud: null,
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { isAtCloudLeader: false };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
-          "targetUser123",
-          { $set: { isAtCloudLeader: false }, $unset: { roleInAtCloud: "" } },
-          { new: true, runValidators: true }
-        );
-      });
-
-      it("should cleanup old avatar when new avatar is provided", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          avatar: "/new-avatar.jpg",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { avatar: "/new-avatar.jpg" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        // Wait for async cleanup - use vi.waitFor for proper async handling
-        await vi.waitFor(
-          () => {
-            expect(cleanupOldAvatar).toHaveBeenCalledWith(
-              "targetUser123",
-              "/old-avatar.jpg"
-            );
-          },
-          { timeout: 100 }
-        );
-      });
-
-      it("should create audit log for changes", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          phone: "987654321",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(AuditLog.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            action: "admin_profile_edit",
-            actor: expect.objectContaining({
-              id: "admin123",
-              role: "Super Admin",
-              email: "admin@test.com",
-            }),
-            targetModel: "User",
-            targetId: "targetUser123",
-            details: expect.objectContaining({
-              changes: expect.objectContaining({
-                phone: { old: "123456789", new: "987654321" },
-              }),
-            }),
-          })
-        );
-      });
-
-      it("should emit socket update after profile edit", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          phone: "987654321",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(socketService.emitUserUpdate).toHaveBeenCalledWith(
-          "targetUser123",
-          expect.objectContaining({
-            type: "profile_edited",
-            user: expect.objectContaining({
-              id: "targetUser123",
-              username: "targetuser",
-              email: "target@test.com",
-            }),
-          })
-        );
-      });
-
-      it("should invalidate user cache", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          phone: "987654321",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
-          "targetUser123"
-        );
-      });
-
-      it("should return updated user data", async () => {
-        const updatedUser = {
-          ...mockTargetUser,
-          _id: "targetUser123",
-          avatar: "/new-avatar.jpg",
-          phone: "987654321",
-          isAtCloudLeader: true,
-          roleInAtCloud: "Developer",
-        };
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(updatedUser);
-        mockReq.body = {
-          avatar: "/new-avatar.jpg",
-          phone: "987654321",
-          isAtCloudLeader: true,
-          roleInAtCloud: "Developer",
-        };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: true,
-          message: "Profile updated successfully by admin.",
-          data: {
-            id: "targetUser123",
-            avatar: "/new-avatar.jpg",
-            phone: "987654321",
-            isAtCloudLeader: true,
-            roleInAtCloud: "Developer",
-          },
-        });
-      });
+    expect(target.save).toHaveBeenCalledOnce();
+    expect(target).toMatchObject({
+      phone: "+14155552671",
+      birthYear: 1988,
+      residenceCity: "San José",
+      residenceRegion: "CA-ON",
+      residenceCountryCode: "CA",
+      employmentStatus: "employed",
+      company: "Example Company",
+      occupation: "Product Manager",
+      homeAddress: undefined,
     });
+    expect(status).toHaveBeenCalledWith(200);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          phone: "+14155552671",
+          birthYear: 1988,
+          residenceCity: "San José",
+          residenceRegion: "CA-ON",
+          residenceCountryCode: "CA",
+          employmentStatus: "employed",
+          company: "Example Company",
+          occupation: "Product Manager",
+        }),
+      }),
+    );
+  });
 
-    describe("Error Handling", () => {
-      it("should return 404 if update fails", async () => {
-        vi.mocked(User.findById).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          avatar: null,
-          phone: null,
-        });
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue(null);
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(404);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          message: "Failed to update user.",
-        });
-      });
-
-      it("should return 500 on database error", async () => {
-        vi.mocked(User.findById).mockRejectedValue(new Error("Database error"));
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(500);
-        expect(jsonMock).toHaveBeenCalledWith({
-          success: false,
-          error: "Failed to update user profile",
-        });
-        expect(consoleErrorSpy).toHaveBeenCalled();
-      });
-
-      it("should not fail if audit log creation fails", async () => {
-        vi.mocked(User.findById).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          username: "targetuser",
-          firstName: "Target",
-          lastName: "User",
-          role: "Participant",
-          avatar: null,
-          phone: "123456789",
-          isActive: true,
-        });
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          username: "targetuser",
-          firstName: "Target",
-          lastName: "User",
-          role: "Participant",
-          avatar: null,
-          phone: "987654321",
-          isActive: true,
-        });
-        vi.mocked(AuditLog.create).mockRejectedValue(new Error("Audit failed"));
-        mockReq.body = { phone: "987654321" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(200);
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-          "Failed to create audit log for admin profile edit:",
-          expect.any(Error)
-        );
-      });
-
-      it("should handle avatar cleanup failure gracefully", async () => {
-        vi.mocked(User.findById).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          username: "targetuser",
-          firstName: "Target",
-          lastName: "User",
-          role: "Participant",
-          avatar: "/old-avatar.jpg",
-          phone: null,
-          isActive: true,
-        });
-        vi.mocked(User.findByIdAndUpdate).mockResolvedValue({
-          _id: "targetUser123",
-          email: "target@test.com",
-          username: "targetuser",
-          firstName: "Target",
-          lastName: "User",
-          role: "Participant",
-          avatar: "/new-avatar.jpg",
-          phone: null,
-          isActive: true,
-        });
-        vi.mocked(cleanupOldAvatar).mockRejectedValue(
-          new Error("Cleanup failed")
-        );
-        mockReq.body = { avatar: "/new-avatar.jpg" };
-
-        await AdminProfileEditController.adminEditProfile(
-          mockReq as unknown as Request,
-          mockRes as Response
-        );
-
-        // Wait for async cleanup failure - use vi.waitFor for proper async handling
-        await vi.waitFor(
-          () => {
-            expect(consoleErrorSpy).toHaveBeenCalledWith(
-              "Failed to cleanup old avatar during admin edit:",
-              expect.any(Error)
-            );
-          },
-          { timeout: 100 }
-        );
-
-        expect(statusMock).toHaveBeenCalledWith(200);
-      });
+  it("merges a partial profile edit with persisted values", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = { residenceCity: " Bellevue " };
+    await invoke();
+    expect(target).toMatchObject({
+      ...BASE_PROFILE,
+      residenceCity: "Bellevue",
+      homeAddress: undefined,
     });
+    expect(target.save).toHaveBeenCalledOnce();
+  });
+
+  it("keeps legacy incomplete accounts editable for unrelated fields", async () => {
+    const target = hydratedUser({
+      birthYear: undefined,
+      phone: undefined,
+      homeAddress: "Legacy address",
+    });
+    mockFindById(target);
+    req.body = { avatar: "/new-avatar.jpg" };
+    await invoke();
+    expect(target.avatar).toBe("/new-avatar.jpg");
+    expect(target.homeAddress).toBe("Legacy address");
+    expect(target.save).toHaveBeenCalledOnce();
+  });
+
+  it("clears roleInAtCloud when co-worker status is disabled", async () => {
+    const target = hydratedUser({
+      isAtCloudLeader: true,
+      roleInAtCloud: "Developer",
+    });
+    mockFindById(target);
+    req.body = { isAtCloudLeader: false };
+    await invoke();
+    expect(target.isAtCloudLeader).toBe(false);
+    expect(target.roleInAtCloud).toBeUndefined();
+  });
+
+  it("audits canonical changes and cleans a replaced avatar", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = { avatar: "/new-avatar.jpg", phone: " +14155552671 " };
+    await invoke();
+
+    await vi.waitFor(() =>
+      expect(cleanupOldAvatar).toHaveBeenCalledWith(
+        "targetUser123",
+        "/old-avatar.jpg",
+      ),
+    );
+    expect(AuditLogService.recordRequiredInTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "admin_profile_edit",
+        target: { model: "User", id: "targetUser123" },
+        details: {
+          changedFields: expect.arrayContaining(["phone", "avatar", "homeAddress"]),
+        },
+      }),
+      TRANSACTION_SESSION,
+    );
+    expect(
+      JSON.stringify(
+        vi.mocked(AuditLogService.recordRequiredInTransaction).mock.calls[0][0],
+      ),
+    )
+      .not.toContain("target@test.com");
+    expect(
+      JSON.stringify(
+        vi.mocked(AuditLogService.recordRequiredInTransaction).mock.calls[0][0],
+      ),
+    )
+      .not.toContain("+14155552671");
+  });
+
+  it("keeps new raw structured private values off sockets", async () => {
+    const target = hydratedUser();
+    mockFindById(target);
+    req.body = {
+      birthYear: 1988,
+      residenceCity: "Bellevue",
+      company: "New Company",
+    };
+    await invoke();
+
+    const socketPayload = vi.mocked(socketService.emitUserUpdate).mock
+      .calls[0][1];
+    expect(socketPayload).toMatchObject({
+      type: "profile_edited",
+      changes: { birthYear: true, residenceCity: true, company: true },
+    });
+    expect(socketPayload.user).not.toHaveProperty("birthYear");
+    expect(socketPayload.user).not.toHaveProperty("residenceCity");
+    expect(socketPayload.user).not.toHaveProperty("company");
+    expect(CachePatterns.invalidateUserCache).toHaveBeenCalledWith(
+      "targetUser123",
+    );
+  });
+
+  it("returns schema validation failures as 400", async () => {
+    const target = hydratedUser();
+    target.save.mockRejectedValue({
+      name: "ValidationError",
+      errors: { phone: { message: "invalid phone" } },
+    });
+    mockFindById(target);
+    req.body = { avatar: "/new-avatar.jpg" };
+    await invoke();
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      message: "Validation failed.",
+      errors: ["invalid phone"],
+    });
+  });
+
+  it("fails the transaction when the required audit write fails", async () => {
+    mockFindById(hydratedUser());
+    vi.mocked(
+      AuditLogService.recordRequiredInTransaction,
+    ).mockRejectedValue(new Error("audit unavailable"));
+    req.body = { avatar: "/new-avatar.jpg" };
+    await invoke();
+    expect(status).toHaveBeenCalledWith(500);
+    expect(
+      AuditLogService.recordRequiredInTransaction,
+    ).toHaveBeenCalledOnce();
+    expect(CachePatterns.invalidateUserCache).not.toHaveBeenCalled();
+    expect(socketService.emitUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 for an unexpected database failure", async () => {
+    vi.mocked(User.findById).mockImplementation(() => {
+      throw new Error("database failed");
+    });
+    await invoke();
+    expect(status).toHaveBeenCalledWith(500);
   });
 });

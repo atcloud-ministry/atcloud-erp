@@ -52,7 +52,7 @@ describe("Short Links stale cached entry eviction", () => {
     ShortLinkTestHooks.clearCache();
   });
 
-  it("resolves link as active even after cache expiry is forced", async () => {
+  it("resolves a stale-cached link as active even when the DB record is expired", async () => {
     const { headers } = await authHeaders();
     const event = await createPublishedEvent();
     // Create short link (active)

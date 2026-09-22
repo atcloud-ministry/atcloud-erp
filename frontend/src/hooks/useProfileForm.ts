@@ -1,14 +1,56 @@
-import { useState, useEffect } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useState, useEffect, useCallback } from "react";
+import { yupResolver } from "@hookform/resolvers/yup";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { useAuth } from "./useAuth";
 import { userService, fileService } from "../services/api";
-import type { ProfileFormData } from "../schemas/profileSchema";
+import {
+  profileEditSchema,
+  type ProfileFormData,
+} from "../schemas/profileSchema";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
 import { formatFileSize } from "../utils/imageCompression";
 import { getAvatarUrlWithCacheBust } from "../utils/avatarUtils";
 import type { AuthUser } from "../types";
+import {
+  hasRegistrationProfileFieldChanges,
+  getDefaultPhoneCountry,
+  isRegistrationProfileComplete,
+  prepareRegistrationProfileSubmission,
+} from "../utils/registrationProfile";
 
-export function useProfileForm() {
+function profileFormValues(user: AuthUser | null): ProfileFormData {
+  return {
+    firstName: user?.firstName ?? "",
+    lastName: user?.lastName ?? "",
+    username: user?.username ?? "",
+    email: user?.email ?? "",
+    gender: user?.gender ?? "",
+    phone: user?.phone ?? "",
+    phoneCountryCode: getDefaultPhoneCountry(
+      user?.phone,
+      user?.residenceCountryCode,
+    ),
+    birthYear: user?.birthYear ?? "",
+    residenceCity: user?.residenceCity ?? "",
+    residenceRegion: user?.residenceRegion ?? "",
+    residenceCountryCode: user?.residenceCountryCode ?? "",
+    employmentStatus: user?.employmentStatus ?? "",
+    isAtCloudLeader: user?.isAtCloudLeader ?? "No",
+    roleInAtCloud: user?.roleInAtCloud ?? "",
+    occupation: user?.occupation ?? "",
+    company: user?.company ?? "",
+    weeklyChurch: user?.weeklyChurch ?? "",
+    churchAddress: user?.churchAddress ?? "",
+  } as ProfileFormData;
+}
+
+interface UseProfileFormOptions {
+  forceRegistrationProfileCompletion?: boolean;
+}
+
+export function useProfileForm({
+  forceRegistrationProfileCompletion = false,
+}: UseProfileFormOptions = {}) {
   const { currentUser, updateUser } = useAuth();
   const notification = useToastReplacement();
   const [isEditing, setIsEditing] = useState(false);
@@ -18,43 +60,12 @@ export function useProfileForm() {
   );
   const [loading, setLoading] = useState(false);
 
-  // Convert AuthUser to ProfileFormData format
-  const userData: ProfileFormData = currentUser
-    ? {
-        firstName: currentUser.firstName,
-        lastName: currentUser.lastName,
-        username: currentUser.username,
-        email: currentUser.email,
-        gender: currentUser.gender,
-        phone: currentUser.phone || "",
-        isAtCloudLeader: currentUser.isAtCloudLeader, // Already string ("Yes" or "No")
-        roleInAtCloud: currentUser.roleInAtCloud || "",
-        homeAddress: currentUser.homeAddress || "",
-        occupation: currentUser.occupation || "",
-        company: currentUser.company || "",
-        weeklyChurch: currentUser.weeklyChurch || "",
-        churchAddress: currentUser.churchAddress || "",
-      }
-    : {
-        firstName: "",
-        lastName: "",
-        username: "",
-        email: "",
-        // Start empty so the placeholder is selected by default until user chooses
-        gender: "" as unknown as ProfileFormData["gender"],
-        phone: "",
-        isAtCloudLeader: "No",
-        roleInAtCloud: "",
-        homeAddress: "",
-        occupation: "",
-        company: "",
-        weeklyChurch: "",
-        churchAddress: "",
-      };
+  const userData = profileFormValues(currentUser);
 
   const form = useForm<ProfileFormData>({
     defaultValues: userData,
     mode: "onChange",
+    resolver: yupResolver(profileEditSchema) as unknown as Resolver<ProfileFormData>,
   });
 
   const { reset, control } = form;
@@ -63,24 +74,7 @@ export function useProfileForm() {
   // Update form when currentUser changes. 'reset' is stable per RHF docs.
   useEffect(() => {
     if (currentUser) {
-      const newData: ProfileFormData = {
-        firstName: currentUser.firstName,
-        lastName: currentUser.lastName,
-        username: currentUser.username,
-        email: currentUser.email,
-        gender:
-          (currentUser.gender as unknown as ProfileFormData["gender"]) ?? "",
-        phone: currentUser.phone || "",
-        isAtCloudLeader: currentUser.isAtCloudLeader,
-        roleInAtCloud: currentUser.roleInAtCloud || "",
-        homeAddress: currentUser.homeAddress || "",
-        occupation: currentUser.occupation || "",
-        company: currentUser.company || "",
-        weeklyChurch: currentUser.weeklyChurch || "",
-        churchAddress: currentUser.churchAddress || "",
-      };
-
-      reset(newData);
+      reset(profileFormValues(currentUser));
     }
   }, [currentUser, reset]);
 
@@ -91,9 +85,9 @@ export function useProfileForm() {
     }
   }, [currentUser?.avatar]);
 
-  const handleEdit = () => {
+  const handleEdit = useCallback(() => {
     setIsEditing(true);
-  };
+  }, []);
 
   const handleCancel = () => {
     setIsEditing(false);
@@ -151,6 +145,32 @@ export function useProfileForm() {
   const onSubmit = async (data: ProfileFormData) => {
     if (!currentUser) return;
 
+    const shouldSubmitRegistrationProfile =
+      forceRegistrationProfileCompletion ||
+      isRegistrationProfileComplete(currentUser) ||
+      hasRegistrationProfileFieldChanges(data, userData);
+    const registrationProfile = shouldSubmitRegistrationProfile
+      ? prepareRegistrationProfileSubmission(data)
+      : null;
+
+    if (registrationProfile && !registrationProfile.success) {
+      for (const issue of registrationProfile.issues) {
+        form.setError(issue.field, {
+          type: "validate",
+          message: issue.message,
+        });
+      }
+      notification.error(
+        registrationProfile.issues.find((issue) => issue.field === "phone")
+          ?.message ??
+          "Please complete the required contact, residence, and employment fields.",
+        { title: "Profile Incomplete" },
+      );
+      return;
+    }
+    const canonicalRegistrationProfile =
+      registrationProfile?.success === true ? registrationProfile.value : null;
+
     setLoading(true);
     try {
       let avatarUrl = currentUser.avatar;
@@ -166,9 +186,17 @@ export function useProfileForm() {
 
       // Transform data for backend API
       const apiData = {
-        ...data,
-        // Convert isAtCloudLeader from "Yes"/"No" string to boolean
+        username: data.username,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        gender: data.gender,
+        ...(canonicalRegistrationProfile ?? {}),
         isAtCloudLeader: data.isAtCloudLeader === "Yes",
+        roleInAtCloud:
+          data.isAtCloudLeader === "Yes" ? data.roleInAtCloud : "",
+        weeklyChurch: data.weeklyChurch,
+        churchAddress: data.churchAddress,
       };
 
       // Update user profile via backend API
@@ -186,9 +214,39 @@ export function useProfileForm() {
         firstName: updatedUser.firstName ?? currentUser.firstName,
         lastName: updatedUser.lastName ?? currentUser.lastName,
         email: updatedUser.email ?? currentUser.email,
-        phone: updatedUser.phone ?? currentUser.phone,
+        phone:
+          updatedUser.phone ??
+          canonicalRegistrationProfile?.phone ??
+          currentUser.phone,
+        birthYear:
+          updatedUser.birthYear ??
+          canonicalRegistrationProfile?.birthYear ??
+          currentUser.birthYear,
+        residenceCity:
+          updatedUser.residenceCity ??
+          canonicalRegistrationProfile?.residenceCity ??
+          currentUser.residenceCity,
+        residenceRegion:
+          updatedUser.residenceRegion === undefined
+            ? canonicalRegistrationProfile
+              ? canonicalRegistrationProfile.residenceRegion
+              : currentUser.residenceRegion
+            : updatedUser.residenceRegion,
+        residenceCountryCode:
+          updatedUser.residenceCountryCode ??
+          canonicalRegistrationProfile?.residenceCountryCode ??
+          currentUser.residenceCountryCode,
+        employmentStatus:
+          updatedUser.employmentStatus ??
+          canonicalRegistrationProfile?.employmentStatus ??
+          currentUser.employmentStatus,
         role: (updatedUser.role as AuthUser["role"]) ?? currentUser.role,
-        isAtCloudLeader: updatedUser.isAtCloudLeader ? "Yes" : "No",
+        isAtCloudLeader:
+          updatedUser.isAtCloudLeader === undefined
+            ? currentUser.isAtCloudLeader
+            : updatedUser.isAtCloudLeader
+              ? "Yes"
+              : "No",
         roleInAtCloud:
           updatedUser.roleInAtCloud ??
           (data.isAtCloudLeader === "Yes" ? data.roleInAtCloud : ""),
@@ -196,38 +254,33 @@ export function useProfileForm() {
         avatar: finalAvatar,
         weeklyChurch: updatedUser.weeklyChurch ?? currentUser.weeklyChurch,
         churchAddress: updatedUser.churchAddress ?? currentUser.churchAddress,
-        homeAddress: updatedUser.homeAddress ?? currentUser.homeAddress,
-        occupation: updatedUser.occupation ?? currentUser.occupation,
-        company: updatedUser.company ?? currentUser.company,
+        homeAddress: canonicalRegistrationProfile
+          ? undefined
+          : updatedUser.homeAddress ?? currentUser.homeAddress,
+        occupation:
+          updatedUser.occupation === undefined
+            ? canonicalRegistrationProfile
+              ? canonicalRegistrationProfile.occupation
+              : currentUser.occupation
+            : updatedUser.occupation,
+        company:
+          updatedUser.company === undefined
+            ? canonicalRegistrationProfile
+              ? canonicalRegistrationProfile.company
+              : currentUser.company
+            : updatedUser.company,
       };
 
       // Update auth context with normalized values
       updateUser(normalizedPatch);
 
       // Also immediately sync the form values so UI reflects changes without waiting
-      const newFormValues: ProfileFormData = {
-        firstName: normalizedPatch.firstName || currentUser.firstName,
-        lastName: normalizedPatch.lastName || currentUser.lastName,
-        username: normalizedPatch.username || currentUser.username,
-        email: normalizedPatch.email || currentUser.email,
-        gender:
-          (normalizedPatch.gender as "male" | "female") || currentUser.gender,
-        phone: normalizedPatch.phone || currentUser.phone || "",
-        isAtCloudLeader:
-          normalizedPatch.isAtCloudLeader || currentUser.isAtCloudLeader,
-        roleInAtCloud:
-          normalizedPatch.roleInAtCloud ||
-          (data.isAtCloudLeader === "Yes" ? data.roleInAtCloud || "" : ""),
-        homeAddress:
-          normalizedPatch.homeAddress || currentUser.homeAddress || "",
-        occupation: normalizedPatch.occupation || currentUser.occupation || "",
-        company: normalizedPatch.company || currentUser.company || "",
-        weeklyChurch:
-          normalizedPatch.weeklyChurch || currentUser.weeklyChurch || "",
-        churchAddress:
-          normalizedPatch.churchAddress || currentUser.churchAddress || "",
-      };
-      reset(newFormValues);
+      reset(
+        profileFormValues({
+          ...currentUser,
+          ...normalizedPatch,
+        }),
+      );
 
       setIsEditing(false);
       setSelectedAvatarFile(null); // Clear selected file

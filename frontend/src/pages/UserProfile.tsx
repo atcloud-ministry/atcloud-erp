@@ -2,59 +2,88 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { PageHeader, Card, CardContent, Button } from "../components/ui";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { userService } from "../services/api";
+import { useCallback, useEffect, useState } from "react";
+import { yupResolver } from "@hookform/resolvers/yup";
+import { useForm, type Resolver } from "react-hook-form";
+import {
+  adminUsersService,
+  communityMembersService,
+  type AdminUserDTO,
+  type CommunityMemberDTO,
+} from "../services/api";
 import { getAvatarUrlWithCacheBust, getAvatarAlt } from "../utils/avatarUtils";
 import { useToastReplacement } from "../contexts/NotificationModalContext";
 import { safeFormatDate } from "../utils/eventStatsUtils";
 import { useAdminProfileEdit } from "../hooks/useAdminProfileEdit";
 import AvatarUpload from "../components/profile/AvatarUpload";
-type ProfileUser = {
-  id: string;
-  username: string;
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  role: string;
-  avatar?: string | null;
-  gender?: "male" | "female" | null;
-  phone?: string | null;
-  // Extended profile fields used in UI (optional from backend)
-  isAtCloudLeader?: boolean | null;
-  roleInAtCloud?: string | null;
-  homeAddress?: string | null;
-  occupation?: string | null;
-  company?: string | null;
-  weeklyChurch?: string | null;
-  churchAddress?: string | null;
-  createdAt?: string | null;
-};
+import {
+  BirthYearField,
+  EmploymentFields,
+  PhoneNumberFields,
+  ResidenceFields,
+} from "../components/forms/RegistrationProfileFields";
+import {
+  adminProfileEditSchema,
+  type AdminProfileFormData,
+} from "../schemas/profileSchema";
+import {
+  hasRegistrationProfileFieldChanges,
+  getDefaultPhoneCountry,
+  isRegistrationProfileComplete,
+  prepareRegistrationProfileSubmission,
+} from "../utils/registrationProfile";
+
+type ProfileRead =
+  | { scope: "admin"; user: AdminUserDTO }
+  | { scope: "community"; user: CommunityMemberDTO };
+
+function adminProfileFormValues(
+  user?: AdminUserDTO,
+): AdminProfileFormData {
+  return {
+    phone: user?.phone ?? "",
+    phoneCountryCode:
+      getDefaultPhoneCountry(user?.phone, user?.residenceCountryCode),
+    birthYear: user?.birthYear ?? "",
+    residenceCity: user?.residenceCity ?? "",
+    residenceRegion: user?.residenceRegion ?? "",
+    residenceCountryCode: user?.residenceCountryCode ?? "",
+    employmentStatus: user?.employmentStatus ?? "",
+    company: user?.company ?? "",
+    occupation: user?.occupation ?? "",
+    isAtCloudLeader: user?.isAtCloudLeader ?? false,
+    roleInAtCloud: user?.roleInAtCloud ?? "",
+  } as AdminProfileFormData;
+}
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const {
+    currentUser,
+    isLoading: authLoading,
+    canManageUsers,
+  } = useAuth();
   const notification = useToastReplacement();
-  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [profile, setProfile] = useState<ProfileRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [editFormData, setEditFormData] = useState({
-    avatar: "",
-    phone: "",
-    isAtCloudLeader: false,
-    roleInAtCloud: "",
+  const adminForm = useForm<AdminProfileFormData>({
+    defaultValues: adminProfileFormValues(),
+    mode: "onChange",
+    resolver: yupResolver(adminProfileEditSchema) as unknown as Resolver<AdminProfileFormData>,
   });
+  const { reset: resetAdminForm } = adminForm;
 
   // Check if current user can edit this profile
-  const canEdit =
-    currentUser?.role === "Super Admin" ||
-    currentUser?.role === "Administrator";
+  const canEdit = canManageUsers;
 
   // Check if the current user is viewing their own profile
   const isOwnProfile = currentUser?.id === userId;
 
   // Fetch profile data function (to be called on mount and after save)
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
+    if (authLoading) return;
     if (!userId) {
       setNotFound(true);
       setLoading(false);
@@ -69,23 +98,25 @@ export default function UserProfile() {
 
     try {
       setLoading(true);
-      const fetchedUser = (await userService.getUser(
-        userId
-      )) as unknown as ProfileUser;
+      const fetchedUser = canEdit
+        ? await adminUsersService.get(userId)
+        : await communityMembersService.get(userId);
 
       if (!fetchedUser) {
         setNotFound(true);
         return;
       }
 
-      setProfileUser(fetchedUser);
-      // Initialize edit form data
-      setEditFormData({
-        avatar: fetchedUser.avatar || "",
-        phone: fetchedUser.phone || "",
-        isAtCloudLeader: fetchedUser.isAtCloudLeader || false,
-        roleInAtCloud: fetchedUser.roleInAtCloud || "",
-      });
+      if (canEdit) {
+        const adminUser = fetchedUser as AdminUserDTO;
+        setProfile({ scope: "admin", user: adminUser });
+        resetAdminForm(adminProfileFormValues(adminUser));
+      } else {
+        setProfile({
+          scope: "community",
+          user: fetchedUser as CommunityMemberDTO,
+        });
+      }
       setNotFound(false);
     } catch (error: unknown) {
       console.error("UserProfile: Error fetching user", error);
@@ -106,7 +137,15 @@ export default function UserProfile() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    authLoading,
+    canEdit,
+    isOwnProfile,
+    navigate,
+    notification,
+    resetAdminForm,
+    userId,
+  ]);
 
   // Use the admin profile edit hook
   const {
@@ -118,11 +157,54 @@ export default function UserProfile() {
     handleSave,
   } = useAdminProfileEdit(userId || "", fetchProfile);
 
+  const handleAdminEditToggle = () => {
+    if (profile?.scope === "admin") {
+      resetAdminForm(adminProfileFormValues(profile.user));
+    }
+    handleEditToggle();
+  };
+
+  const submitAdminProfile = adminForm.handleSubmit(async (data) => {
+    if (profile?.scope !== "admin") return;
+
+    const persistedValues = adminProfileFormValues(profile.user);
+    const shouldSubmitRegistrationProfile =
+      isRegistrationProfileComplete(profile.user) ||
+      hasRegistrationProfileFieldChanges(data, persistedValues);
+    const registrationProfile = shouldSubmitRegistrationProfile
+      ? prepareRegistrationProfileSubmission(data)
+      : null;
+
+    if (registrationProfile && !registrationProfile.success) {
+      for (const issue of registrationProfile.issues) {
+        adminForm.setError(issue.field, {
+          type: "validate",
+          message: issue.message,
+        });
+      }
+      notification.error(
+        registrationProfile.issues.find((issue) => issue.field === "phone")
+          ?.message ??
+          "Please complete the required contact, residence, and employment fields.",
+        { title: "Profile Incomplete" },
+      );
+      return;
+    }
+    const canonicalRegistrationProfile =
+      registrationProfile?.success === true ? registrationProfile.value : null;
+
+    await handleSave({
+      avatar: profile.user.avatar ?? "",
+      ...(canonicalRegistrationProfile ?? {}),
+      isAtCloudLeader: data.isAtCloudLeader,
+      roleInAtCloud: data.isAtCloudLeader ? data.roleInAtCloud : "",
+    });
+  });
+
   // Single useEffect to handle all logic
   useEffect(() => {
     fetchProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [fetchProfile]);
 
   // Loading state
   if (loading) {
@@ -144,7 +226,7 @@ export default function UserProfile() {
   }
 
   // If user is not found, show error
-  if (notFound || !profileUser) {
+  if (notFound || !profile) {
     return (
       <div className="max-w-6xl mx-auto space-y-6">
         <PageHeader title="User Not Found" />
@@ -154,10 +236,14 @@ export default function UserProfile() {
               The user profile you're looking for doesn't exist.
             </p>
             <Link
-              to="/dashboard/management"
+              to={
+                canEdit
+                  ? "/dashboard/admin/users"
+                  : "/dashboard/community/members"
+              }
               className="text-blue-600 hover:text-blue-800 mt-4 inline-block"
             >
-              ← Back to Management
+              ← Back to {canEdit ? "Administration" : "Community"}
             </Link>
           </CardContent>
         </Card>
@@ -165,13 +251,75 @@ export default function UserProfile() {
     );
   }
 
+  if (profile.scope === "community") {
+    const member = profile.user;
+    const fullName =
+      `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim() ||
+      member.username;
+
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto">
+        <PageHeader title={`${fullName}'s Profile`} />
+        <Card>
+          <CardContent>
+            <div className="flex flex-col items-center gap-5 py-4 text-center">
+              <img
+                className="w-32 h-32 rounded-full object-cover"
+                src={getAvatarUrlWithCacheBust(
+                  member.avatar,
+                  member.gender ?? "male",
+                )}
+                alt={getAvatarAlt(
+                  member.firstName ?? "",
+                  member.lastName ?? "",
+                  Boolean(member.avatar),
+                )}
+              />
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {fullName}
+                </h2>
+                <p className="text-sm text-gray-500">@{member.username}</p>
+              </div>
+              {member.roleInAtCloud && (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Role in @Cloud
+                  </p>
+                  <p className="mt-1 text-sm text-gray-900">
+                    {member.roleInAtCloud}
+                  </p>
+                </div>
+              )}
+              <Link
+                to="/dashboard/community/members"
+                className="text-blue-600 hover:text-blue-800"
+              >
+                ← Back to Community
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const profileUser = profile.user;
+  const {
+    register: registerAdminField,
+    watch: watchAdminField,
+    setValue: setAdminValue,
+    formState: { errors: adminErrors },
+  } = adminForm;
+  const adminIsAtCloudLeader = watchAdminField("isAtCloudLeader");
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <PageHeader
         title={`${profileUser.firstName} ${profileUser.lastName}'s Profile`}
         action={
           canEdit && !isEditMode ? (
-            <Button onClick={handleEditToggle} variant="primary">
+            <Button onClick={handleAdminEditToggle} variant="primary">
               Edit Profile
             </Button>
           ) : undefined
@@ -181,7 +329,7 @@ export default function UserProfile() {
       {/* Profile Form - Same layout as Profile.tsx */}
       <Card>
         <CardContent>
-          <div className="space-y-6">
+          <form onSubmit={submitAdminProfile} noValidate className="space-y-6">
             {/* Avatar and Form Layout - Same as Profile.tsx */}
             <div className="flex flex-col lg:flex-row lg:space-x-8 space-y-6 lg:space-y-0">
               {/* Avatar Section - Left Side */}
@@ -275,34 +423,6 @@ export default function UserProfile() {
                   </div>
 
                   <div>
-                    <label
-                      htmlFor="user-phone"
-                      className="block text-sm font-medium text-gray-700 mb-1"
-                    >
-                      Phone
-                    </label>
-                    {isEditMode ? (
-                      <input
-                        id="user-phone"
-                        type="tel"
-                        value={editFormData.phone}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            phone: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter phone number"
-                      />
-                    ) : (
-                      <div className="text-sm text-gray-900 bg-gray-50 px-3 py-2 rounded-md">
-                        {profileUser.phone || "Not provided"}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Gender
                     </label>
@@ -311,7 +431,51 @@ export default function UserProfile() {
                     </div>
                   </div>
 
-                  <div>
+                  <div className="md:col-span-2 border-t pt-6">
+                    <h3 className="mb-4 text-sm font-semibold text-gray-900">
+                      Contact and Personal Details
+                    </h3>
+                    <div className="space-y-4">
+                      <PhoneNumberFields
+                        register={registerAdminField}
+                        errors={adminErrors}
+                        disabled={!isEditMode}
+                      />
+                      <BirthYearField
+                        register={registerAdminField}
+                        errors={adminErrors}
+                        disabled={!isEditMode}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 border-t pt-6">
+                    <h3 className="mb-4 text-sm font-semibold text-gray-900">
+                      Residence
+                    </h3>
+                    <ResidenceFields
+                      register={registerAdminField}
+                      errors={adminErrors}
+                      watch={watchAdminField}
+                      setValue={setAdminValue}
+                      disabled={!isEditMode}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 border-t pt-6">
+                    <h3 className="mb-4 text-sm font-semibold text-gray-900">
+                      Employment
+                    </h3>
+                    <EmploymentFields
+                      register={registerAdminField}
+                      errors={adminErrors}
+                      watch={watchAdminField}
+                      setValue={setAdminValue}
+                      disabled={!isEditMode}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 border-t pt-6">
                     <label
                       htmlFor="user-atcloud-coworker"
                       className="block text-sm font-medium text-gray-700 mb-1"
@@ -324,17 +488,7 @@ export default function UserProfile() {
                           <input
                             id="user-atcloud-coworker"
                             type="checkbox"
-                            checked={editFormData.isAtCloudLeader}
-                            onChange={(e) =>
-                              setEditFormData({
-                                ...editFormData,
-                                isAtCloudLeader: e.target.checked,
-                                // Clear role if unchecking
-                                roleInAtCloud: e.target.checked
-                                  ? editFormData.roleInAtCloud
-                                  : "",
-                              })
-                            }
+                            {...registerAdminField("isAtCloudLeader")}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
                           <span className="ml-2 text-sm text-gray-700">
@@ -350,7 +504,7 @@ export default function UserProfile() {
                   </div>
 
                   {(isEditMode
-                    ? editFormData.isAtCloudLeader
+                    ? adminIsAtCloudLeader
                     : profileUser.isAtCloudLeader) && (
                     <div className="md:col-span-2">
                       <label
@@ -364,51 +518,24 @@ export default function UserProfile() {
                         <input
                           id="user-role-in-atcloud"
                           type="text"
-                          value={editFormData.roleInAtCloud}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              roleInAtCloud: e.target.value,
-                            })
-                          }
+                          {...registerAdminField("roleInAtCloud")}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Enter role in @Cloud"
-                          required={editFormData.isAtCloudLeader}
+                          required={adminIsAtCloudLeader}
+                          aria-invalid={Boolean(adminErrors.roleInAtCloud)}
                         />
                       ) : (
                         <div className="text-sm text-gray-900 bg-gray-50 px-3 py-2 rounded-md">
                           {profileUser.roleInAtCloud}
                         </div>
                       )}
+                      {adminErrors.roleInAtCloud && (
+                        <p className="mt-1 text-sm text-red-600">
+                          {adminErrors.roleInAtCloud.message}
+                        </p>
+                      )}
                     </div>
                   )}
-
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Home Address
-                    </label>
-                    <div className="text-sm text-gray-900 bg-gray-50 px-3 py-2 rounded-md">
-                      {profileUser.homeAddress || "Not provided"}
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Occupation
-                    </label>
-                    <div className="text-sm text-gray-900 bg-gray-50 px-3 py-2 rounded-md">
-                      {profileUser.occupation || "Not provided"}
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Company
-                    </label>
-                    <div className="text-sm text-gray-900 bg-gray-50 px-3 py-2 rounded-md">
-                      {profileUser.company || "Not provided"}
-                    </div>
-                  </div>
 
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -434,28 +561,14 @@ export default function UserProfile() {
                   <div className="flex justify-end gap-3 mt-6 pt-6 border-t">
                     <Button
                       type="button"
-                      onClick={handleEditToggle}
+                      onClick={handleAdminEditToggle}
                       disabled={isSaving}
                       className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                       Cancel
                     </Button>
                     <Button
-                      type="button"
-                      onClick={() => {
-                        // Validate: roleInAtCloud is required if isAtCloudLeader is true
-                        if (
-                          editFormData.isAtCloudLeader &&
-                          !editFormData.roleInAtCloud?.trim()
-                        ) {
-                          alert(
-                            "Role in @Cloud is required when user is marked as @Cloud Co-worker"
-                          );
-                          return;
-                        }
-
-                        handleSave(editFormData);
-                      }}
+                      type="submit"
                       disabled={isSaving}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
@@ -478,8 +591,7 @@ export default function UserProfile() {
                     <span className="font-medium">{profileUser.role}</span>
                   </p>
                   {/* Show Database ID only to Super Admin and Administrator */}
-                  {(currentUser?.role === "Super Admin" ||
-                    currentUser?.role === "Administrator") && (
+                  {canManageUsers && (
                     <p className="text-sm text-gray-600">
                       Database ID:{" "}
                       <span className="font-mono text-xs font-medium bg-gray-200 px-2 py-1 rounded">
@@ -498,7 +610,7 @@ export default function UserProfile() {
                 </div>
               </div>
             </div>
-          </div>
+          </form>
         </CardContent>
       </Card>
     </div>

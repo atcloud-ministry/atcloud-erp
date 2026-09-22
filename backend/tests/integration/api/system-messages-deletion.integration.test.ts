@@ -25,6 +25,7 @@ import app from "../../../src/app";
 import User from "../../../src/models/User";
 import Message from "../../../src/models/Message";
 import { socketService } from "../../../src/services/infrastructure/SocketService";
+import { CachePatterns } from "../../../src/services/infrastructure/CacheService";
 
 describe("System Messages Deletion Integration Tests", () => {
   let authToken: string;
@@ -298,8 +299,10 @@ describe("System Messages Deletion Integration Tests", () => {
       ).toBe(false);
     });
 
-    it("should handle empty user states", async () => {
-      // Create message with no user states
+    it("should conceal a message from a non-recipient without creating state", async () => {
+      const invalidateSpy = vi
+        .spyOn(CachePatterns, "invalidateUserCache")
+        .mockResolvedValue(undefined);
       const emptyStateMessage = await Message.create({
         type: "announcement",
         title: "Empty State Message",
@@ -320,9 +323,19 @@ describe("System Messages Deletion Integration Tests", () => {
       const response = await request(app)
         .delete(`/api/notifications/system/${emptyStateMessage._id.toString()}`)
         .set("Authorization", `Bearer ${authToken}`)
-        .expect(200);
+        .expect(404);
 
-      expect(response.body.success).toBe(true);
+      expect(response.body).toEqual({
+        success: false,
+        message: "Message not found",
+      });
+      const unchangedMessage = await Message.findById(emptyStateMessage._id);
+      expect(unchangedMessage?.userStates.has(userId)).toBe(false);
+      expect(invalidateSpy).not.toHaveBeenCalled();
+      expect(socketService.emitSystemMessageUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitBellNotificationUpdate).not.toHaveBeenCalled();
+      expect(socketService.emitUnreadCountUpdate).not.toHaveBeenCalled();
+      invalidateSpy.mockRestore();
     });
   });
 

@@ -40,7 +40,7 @@ export default function MessageListHeader({
           </div>
         </div>
 
-        {/* Create Button - Available to Super Admin, Administrator, and Leader only */}
+        {/* Create Button - Available to Super Admin and Administrator only */}
         {hasCreatePermission && (
           <button
             onClick={onCreateClick}

@@ -6,6 +6,7 @@ import {
   normalizeSearchText,
   toLiteralTextSearch,
 } from "../../utils/search";
+import { stripExactPrivateProfileFields } from "../../utils/privacy";
 
 const USER_LIST_PROJECTION = [
   "username",
@@ -71,6 +72,10 @@ export default class UserListingController {
         });
         return;
       }
+      const canManageUsers = hasPermission(
+        req.user.role,
+        PERMISSIONS.MANAGE_USERS,
+      );
 
       const {
         page = 1,
@@ -139,6 +144,7 @@ export default class UserListingController {
         search: normalizedSearch,
         sortBy,
         sortOrder,
+        privateFields: canManageUsers,
       })}`;
 
       // Try to get from cache first
@@ -219,7 +225,13 @@ export default class UserListingController {
           const totalPages = Math.ceil(totalUsers / limitNumber);
 
           return {
-            users,
+            users: canManageUsers
+              ? users
+              : users.map((user) =>
+                  stripExactPrivateProfileFields(
+                    user as Record<string, unknown>,
+                  ),
+                ),
             pagination: {
               currentPage: pageNumber,
               totalPages,

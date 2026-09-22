@@ -3,6 +3,18 @@ import { User } from "../../models";
 import { cleanupOldAvatar } from "../../utils/avatarCleanup";
 import { AutoEmailNotificationService } from "../../services/infrastructure/autoEmailNotificationService";
 import { CachePatterns } from "../../services/infrastructure/CacheService";
+import type { EmploymentStatus } from "@atcloud/shared-time/registration-profile";
+import {
+  applyCanonicalRegistrationProfile,
+  containsRegistrationProfileUpdate,
+  validateMergedRegistrationProfile,
+} from "../../services/RegistrationProfileService";
+import {
+  synchronizeExistingAlumniProfileProjection,
+} from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { ensurePrivateAlumniDraft } from "../../services/alumni/AlumniDraftProfileService";
+import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
+import { serializeSelfUser } from "../../serializers/userReadSerializers";
 
 interface UpdateProfileRequest {
   username?: string;
@@ -11,14 +23,53 @@ interface UpdateProfileRequest {
   gender?: "male" | "female";
   email?: string;
   phone?: string;
+  birthYear?: number | string;
+  residenceCity?: string;
+  residenceRegion?: string | null;
+  residenceCountryCode?: string;
+  employmentStatus?: EmploymentStatus;
   isAtCloudLeader?: boolean;
   roleInAtCloud?: string;
-  homeAddress?: string;
-  occupation?: string;
-  company?: string;
+  occupation?: string | null;
+  company?: string | null;
   weeklyChurch?: string;
   churchAddress?: string;
   avatar?: string; // Added for gender change avatar updates
+}
+
+const SELF_SERVICE_PROFILE_FIELDS = [
+  "username",
+  "firstName",
+  "lastName",
+  "gender",
+  "email",
+  "phone",
+  "birthYear",
+  "residenceCity",
+  "residenceRegion",
+  "residenceCountryCode",
+  "employmentStatus",
+  "isAtCloudLeader",
+  "roleInAtCloud",
+  "occupation",
+  "company",
+  "weeklyChurch",
+  "churchAddress",
+] as const;
+
+function selectSelfServiceProfileFields(body: unknown): UpdateProfileRequest {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return {};
+  }
+
+  const source = body as Record<string, unknown>;
+  const selected: UpdateProfileRequest = {};
+  for (const field of SELF_SERVICE_PROFILE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      Object.assign(selected, { [field]: source[field] });
+    }
+  }
+  return selected;
 }
 
 export default class UpdateProfileController {
@@ -36,74 +87,108 @@ export default class UpdateProfileController {
         return;
       }
 
-      const updateData: UpdateProfileRequest = req.body;
+      const requestedUpdate = selectSelfServiceProfileFields(req.body);
+      const write = await mongoTransactionService.run(async (session) => {
+        // Reload for every retry so validation and projection generation share
+        // one transaction snapshot.
+        const oldUser = await User.findById(req.user!._id)
+          .select("+birthYear")
+          .session(session);
+        if (!oldUser) return { kind: "not_found" } as const;
 
-      // @Cloud co-worker validation: isAtCloudLeader requires roleInAtCloud
-      if (updateData.isAtCloudLeader === true && !updateData.roleInAtCloud) {
+        const updateData = { ...requestedUpdate };
+        const oldIsAtCloudLeader = oldUser.isAtCloudLeader;
+        const oldRoleInAtCloud = oldUser.roleInAtCloud;
+        const oldAvatarUrl = oldUser.avatar;
+
+        const nextIsAtCloudLeader =
+          updateData.isAtCloudLeader ?? oldUser.isAtCloudLeader;
+        const nextRoleInAtCloud =
+          updateData.roleInAtCloud ?? oldUser.roleInAtCloud;
+
+        if (nextIsAtCloudLeader && !nextRoleInAtCloud) {
+          return { kind: "role_required" } as const;
+        }
+
+        if (updateData.isAtCloudLeader === false) {
+          updateData.roleInAtCloud = undefined;
+        }
+
+        const registrationProfileResult = containsRegistrationProfileUpdate(
+          updateData,
+        )
+          ? validateMergedRegistrationProfile(oldUser, updateData)
+          : undefined;
+        if (registrationProfileResult && !registrationProfileResult.success) {
+          return {
+            kind: "registration_invalid",
+            issues: registrationProfileResult.issues,
+          } as const;
+        }
+
+        if (updateData.gender && updateData.gender !== oldUser.gender) {
+          updateData.avatar =
+            updateData.gender === "male"
+              ? "https://i.pravatar.cc/300?img=12"
+              : "https://i.pravatar.cc/300?img=47";
+        }
+
+        Object.assign(oldUser, updateData);
+        if (registrationProfileResult?.success) {
+          applyCanonicalRegistrationProfile(
+            oldUser,
+            registrationProfileResult.value,
+          );
+        }
+        const updatedUser = await oldUser.save({ session });
+        await ensurePrivateAlumniDraft(updatedUser, session);
+        await synchronizeExistingAlumniProfileProjection(updatedUser, session);
+        return {
+          kind: "updated",
+          updatedUser,
+          oldIsAtCloudLeader,
+          oldRoleInAtCloud,
+          oldAvatarUrl,
+        } as const;
+      });
+
+      if (write.kind === "not_found") {
+        res.status(404).json({
+          success: false,
+          message: "User not found.",
+        });
+        return;
+      }
+      if (write.kind === "role_required") {
         res.status(400).json({
           success: false,
           message: "@Cloud co-worker must have a role specified.",
         });
         return;
       }
-
-      // Clear roleInAtCloud if isAtCloudLeader is set to false
-      if (updateData.isAtCloudLeader === false) {
-        updateData.roleInAtCloud = undefined;
-      }
-
-      // Store old @Cloud values for change detection
-      const oldUser = await User.findById(req.user._id);
-      if (!oldUser) {
-        res.status(404).json({
+      if (write.kind === "registration_invalid") {
+        res.status(400).json({
           success: false,
-          message: "User not found.",
+          message: write.issues
+            .map((issue) => `${issue.field}: ${issue.message}`)
+            .join("; "),
+          errors: write.issues,
         });
         return;
       }
+      const {
+        updatedUser,
+        oldIsAtCloudLeader,
+        oldRoleInAtCloud,
+        oldAvatarUrl,
+      } = write;
 
-      const oldIsAtCloudLeader = oldUser.isAtCloudLeader;
-      const oldRoleInAtCloud = oldUser.roleInAtCloud;
-
-      // Handle gender change: Update avatar to default based on new gender
-      if (updateData.gender && updateData.gender !== oldUser.gender) {
-        const userForAvatarUpdate = await User.findById(req.user._id);
-        if (userForAvatarUpdate) {
-          const oldAvatarUrl = userForAvatarUpdate.avatar;
-
-          // Set default avatar based on gender
-          const defaultAvatar =
-            updateData.gender === "male"
-              ? "https://i.pravatar.cc/300?img=12"
-              : "https://i.pravatar.cc/300?img=47";
-
-          updateData.avatar = defaultAvatar;
-
-          // Cleanup old avatar file (async)
-          if (oldAvatarUrl && oldAvatarUrl !== defaultAvatar) {
-            cleanupOldAvatar(
-              String(userForAvatarUpdate._id),
-              oldAvatarUrl
-            ).catch((error) => {
-              console.error("Failed to cleanup old avatar:", error);
-            });
-          }
-        }
-      }
-
-      // Update user profile
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user._id,
-        { $set: updateData },
-        { new: true, runValidators: true, select: "-password" }
-      );
-
-      if (!updatedUser) {
-        res.status(404).json({
-          success: false,
-          message: "User not found.",
-        });
-        return;
+      if (oldAvatarUrl && oldAvatarUrl !== updatedUser.avatar) {
+        cleanupOldAvatar(String(updatedUser._id), oldAvatarUrl).catch(
+          (error) => {
+            console.error("Failed to cleanup old avatar:", error);
+          },
+        );
       }
 
       // Check if @Cloud role changed and send notification
@@ -193,28 +278,7 @@ export default class UpdateProfileController {
       res.status(200).json({
         success: true,
         message: "Profile updated successfully.",
-        data: {
-          id: updatedUser._id,
-          username: updatedUser.username,
-          email: updatedUser.email,
-          phone: updatedUser.phone,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          gender: updatedUser.gender,
-          avatar: updatedUser.avatar,
-          role: updatedUser.role,
-          isAtCloudLeader: updatedUser.isAtCloudLeader,
-          roleInAtCloud: updatedUser.roleInAtCloud,
-          homeAddress: updatedUser.homeAddress,
-          occupation: updatedUser.occupation,
-          company: updatedUser.company,
-          weeklyChurch: updatedUser.weeklyChurch,
-          churchAddress: updatedUser.churchAddress,
-          lastLogin: updatedUser.lastLogin,
-          createdAt: updatedUser.createdAt,
-          isVerified: updatedUser.isVerified,
-          isActive: updatedUser.isActive,
-        },
+        data: serializeSelfUser(updatedUser),
       });
     } catch (error: unknown) {
       console.error("Update profile error:", error);

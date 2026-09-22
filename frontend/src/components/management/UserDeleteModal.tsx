@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 import Icon from "../common/Icon";
 
 interface UserDeleteModalProps {
@@ -23,8 +24,10 @@ export default function UserDeleteModal({
 }: UserDeleteModalProps) {
   const [confirmText, setConfirmText] = useState("");
   const [showWarning, setShowWarning] = useState(false);
-
-  if (!isOpen) return null;
+  const titleId = useId();
+  const messageId = useId();
+  const instructionId = useId();
+  const warningId = useId();
 
   const isConfirmationValid =
     confirmText.trim().toLowerCase() === userName.toLowerCase();
@@ -34,7 +37,6 @@ export default function UserDeleteModal({
       onConfirm();
     } else {
       setShowWarning(true);
-      setTimeout(() => setShowWarning(false), 3000);
     }
   };
 
@@ -43,22 +45,44 @@ export default function UserDeleteModal({
     setShowWarning(false);
     onClose();
   };
+  const dialogRef = useAccessibleDialog(isOpen, () => {
+    if (!isLoading) handleClose();
+  });
+
+  if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black bg-opacity-50 p-4">
+      <div
+        aria-busy={isLoading}
+        aria-describedby={`${messageId} ${instructionId}`}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white shadow-xl"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="p-6">
           <div className="flex items-center mb-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <div
+              aria-hidden="true"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100"
+            >
               <Icon name="trash" className="w-6 h-6 text-red-600" />
             </div>
             <div className="ml-4">
-              <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+              <h2 className="text-lg font-medium text-gray-900" id={titleId}>
+                {title}
+              </h2>
             </div>
           </div>
 
           <div className="mb-6">
-            <p className="text-sm text-gray-500 whitespace-pre-line mb-4">
+            <p
+              className="mb-4 whitespace-pre-line text-sm text-gray-700"
+              id={messageId}
+            >
               {message}
             </p>
 
@@ -66,43 +90,58 @@ export default function UserDeleteModal({
               <label
                 htmlFor="confirm-name"
                 className="block text-sm font-medium text-gray-700"
+                id={instructionId}
               >
                 Type the user's full name to confirm:
               </label>
               <input
+                aria-describedby={showWarning ? warningId : instructionId}
+                aria-invalid={showWarning}
+                data-dialog-initial-focus
                 id="confirm-name"
                 type="text"
                 value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
+                onChange={(e) => {
+                  setConfirmText(e.target.value);
+                  setShowWarning(false);
+                }}
                 placeholder={userName}
                 disabled={isLoading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 disabled:opacity-50"
+                className="min-h-11 w-full rounded-md border border-gray-500 px-3 py-2 focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600 disabled:opacity-50"
               />
               {showWarning && (
-                <p className="text-sm text-red-600 flex items-center">
-                  <Icon name="x-circle" className="w-4 h-4 mr-1" />
+                <p
+                  className="flex items-center text-sm text-red-700"
+                  id={warningId}
+                  role="alert"
+                >
+                  <span aria-hidden="true">
+                    <Icon name="x-circle" className="mr-1 h-4 w-4" />
+                  </span>
                   Please type the exact name: "{userName}"
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex items-center justify-end space-x-4">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               onClick={handleClose}
               disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-gray-500 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50"
+              type="button"
             >
               Cancel
             </button>
             <button
               onClick={handleConfirm}
               disabled={isLoading || !isConfirmationValid}
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors disabled:opacity-50 ${
+              className={`min-h-11 rounded-md px-4 py-2 text-sm font-medium text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:opacity-50 ${
                 isConfirmationValid
                   ? "bg-red-600 hover:bg-red-700"
                   : "bg-gray-400 cursor-not-allowed"
               }`}
+              type="button"
             >
               {isLoading ? "Deleting..." : "Delete User"}
             </button>

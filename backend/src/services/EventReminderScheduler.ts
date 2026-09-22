@@ -1,15 +1,7 @@
 /**
  * Event Reminder Scheduler Service
  *
- * This s    this.intervals.push(tenMinuteInterval);
-    this.isRunning = true;
-
-    console.log("✅ Event reminder scheduler started");
-    console.log("   📅 24-hour reminders: Every 10 minutes");matically checks for events that need      }
-    } catch (error) {
-      console.error("Error processing event reminders:", error);
-    }
-  }our reminders
+ * This service checks for events that need 24-hour reminders
  * and triggers the existing event reminder trio for registered participants.
  *
  * Simplified to only handle 24-hour reminders for better performance
@@ -19,6 +11,14 @@
 
 import { Event } from "../models";
 import { Logger } from "./LoggerService";
+import { eventReminderDispatchService } from "./notifications/EventReminderDispatchService";
+import {
+  WORKER_CAPABILITIES,
+  WORKER_SERVICE_KEYS,
+  workerAuthorizationService,
+  type WorkerRunContext,
+  type WorkerRunTrigger,
+} from "./authorization/WorkerAuthorizationService";
 
 // Minimal event shape used by the scheduler
 type ReminderEvent = {
@@ -34,34 +34,12 @@ type ReminderEvent = {
 class EventReminderScheduler {
   private static instance: EventReminderScheduler;
   private isRunning: boolean = false;
-  private apiBaseUrl: string;
   private intervals: NodeJS.Timeout[] = [];
   private lastRunAt: Date | null = null;
   private lastProcessedCount: number = 0;
   private runs: number = 0;
   private lastErrorAt: Date | null = null;
   private log = Logger.getInstance().child("EventReminderScheduler");
-
-  constructor() {
-    // Derive API base URL for internal scheduler HTTP calls.
-    // Priority:
-    // 1) Explicit API_BASE_URL (should include protocol + host, no trailing slash, and may include /api)
-    // 2) Fallback to localhost:PORT for same-process calls in any environment (adds /api)
-    //    This ensures production works out of the box without external DNS.
-    const explicitBase = process.env.API_BASE_URL;
-    if (explicitBase && explicitBase.trim()) {
-      // Normalize to avoid double slashes when appending endpoints
-      let base = explicitBase.replace(/\/$/, "");
-      // Ensure it contains /api suffix
-      if (!/\/api$/.test(base)) {
-        base = `${base}/api`;
-      }
-      this.apiBaseUrl = base;
-    } else {
-      const port = process.env.PORT || "5001";
-      this.apiBaseUrl = `http://localhost:${port}/api`;
-    }
-  }
 
   public static getInstance(): EventReminderScheduler {
     if (!EventReminderScheduler.instance) {
@@ -82,7 +60,7 @@ class EventReminderScheduler {
 
     // Run every 10 minutes to check for 24-hour reminders (600000 ms = 10 minutes)
     const tenMinuteInterval = setInterval(async () => {
-      await this.processEventReminders();
+      await this.runScheduledCheck("scheduled");
     }, 600000);
 
     this.intervals.push(tenMinuteInterval);
@@ -90,10 +68,8 @@ class EventReminderScheduler {
 
     console.log("✅ Event reminder scheduler started");
     console.log("   📅 24-hour reminders: Every 10 minutes");
-    console.log(`   🔗 Scheduler API base: ${this.apiBaseUrl}`);
     this.log.info("Scheduler started", undefined, {
       schedule: "every 10 minutes",
-      apiBase: this.apiBaseUrl,
     });
 
     // Run an immediate check on startup for debugging
@@ -102,7 +78,7 @@ class EventReminderScheduler {
     );
     this.log.debug("Initial reminder check scheduled (5s after start)");
     setTimeout(async () => {
-      await this.processEventReminders();
+      await this.runScheduledCheck("startup");
     }, 5000); // Wait 5 seconds for server to fully start
   }
 
@@ -127,7 +103,28 @@ class EventReminderScheduler {
   /**
    * Process events that need 24-hour reminders
    */
-  private async processEventReminders(): Promise<void> {
+  private async runScheduledCheck(trigger: WorkerRunTrigger): Promise<void> {
+    const context = workerAuthorizationService.createRunContext(
+      WORKER_SERVICE_KEYS.EVENT_REMINDER,
+      trigger,
+    );
+    try {
+      await this.processEventReminders(context);
+    } catch (error) {
+      this.lastErrorAt = new Date();
+      this.log.error("Event reminder worker authorization failed", error as Error, undefined, {
+        runId: context.runId,
+        trigger,
+      });
+    }
+  }
+
+  private async processEventReminders(context: WorkerRunContext): Promise<void> {
+    await workerAuthorizationService.assertCapability(
+      context,
+      WORKER_CAPABILITIES.EVENT_REMINDER_SEND,
+    );
+
     try {
       this.lastRunAt = new Date();
       const eventsNeedingReminders = await this.getEventsNeedingReminders();
@@ -157,7 +154,7 @@ class EventReminderScheduler {
 
         // Send the trio FIRST - let the API handle deduplication
         try {
-          await this.sendEventReminderTrio(event);
+          await this.sendEventReminderTrio(event, context);
           console.log(`✅ Completed processing for event: ${event.title}`);
           this.log.info("Completed processing event", undefined, {
             eventId: String(event._id),
@@ -258,108 +255,56 @@ class EventReminderScheduler {
     }
   }
 
-  /**
-   * Send the event reminder trio by calling the existing API
-   */
-  private async sendEventReminderTrio(event: ReminderEvent): Promise<void> {
-    try {
-      console.log(`📤 Sending 24h reminder for: ${event.title}`);
-      this.log.info("Sending 24h reminder", undefined, {
+  /** Send the event reminder trio through the shared domain operation. */
+  private async sendEventReminderTrio(
+    event: ReminderEvent,
+    context: WorkerRunContext,
+  ): Promise<void> {
+    console.log(`📤 Sending 24h reminder for: ${event.title}`);
+    this.log.info("Sending 24h reminder", undefined, {
+      eventId: String(event._id),
+      title: event.title,
+      runId: context.runId,
+    });
+
+    const result = await eventReminderDispatchService.dispatch({
+      eventId: String(event._id),
+      eventData: {
+        title: event.title || "Untitled Event",
+        date: event.date || "TBD",
+        time: event.time || "TBD",
+        location: event.location || "TBD",
+        zoomLink: event.zoomLink,
+        format: event.format || "in-person",
+      },
+      reminderType: "24h",
+    });
+
+    console.log(`✅ Event reminder trio sent successfully: ${result.message}`);
+    this.log.info("Event reminder trio sent successfully", undefined, {
+      ...result,
+      runId: context.runId,
+    });
+
+    if (result.systemMessageCreated === false) {
+      console.warn(
+        `⚠️ WARNING: System message creation failed for event: ${event.title}`,
+      );
+      console.warn(
+        "   Users will receive emails but no system messages or bell notifications!",
+      );
+      this.log.warn("System message creation failed for event", undefined, {
         eventId: String(event._id),
         title: event.title,
+        runId: context.runId,
       });
+    }
 
-      // Prepare the reminder request using the existing API
-      const reminderData = {
-        eventId: String(event._id),
-        eventData: {
-          title: event.title,
-          date: event.date,
-          time: event.time,
-          location: event.location,
-          zoomLink: event.zoomLink,
-          format: event.format || "in-person",
-        },
-        reminderType: "24h",
-      };
-
-      // Call the existing event reminder trio API (using test endpoint to bypass auth for internal calls)
-      const response = await fetch(
-        `${this.apiBaseUrl}/email-notifications/test-event-reminder`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(reminderData),
-        }
+    if (result.details) {
+      console.log(
+        `   📊 Details: ${result.details.emailsSent}/${result.details.totalParticipants} emails sent, System msg: ${result.details.systemMessageSuccess ? "✅" : "❌"}`,
       );
-
-      if (response.ok) {
-        const result = (await response.json()) as {
-          message: string;
-          systemMessageCreated?: boolean;
-          details?: {
-            emailsSent?: number;
-            totalParticipants?: number;
-            systemMessageSuccess?: boolean;
-          };
-        };
-        console.log(
-          `✅ Event reminder trio sent successfully: ${result.message}`
-        );
-        this.log.info(
-          "Event reminder trio sent successfully",
-          undefined,
-          result
-        );
-
-        if (result.systemMessageCreated === false) {
-          console.warn(
-            `⚠️ WARNING: System message creation failed for event: ${event.title}`
-          );
-          console.warn(
-            `   Users will receive emails but no system messages or bell notifications!`
-          );
-          this.log.warn("System message creation failed for event", undefined, {
-            eventId: String(event._id),
-            title: event.title,
-          });
-        }
-
-        if (result.details) {
-          console.log(
-            `   📊 Details: ${result.details.emailsSent}/${
-              result.details.totalParticipants
-            } emails sent, System msg: ${
-              result.details.systemMessageSuccess ? "✅" : "❌"
-            }`
-          );
-          this.log.debug("Reminder details", undefined, result.details);
-        }
-      } else {
-        const error = await response.text();
-        console.error(
-          `❌ Failed to send event reminder trio: ${response.status} ${error}`
-        );
-        this.log.error(
-          "Failed to send event reminder trio",
-          undefined,
-          undefined,
-          { status: response.status, error }
-        );
-      }
-    } catch (error) {
-      console.error(
-        `❌ Error sending event reminder trio for ${event.title}:`,
-        error
-      );
-      this.log.error(
-        "Error sending event reminder trio",
-        error as Error,
-        undefined,
-        { eventId: String(event._id), title: event.title }
-      );
+      this.log.debug("Reminder details", undefined, result.details);
     }
   }
 
@@ -381,7 +326,13 @@ class EventReminderScheduler {
   /**
    * Manually trigger reminders for testing
    */
-  public async triggerManualCheck(): Promise<void> {
+  public async triggerManualCheck(initiatedByUserId?: string): Promise<void> {
+    const context = workerAuthorizationService.createRunContext(
+      WORKER_SERVICE_KEYS.EVENT_REMINDER,
+      "manual",
+      initiatedByUserId,
+    );
+
     // In test environment, avoid making external HTTP calls or heavy work.
     // The integration test only verifies the admin route responds with success.
     // Allow tests to force the heavy path by setting SCHEDULER_TEST_FORCE=true
@@ -389,6 +340,10 @@ class EventReminderScheduler {
       process.env.NODE_ENV === "test" &&
       process.env.SCHEDULER_TEST_FORCE !== "true"
     ) {
+      await workerAuthorizationService.assertCapability(
+        context,
+        WORKER_CAPABILITIES.EVENT_REMINDER_SEND,
+      );
       console.log("🔧 Manual trigger: skipped heavy processing in test env");
       this.log.debug("Manual trigger skipped in test env");
       return;
@@ -396,7 +351,7 @@ class EventReminderScheduler {
 
     console.log(`🔧 Manual trigger: Checking for 24h reminders...`);
     this.log.info("Manual trigger: checking for 24h reminders");
-    await this.processEventReminders();
+    await this.processEventReminders(context);
   }
 }
 

@@ -1,109 +1,76 @@
-import fs from "fs";
-import path from "path";
 import { createLogger } from "../services/LoggerService";
+import {
+  canonicalizeLocalUploadReference,
+  fileCleanupService,
+} from "../services/privacy/FileCleanupService";
 
 const log = createLogger("AvatarCleanup");
 
-const getFilenameFromUploadUrl = (uploadUrl: string): string => {
-  try {
-    return path.basename(new URL(uploadUrl, "http://local").pathname);
-  } catch {
-    return path.basename(uploadUrl.split("?")[0].split("#")[0]);
-  }
-};
-
 /**
- * Check if an avatar URL represents an uploaded file (not a default avatar)
+ * Check if an avatar URL maps to an approved local upload target.
  */
 export const isUploadedAvatar = (
-  avatarUrl: string | null | undefined
-): boolean => {
-  if (!avatarUrl) return false;
-  return avatarUrl.includes("/uploads/avatars/");
-};
+  avatarUrl: string | null | undefined,
+): boolean =>
+  canonicalizeLocalUploadReference(avatarUrl, "avatars") !== null;
 
 /**
- * Delete an old avatar file from the filesystem
+ * Durably queue an old avatar and attempt guarded cleanup immediately.
  */
 export const deleteOldAvatarFile = async (
-  avatarUrl: string | null | undefined
+  avatarUrl: string | null | undefined,
 ): Promise<boolean> => {
-  if (!avatarUrl || !isUploadedAvatar(avatarUrl)) {
-    // Skip silently for console; add structured debug for observability
+  const target = canonicalizeLocalUploadReference(avatarUrl, "avatars");
+  if (!target) {
     try {
-      log.debug("Skip deleting avatar: not an uploaded avatar", undefined, {
+      log.debug("Skip deleting avatar: not an approved local upload", undefined, {
         hasUrl: Boolean(avatarUrl),
-        avatarUrl,
       });
     } catch {}
     return false;
   }
 
   try {
-    const filename = getFilenameFromUploadUrl(avatarUrl);
-    // Use the correct uploads directory based on environment
-    let uploadsDir: string;
-    if (process.env.UPLOAD_DESTINATION) {
-      uploadsDir = path.join(
-        process.env.UPLOAD_DESTINATION.replace(/\/$/, ""),
-        "avatars"
-      );
-    } else {
-      uploadsDir =
-        process.env.NODE_ENV === "production"
-          ? "/uploads/avatars"
-          : path.join(process.cwd(), "uploads/avatars");
-    }
-
-    const filePath = path.join(uploadsDir, filename);
-
-    await fs.promises.unlink(filePath);
-    log.info("Old avatar deleted", undefined, { filename, uploadsDir });
-    return true;
+    const queued = await fileCleanupService.enqueueStandalone([target]);
+    if (queued.length === 0) return false;
+    const [result] = await fileCleanupService.processTargets(queued);
+    log.info("Old avatar cleanup processed", undefined, {
+      jobKey: queued[0]?.jobKey,
+      outcome: result?.outcome ?? "not_processed",
+    });
+    return result?.outcome === "deleted";
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      // File doesn't exist, consider it already cleaned up.
-      return false;
-    }
-    log.error("Error deleting avatar file", error as Error);
+    log.error("Error scheduling old avatar cleanup", error as Error);
     return false;
   }
 };
 
 /**
- * Cleanup old avatar file for a user
+ * Cleanup old avatar file for a user.
  */
 export const cleanupOldAvatar = async (
   userId: string,
-  oldAvatarUrl: string | null | undefined
+  oldAvatarUrl: string | null | undefined,
 ): Promise<boolean> => {
-  if (!oldAvatarUrl || !isUploadedAvatar(oldAvatarUrl)) {
-    // Not an uploaded avatar; nothing to cleanup. Structured debug only.
+  if (!isUploadedAvatar(oldAvatarUrl)) {
     try {
       log.debug("No cleanup needed for avatar", undefined, {
         userId,
         hasUrl: Boolean(oldAvatarUrl),
-        oldAvatarUrl,
       });
     } catch {}
     return false;
   }
 
   try {
-    log.info("Cleaning up old avatar for user", undefined, {
-      userId,
-      oldAvatarUrl,
-    });
+    log.info("Cleaning up old avatar for user", undefined, { userId });
     return await deleteOldAvatarFile(oldAvatarUrl);
   } catch (error) {
     log.error(
       "Error cleaning up old avatar for user",
       error as Error,
       undefined,
-      {
-        userId,
-        oldAvatarUrl,
-      }
+      { userId },
     );
     return false;
   }

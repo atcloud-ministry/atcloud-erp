@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import request from "supertest";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import app from "../../../src/app";
@@ -18,6 +19,7 @@ describe("Event virtual meeting fields", () => {
 
     // Register and promote an admin user
     const reg = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       firstName: "Admin",
       lastName: "User",
       email: "virtual.admin@example.com",
@@ -27,6 +29,7 @@ describe("Event virtual meeting fields", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = reg.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

@@ -1,132 +1,109 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Analytics from "../../pages/Analytics";
+import { createRegistrationProfileKpis } from "../fixtures/registrationProfileKpis";
 
-// Mock auth with admin access
 vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => ({ currentUser: { id: "admin", role: "Administrator" } }),
 }));
 
-// Mock analytics resources. The people tab still needs event analytics for
-// engagement, but this test focuses on the paginated user fetch.
-vi.mock("../../hooks/useAnalyticsResources", () => ({
-  useAnalyticsOverviewResource: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-  useEventAnalyticsResource: () => ({
-    data: { upcomingEvents: [], completedEvents: [] },
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-  useAttendanceAnalyticsResource: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-  useProgramAnalyticsResource: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-  useFinancialSummaryResource: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-  useDonationAnalyticsResource: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-}));
-
-// Capture calls and provide paginated responses
-const getUsersMock = vi.fn();
-vi.mock("../../services/api", async (orig) => {
-  const actual =
-    (await (orig as any).default?.call?.(null)) ??
-    (await import("../../services/api"));
-  return {
-    ...actual,
-    userService: {
-      ...actual.userService,
-      getUsers: (...args: any[]) => getUsersMock(...args),
-    },
-  };
-});
-
-// Avoid toast noise
 vi.mock("../../contexts/NotificationModalContext", () => ({
   useToastReplacement: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 
-describe("Analytics users aggregation across pagination", () => {
+const demographics = {
+  roleStats: {
+    total: 25,
+    superAdmin: 0,
+    administrators: 0,
+    leaders: 13,
+    guestExperts: 0,
+    participants: 12,
+    atCloudLeaders: 0,
+  },
+  churchAnalytics: {
+    weeklyChurchStats: {},
+    churchAddressStats: {},
+    usersWithChurchInfo: 0,
+    usersWithoutChurchInfo: 25,
+    totalChurches: 0,
+    totalChurchLocations: 0,
+    churchParticipationRate: 0,
+  },
+  occupationAnalytics: {
+    occupationStats: {},
+    usersWithOccupation: 0,
+    usersWithoutOccupation: 25,
+    totalOccupationTypes: 0,
+    topOccupations: [],
+    occupationCompletionRate: 0,
+  },
+};
+
+describe("Analytics people aggregate", () => {
+  const fetchMock = vi.fn();
+
   beforeEach(() => {
-    getUsersMock.mockReset();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const data = url.includes("/analytics/users")
+        ? {
+            usersByRole: [],
+            usersByAtCloudStatus: [],
+            usersByChurch: [],
+            registrationTrends: [],
+            usersByOccupation: [],
+            totalUsers: 25,
+            activeUsers: 25,
+            demographics,
+            registrationProfileKpis: createRegistrationProfileKpis(),
+          }
+        : url.includes("/analytics/events")
+          ? { upcomingEvents: [], completedEvents: [] }
+          : null;
+      if (!data) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify({ success: true, data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("counts all users from multiple pages on the People tab", async () => {
-    // Simulate two pages: first returns 20 users, hasNext true; second returns 5 users, hasNext false
-    const makeUser = (i: number) => ({
-      id: `u${i}`,
-      username: `user${i}`,
-      email: `u${i}@ex.com`,
-      role: i % 2 === 0 ? "Participant" : "Leader",
-      firstName: `F${i}`,
-      lastName: `L${i}`,
-      isActive: true,
-    });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
-    const page1Users = Array.from({ length: 20 }, (_, i) => makeUser(i + 1));
-    const page2Users = Array.from({ length: 5 }, (_, i) => makeUser(i + 21));
-
-    getUsersMock.mockImplementation(async ({ page }: any) => {
-      if (page === 1 || page === undefined) {
-        return {
-          users: page1Users,
-          pagination: {
-            currentPage: 1,
-            totalPages: 2,
-            totalUsers: 25,
-            hasNext: true,
-            hasPrev: false,
-          },
-        };
-      }
-      return {
-        users: page2Users,
-        pagination: {
-          currentPage: 2,
-          totalPages: 2,
-          totalUsers: 25,
-          hasNext: false,
-          hasPrev: true,
-        },
-      };
-    });
-
+  it("renders server-computed demographics without requesting a user list", async () => {
     render(
       <MemoryRouter initialEntries={["/analytics?tab=people"]}>
         <Routes>
           <Route path="/analytics" element={<Analytics />} />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("role-dist-leader").textContent).toBe("13");
-      expect(screen.getByTestId("role-dist-participant").textContent).toBe(
-        "12"
+      expect(screen.getByTestId("role-dist-leader")).toHaveTextContent("13");
+      expect(screen.getByTestId("role-dist-participant")).toHaveTextContent(
+        "12",
+      );
+      expect(screen.getByTestId("registration-profile-kpis")).toHaveTextContent(
+        "1980–1989",
       );
     });
+
+    expect(screen.queryByText("Occupation Statistics")).not.toBeInTheDocument();
+    expect(screen.getByText("Software Engineer")).toBeInTheDocument();
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => /\/analytics\/users(?:\?|$)/.test(url))).toBe(
+      true,
+    );
+    const pathnames = urls.map((url) => new URL(url, "http://test").pathname);
+    expect(
+      pathnames.some((path) => path === "/users" || path === "/api/users"),
+    ).toBe(false);
   });
 });

@@ -237,6 +237,143 @@ describe("User Model", () => {
       });
     });
 
+    describe("Registration Profile Fields", () => {
+      const completeProfile = {
+        phone: "+12065550123",
+        birthYear: 1988,
+        residenceCity: "Seattle",
+        residenceRegion: "US-WA",
+        residenceCountryCode: "US",
+        employmentStatus: "employed",
+        company: "Example Company",
+        occupation: "Product Manager",
+      } as const;
+
+      it("keeps the new fields optional for legacy users", () => {
+        const user = new User(userData);
+        const error = user.validateSync();
+
+        expect(error).toBeUndefined();
+        expect(user.employmentStatus).toBeUndefined();
+      });
+
+      it("stores birthYear using the BSON Int32 schema type", () => {
+        expect(User.schema.path("birthYear").instance).toBe("Int32");
+        expect(User.schema.path("birthYear").options.select).toBe(false);
+      });
+
+      it("validates and normalizes a complete registration profile", async () => {
+        const user = new User({
+          ...userData,
+          ...completeProfile,
+          residenceCity: "  San   Jose\u0301\n",
+          residenceRegion: "us-ca",
+          residenceCountryCode: "us",
+          company: "  Example   Company ",
+          occupation: " Product\tManager ",
+        });
+
+        await expect(user.validate()).resolves.toBeUndefined();
+        expect(user.residenceCity).toBe("San José");
+        expect(user.residenceRegion).toBe("US-CA");
+        expect(user.residenceCountryCode).toBe("US");
+        expect(user.company).toBe("Example Company");
+        expect(user.occupation).toBe("Product Manager");
+      });
+
+      it("requires all canonical fields once employment status is set", () => {
+        const user = new User({
+          ...userData,
+          employmentStatus: "employed",
+        });
+        const error = user.validateSync();
+
+        expect(error?.errors?.phone).toBeDefined();
+        expect(error?.errors?.birthYear).toBeDefined();
+        expect(error?.errors?.residenceCity).toBeDefined();
+        expect(error?.errors?.residenceCountryCode).toBeDefined();
+        expect(error?.errors?.company).toBeDefined();
+      });
+
+      it("enforces E.164 for complete profiles while retaining legacy compatibility", () => {
+        const legacyUser = new User({ ...userData, phone: "206-555-0123" });
+        const completeUser = new User({
+          ...userData,
+          ...completeProfile,
+          phone: "206-555-0123",
+        });
+        const impossibleCanonicalUser = new User({
+          ...userData,
+          ...completeProfile,
+          phone: "+11234567890",
+        });
+
+        expect(legacyUser.validateSync()?.errors?.phone).toBeUndefined();
+        expect(completeUser.validateSync()?.errors?.phone).toBeDefined();
+        expect(impossibleCanonicalUser.validateSync()?.errors?.phone).toBeDefined();
+      });
+
+      it("rejects invalid birth years, countries, and US subdivisions", () => {
+        const user = new User({
+          ...userData,
+          ...completeProfile,
+          birthYear: new Date().getUTCFullYear() + 1,
+          residenceCountryCode: "ZZ",
+          residenceRegion: "US-ZZ",
+        });
+        const error = user.validateSync();
+
+        expect(error?.errors?.birthYear).toBeDefined();
+        expect(error?.errors?.residenceCountryCode).toBeDefined();
+        expect(error?.errors?.residenceRegion).toBeDefined();
+      });
+
+      it("rejects unassigned subdivisions outside the US", () => {
+        const user = new User({
+          ...userData,
+          ...completeProfile,
+          residenceCountryCode: "CA",
+          residenceRegion: "CA-ZZZ",
+        });
+
+        expect(user.validateSync()?.errors?.residenceRegion).toBeDefined();
+      });
+
+      it("rejects an explicit null employment status", () => {
+        const user = new User({
+          ...userData,
+          ...completeProfile,
+          employmentStatus: null,
+        });
+
+        expect(user.validateSync()?.errors?.employmentStatus).toBeDefined();
+      });
+
+      it("requires company for working statuses", () => {
+        for (const employmentStatus of ["employed", "self_employed"] as const) {
+          const user = new User({
+            ...userData,
+            ...completeProfile,
+            employmentStatus,
+            company: null,
+          });
+          expect(user.validateSync()?.errors?.company).toBeDefined();
+        }
+      });
+
+      it("clears company when employment status does not use it", async () => {
+        const user = new User({
+          ...userData,
+          ...completeProfile,
+          employmentStatus: "student",
+          company: "Legacy Company",
+        });
+
+        await expect(user.validate()).resolves.toBeUndefined();
+        expect(user.company).toBeNull();
+      });
+    });
+
     describe("Role Validation", () => {
       it("should accept valid roles", () => {
         Object.values(ROLES).forEach((role) => {
@@ -711,6 +848,10 @@ describe("User Model", () => {
         ...userData,
         emailVerificationToken: "secret",
         passwordResetToken: "secret",
+        passwordChangeToken: "secret",
+        passwordChangeExpires: new Date(),
+        pendingPassword: "hashed-secret",
+        passwordChangedAt: new Date(),
       });
 
       const json = user.toJSON();
@@ -718,6 +859,10 @@ describe("User Model", () => {
       expect(json.password).toBeUndefined();
       expect(json.emailVerificationToken).toBeUndefined();
       expect(json.passwordResetToken).toBeUndefined();
+      expect(json.passwordChangeToken).toBeUndefined();
+      expect(json.passwordChangeExpires).toBeUndefined();
+      expect(json.pendingPassword).toBeUndefined();
+      expect(json.passwordChangedAt).toBeUndefined();
       expect(json._id).toBeUndefined();
       expect(json.__v).toBeUndefined();
       expect(json.id).toBeDefined();

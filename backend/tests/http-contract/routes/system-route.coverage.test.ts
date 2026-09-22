@@ -2,10 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
+const authMocks = vi.hoisted(() => ({ permissionCheck: vi.fn() }));
+
 // Mock auth middlewares to no-op
 vi.mock("../../../src/middleware/auth", () => ({
   authenticate: (req: any, res: any, next: any) => next(),
   requireAdmin: (req: any, res: any, next: any) => next(),
+  authorizePermission:
+    (permission: string) => (req: any, res: any, next: any) => {
+      authMocks.permissionCheck(permission);
+      next();
+    },
 }));
 
 // Mock services.lockService
@@ -132,6 +139,9 @@ describe("system routes coverage", () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ success: true });
       expect(mockTriggerManualCheck).toHaveBeenCalled();
+      expect(authMocks.permissionCheck).toHaveBeenCalledWith(
+        "manage_notifications",
+      );
     });
 
     it("should return 500 on trigger error", async () => {

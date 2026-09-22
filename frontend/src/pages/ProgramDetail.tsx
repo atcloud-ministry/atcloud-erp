@@ -21,6 +21,7 @@ import ProgramIntroSection from "../components/ProgramDetail/ProgramIntroSection
 import ProgramMentors from "../components/ProgramDetail/ProgramMentors";
 import ProgramEventsList from "../components/ProgramDetail/ProgramEventsList";
 import ProgramPricing from "../components/ProgramDetail/ProgramPricing";
+import ProgramChatRoomLink from "../components/ProgramDetail/ProgramChatRoomLink";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { EmailParticipantsModal } from "../components/common";
 import { useProgramEmailModal } from "../hooks/useProgramEmailModal";
@@ -601,6 +602,11 @@ export default function ProgramDetail({
           }
           onDelete={openDelete}
           onEmailParticipants={openEmailModal}
+        />
+
+        <ProgramChatRoomLink
+          programId={id!}
+          refreshKey={enrollmentRefreshKey}
         />
 
         <ProgramIntroSection

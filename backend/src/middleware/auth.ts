@@ -1,16 +1,24 @@
 /* eslint-disable @typescript-eslint/no-namespace */
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { Request, Response, NextFunction } from "express";
 import { User, IUser } from "../models";
 import {
-  RoleUtils,
   ROLES,
   UserRole,
-  hasPermission,
   Permission,
 } from "../utils/roleUtils";
-import { isAffiliatedProgramEditor } from "../utils/event/eventPermissions";
+import {
+  authorizationService,
+  createUserAuthorizationPrincipal,
+} from "../services/authorization/AuthorizationService";
+import { AUTHORIZATION_ACTIONS } from "../services/authorization/types";
+import type { AuthorizationPrincipal } from "../services/authorization/types";
+import { getRequestUserPrincipal } from "./authorization";
+import { recordAuthorizationDenial } from "../services/authorization/AuthorizationAuditService";
+import { isTokenCurrentForPasswordChange } from "../utils/tokenRevocation";
+import { logSafeErrorEvent } from "../utils/safeEventLogger";
 
 // Narrow JWT payloads used in this module
 type AccessTokenPayload = jwt.JwtPayload & {
@@ -18,7 +26,17 @@ type AccessTokenPayload = jwt.JwtPayload & {
   email?: string;
   role?: string;
 };
-type RefreshTokenPayload = jwt.JwtPayload & { userId: string };
+export type RefreshTokenPayload = jwt.JwtPayload & {
+  userId: string;
+  sid: string;
+  jti: string;
+  tokenType: "refresh";
+};
+
+export interface RefreshTokenIdentity {
+  readonly familyId: string;
+  readonly tokenId: string;
+}
 
 // Extend Express Request interface to include user
 declare global {
@@ -28,19 +46,64 @@ declare global {
       user?: IUser;
       userId?: string;
       userRole?: string;
+      authPrincipal?: AuthorizationPrincipal;
     }
   }
 }
 
 // JWT Token Service
 export class TokenService {
+  private static readonly DEVELOPMENT_ACCESS_SECRET = "your-access-secret-key";
+  private static readonly DEVELOPMENT_REFRESH_SECRET = "your-refresh-secret-key";
+
+  private static readSecret(
+    name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET",
+    developmentFallback: string,
+  ): string {
+    const configured = process.env[name]?.trim();
+    if (process.env.NODE_ENV !== "production") {
+      return configured || developmentFallback;
+    }
+
+    const normalized = configured?.toLowerCase() ?? "";
+    if (
+      !configured ||
+      configured.length < 32 ||
+      configured === developmentFallback ||
+      normalized.includes("change-this") ||
+      normalized.startsWith("your-")
+    ) {
+      throw new Error(
+        `${name} must be configured with a non-placeholder secret of at least 32 characters in production.`,
+      );
+    }
+    return configured;
+  }
+
   // Use dynamic getters instead of static properties to ensure env vars are loaded
   private static get ACCESS_TOKEN_SECRET() {
-    return process.env.JWT_ACCESS_SECRET || "your-access-secret-key";
+    return this.readSecret(
+      "JWT_ACCESS_SECRET",
+      this.DEVELOPMENT_ACCESS_SECRET,
+    );
   }
 
   private static get REFRESH_TOKEN_SECRET() {
-    return process.env.JWT_REFRESH_SECRET || "your-refresh-secret-key";
+    return this.readSecret(
+      "JWT_REFRESH_SECRET",
+      this.DEVELOPMENT_REFRESH_SECRET,
+    );
+  }
+
+  static assertProductionConfiguration(): void {
+    if (process.env.NODE_ENV !== "production") return;
+    const accessSecret = this.ACCESS_TOKEN_SECRET;
+    const refreshSecret = this.REFRESH_TOKEN_SECRET;
+    if (accessSecret === refreshSecret) {
+      throw new Error(
+        "JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different in production.",
+      );
+    }
   }
 
   private static get ACCESS_TOKEN_EXPIRE() {
@@ -57,6 +120,7 @@ export class TokenService {
     userId: string;
     email: string;
     role: string;
+    iat?: number;
   }): string {
     return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: this.ACCESS_TOKEN_EXPIRE,
@@ -66,12 +130,47 @@ export class TokenService {
   }
 
   // Generate refresh token
-  static generateRefreshToken(payload: { userId: string }): string {
-    return jwt.sign(payload, this.REFRESH_TOKEN_SECRET, {
-      expiresIn: this.REFRESH_TOKEN_EXPIRE,
-      issuer: "atcloud-system",
-      audience: "atcloud-users",
-    } as jwt.SignOptions);
+  static generateRefreshToken(payload: {
+    userId: string;
+    identity?: RefreshTokenIdentity;
+    expiresInMs?: number;
+    expiresAt?: Date;
+    issuedAtSeconds?: number;
+  }): string {
+    const identity = payload.identity ?? {
+      familyId: crypto.randomUUID(),
+      tokenId: crypto.randomUUID(),
+    };
+    const explicitExpirySeconds =
+      payload.expiresAt == null
+        ? undefined
+        : Math.floor(payload.expiresAt.getTime() / 1_000);
+    return jwt.sign(
+      {
+        userId: payload.userId,
+        sid: identity.familyId,
+        tokenType: "refresh",
+        ...(payload.issuedAtSeconds == null
+          ? {}
+          : { iat: payload.issuedAtSeconds }),
+        ...(explicitExpirySeconds == null ? {} : { exp: explicitExpirySeconds }),
+      },
+      this.REFRESH_TOKEN_SECRET,
+      {
+        ...(explicitExpirySeconds == null
+          ? {
+              expiresIn:
+                payload.expiresInMs == null
+                  ? this.REFRESH_TOKEN_EXPIRE
+                  : Math.ceil(payload.expiresInMs / 1_000),
+            }
+          : {}),
+        issuer: "atcloud-system",
+        audience: "atcloud-users",
+        algorithm: "HS256",
+        jwtid: identity.tokenId,
+      } as jwt.SignOptions,
+    );
   }
 
   // Verify access token
@@ -80,6 +179,7 @@ export class TokenService {
       return jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
         issuer: "atcloud-system",
         audience: "atcloud-users",
+        algorithms: ["HS256"],
       }) as AccessTokenPayload;
     } catch {
       throw new Error("Invalid access token");
@@ -89,10 +189,21 @@ export class TokenService {
   // Verify refresh token
   static verifyRefreshToken(token: string): RefreshTokenPayload {
     try {
-      return jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
+      const payload = jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
         issuer: "atcloud-system",
         audience: "atcloud-users",
+        algorithms: ["HS256"],
       }) as RefreshTokenPayload;
+      if (
+        payload.tokenType !== "refresh" ||
+        typeof payload.userId !== "string" ||
+        !mongoose.Types.ObjectId.isValid(payload.userId) ||
+        typeof payload.sid !== "string" ||
+        typeof payload.jti !== "string"
+      ) {
+        throw new Error("Invalid refresh token claims");
+      }
+      return payload;
     } catch {
       throw new Error("Invalid refresh token");
     }
@@ -133,31 +244,91 @@ export class TokenService {
   }
 
   // Generate token pair
-  static generateTokenPair(user: IUser) {
+  static generateTokenPair(
+    user: IUser,
+    options: {
+      readonly refreshIdentity?: RefreshTokenIdentity;
+      readonly refreshLifetimeMs?: number;
+      readonly refreshExpiresAt?: Date;
+    } = {},
+  ) {
+    const passwordChangedAt = user.passwordChangedAt;
+    const issuedAtSeconds =
+      passwordChangedAt instanceof Date &&
+      Number.isFinite(passwordChangedAt.getTime())
+        ? Math.max(
+            Math.floor(Date.now() / 1_000),
+            Math.floor(passwordChangedAt.getTime() / 1_000) + 1,
+          )
+        : undefined;
     const payload = {
       userId: String(user._id),
       email: user.email,
       role: user.role,
+      ...(issuedAtSeconds == null ? {} : { iat: issuedAtSeconds }),
     };
 
     const accessToken = this.generateAccessToken(payload);
-    const refreshToken = this.generateRefreshToken({
-      userId: String(user._id),
-    });
-
+    const refreshIdentity = options.refreshIdentity ?? {
+      familyId: crypto.randomUUID(),
+      tokenId: crypto.randomUUID(),
+    };
     // Clock skew buffer: subtract 30s so frontend treats token as expired slightly earlier
     const CLOCK_SKEW_MS = 30 * 1000;
 
     // Parse expiration times from environment variables to get actual milliseconds
     const accessMs = this.parseTimeToMs(this.ACCESS_TOKEN_EXPIRE);
-    const refreshMs = this.parseTimeToMs(this.REFRESH_TOKEN_EXPIRE);
+    const refreshMs =
+      options.refreshLifetimeMs ?? this.parseTimeToMs(this.REFRESH_TOKEN_EXPIRE);
+    if (!Number.isSafeInteger(refreshMs) || refreshMs < 1_000) {
+      throw new Error("Refresh token lifetime is invalid.");
+    }
+    const refreshTokenExpires =
+      options.refreshExpiresAt ??
+      new Date(
+        ((issuedAtSeconds ?? Math.floor(Date.now() / 1_000)) +
+          Math.ceil(refreshMs / 1_000)) *
+          1_000,
+      );
+    if (refreshTokenExpires.getTime() <= Date.now()) {
+      throw new Error("Refresh token expiry is invalid.");
+    }
+    const refreshToken = this.generateRefreshToken({
+      userId: String(user._id),
+      identity: refreshIdentity,
+      expiresAt: refreshTokenExpires,
+      issuedAtSeconds,
+    });
 
-    return {
+    const pair = {
       accessToken,
       refreshToken,
       accessTokenExpires: new Date(Date.now() + accessMs - CLOCK_SKEW_MS),
-      refreshTokenExpires: new Date(Date.now() + refreshMs), // No clock skew for refresh token
+      refreshTokenExpires,
     };
+    Object.defineProperty(pair, "refreshIdentity", {
+      value: Object.freeze({ ...refreshIdentity }),
+      enumerable: false,
+      writable: false,
+    });
+    return pair as typeof pair & { readonly refreshIdentity: RefreshTokenIdentity };
+  }
+
+  static refreshTokenExpiresAt(payload: jwt.JwtPayload): Date {
+    if (
+      typeof payload.iat !== "number" ||
+      !Number.isSafeInteger(payload.iat) ||
+      typeof payload.exp !== "number" ||
+      !Number.isSafeInteger(payload.exp) ||
+      payload.exp <= payload.iat
+    ) {
+      throw new Error("Invalid refresh token lifetime");
+    }
+    const expiresAt = new Date(payload.exp * 1_000);
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new Error("Invalid refresh token lifetime");
+    }
+    return expiresAt;
   }
 
   // Decode token without verification (for getting expired token data)
@@ -202,7 +373,7 @@ export const authenticate = async (
         const userId = token.substring("test-admin-".length);
         // Fetch user document to ensure it exists (and role), fallback to injected admin role
         const userDoc = await User.findById(userId);
-        (req as Request & { user?: unknown }).user =
+        const authenticatedUser =
           userDoc ||
           ({
             _id: userId,
@@ -210,9 +381,19 @@ export const authenticate = async (
             role: ROLES.ADMINISTRATOR,
             isVerified: true,
             isActive: true,
-          } as Record<string, unknown>);
+          } as unknown as IUser);
+        const principal = createUserAuthorizationPrincipal(authenticatedUser);
+        if (!principal || !principal.isActive || !principal.isVerified) {
+          res.status(401).json({
+            success: false,
+            message: "Invalid test token. User not found, inactive, or unverified.",
+          });
+          return;
+        }
+        req.user = authenticatedUser;
         req.userId = userId;
-        req.userRole = ROLES.ADMINISTRATOR;
+        req.userRole = authenticatedUser.role;
+        req.authPrincipal = principal;
         return next();
       }
       if (
@@ -221,7 +402,7 @@ export const authenticate = async (
       ) {
         const userId = token.substring("test-".length);
         const userDoc = await User.findById(userId);
-        (req as Request & { user?: unknown }).user =
+        const authenticatedUser =
           userDoc ||
           ({
             _id: userId,
@@ -229,9 +410,19 @@ export const authenticate = async (
             role: ROLES.PARTICIPANT,
             isVerified: true,
             isActive: true,
-          } as Record<string, unknown>);
+          } as unknown as IUser);
+        const principal = createUserAuthorizationPrincipal(authenticatedUser);
+        if (!principal || !principal.isActive || !principal.isVerified) {
+          res.status(401).json({
+            success: false,
+            message: "Invalid test token. User not found, inactive, or unverified.",
+          });
+          return;
+        }
+        req.user = authenticatedUser;
         req.userId = userId;
-        req.userRole = ROLES.PARTICIPANT;
+        req.userRole = authenticatedUser.role;
+        req.authPrincipal = principal;
         return next();
       }
     }
@@ -240,7 +431,9 @@ export const authenticate = async (
     const decoded = TokenService.verifyAccessToken(token);
 
     // Get user from database
-    const user = await User.findById(decoded.userId).select("+password");
+    const user = await User.findById(decoded.userId).select(
+      "-password +passwordChangedAt",
+    );
 
     if (!user || !user.isActive) {
       res.status(401).json({
@@ -258,16 +451,32 @@ export const authenticate = async (
       });
       return;
     }
+    if (!isTokenCurrentForPasswordChange(decoded, user)) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication failed.",
+      });
+      return;
+    }
 
     // Attach user to request object
     req.user = user;
     req.userId = String(user._id);
     req.userRole = user.role;
+    const principal = createUserAuthorizationPrincipal(user);
+    if (!principal) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication failed.",
+      });
+      return;
+    }
+    req.authPrincipal = principal;
 
     next();
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error("Auth error");
-    console.error("Authentication error:", err.message);
+    logSafeErrorEvent("AUTH_ACCESS_TOKEN_FAILED", err, req.userId);
 
     if (err.name === "JsonWebTokenError") {
       res.status(401).json({
@@ -310,15 +519,22 @@ export const authenticateOptional = async (
 
     // Verify token; if invalid, fall through and continue unauthenticated
     const decoded = TokenService.verifyAccessToken(token);
-    const user = await User.findById(decoded.userId).select("+password");
+    const user = await User.findById(decoded.userId).select(
+      "-password +passwordChangedAt",
+    );
     if (!user || !user.isActive || !user.isVerified) {
       return next();
     }
+    if (!isTokenCurrentForPasswordChange(decoded, user)) return next();
 
-    // Attach user context and proceed
+    const principal = createUserAuthorizationPrincipal(user);
+    if (!principal) return next();
+
+    // Attach user context only after the minimal principal validates.
     req.user = user;
     req.userId = String(user._id);
     req.userRole = user.role;
+    req.authPrincipal = principal;
     return next();
   } catch {
     // Silently ignore errors; proceed as unauthenticated
@@ -328,8 +544,13 @@ export const authenticateOptional = async (
 
 // Advanced role-based authorization using role utilities
 export const authorizeRoles = (...requiredRoles: UserRole[]) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -337,7 +558,19 @@ export const authorizeRoles = (...requiredRoles: UserRole[]) => {
       return;
     }
 
-    if (!RoleUtils.hasAnyRole(req.user.role, requiredRoles)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_ANY_ROLE,
+      context: { roles: requiredRoles },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Required roles: ${requiredRoles.join(" or ")}`,
@@ -352,8 +585,13 @@ export const authorizeRoles = (...requiredRoles: UserRole[]) => {
 
 // Minimum role authorization (user must have this role or higher)
 export const authorizeMinimumRole = (minimumRole: UserRole) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -361,7 +599,19 @@ export const authorizeMinimumRole = (minimumRole: UserRole) => {
       return;
     }
 
-    if (!RoleUtils.hasMinimumRole(req.user.role, minimumRole)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_MINIMUM_ROLE,
+      context: { minimumRole },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Minimum required role: ${minimumRole}`,
@@ -376,8 +626,13 @@ export const authorizeMinimumRole = (minimumRole: UserRole) => {
 
 // Permission-based authorization
 export const authorizePermission = (permission: Permission) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
+  return async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -385,7 +640,19 @@ export const authorizePermission = (permission: Permission) => {
       return;
     }
 
-    if (!hasPermission(req.user.role, permission)) {
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.HAS_PERMISSION,
+      context: { permission },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
+    if (!decision.allowed) {
+      recordAuthorizationDenial(
+        authorizationRequest,
+        decision,
+        req.correlationId,
+      );
       res.status(403).json({
         success: false,
         message: `Access denied. Required permission: ${permission}`,
@@ -452,7 +719,7 @@ export const verifyEmailToken = async (
     req.user = user;
     next();
   } catch (error) {
-    console.error("Email verification error:", error);
+    logSafeErrorEvent("AUTH_EMAIL_TOKEN_VERIFICATION_FAILED", error);
     res.status(500).json({
       success: false,
       message: "Email verification failed.",
@@ -496,7 +763,7 @@ export const verifyPasswordResetToken = async (
     req.user = user;
     next();
   } catch (error) {
-    console.error("Password reset verification error:", error);
+    logSafeErrorEvent("AUTH_PASSWORD_RESET_TOKEN_FAILED", error);
     res.status(500).json({
       success: false,
       message: "Password reset verification failed.",
@@ -520,9 +787,8 @@ export const authorizeEventManagement = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    console.log("DEBUG: authorizeEventManagement called");
-    console.log("DEBUG: req.user exists:", !!req.user);
-    if (!req.user) {
+    const principal = getRequestUserPrincipal(req);
+    if (!principal) {
       res.status(401).json({
         success: false,
         message: "Authentication required.",
@@ -530,14 +796,9 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    // Admins (Administrator or Super Admin) can manage any event; bypass further checks
-    console.log("DEBUG: req.user.role:", req.user.role);
-    // Note: use direct role comparison here instead of RoleUtils.isAdmin because tests mock RoleUtils
-    // without stubbing isAdmin for this path.
     const isAdminByRole =
-      req.user.role === ROLES.ADMINISTRATOR ||
-      req.user.role === ROLES.SUPER_ADMIN;
-    console.log("DEBUG: isAdminByRole:", isAdminByRole);
+      principal.role === ROLES.ADMINISTRATOR ||
+      principal.role === ROLES.SUPER_ADMIN;
     if (isAdminByRole) {
       next();
       return;
@@ -553,11 +814,26 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    // Import Event model here to avoid circular dependency
-    const { Event } = await import("../models");
-    const event = await Event.findById(eventId);
+    const authorizationRequest = {
+      source: "http",
+      principal,
+      action: AUTHORIZATION_ACTIONS.EVENT_MANAGE,
+      resource: { type: "event", id: eventId },
+    } as const;
+    const decision = await authorizationService.authorize(authorizationRequest);
 
-    if (!event) {
+    if (decision.allowed) {
+      next();
+      return;
+    }
+
+    recordAuthorizationDenial(
+      authorizationRequest,
+      decision,
+      req.correlationId,
+    );
+
+    if (decision.reasonCode === "resource_not_found") {
       res.status(404).json({
         success: false,
         message: "Event not found.",
@@ -565,34 +841,16 @@ export const authorizeEventManagement = async (
       return;
     }
 
-    const currentUserId = String(req.user._id);
-    const eventCreatorId = String(event.createdBy);
-
-    // Check if user created the event
-    if (currentUserId === eventCreatorId) {
-      next();
-      return;
-    }
-
-    // Check if user is listed as an organizer
-    const isOrganizer = event.organizerDetails?.some(
-      (organizer: { userId?: { toString(): string } }) =>
-        organizer.userId?.toString() === currentUserId
-    );
-
-    if (isOrganizer) {
-      next();
-      return;
-    }
-
-    const isProgramEditor = await isAffiliatedProgramEditor(
-      event,
-      currentUserId,
-      req.user.role
-    );
-
-    if (isProgramEditor) {
-      next();
+    if (decision.reasonCode === "authorization_error") {
+      logSafeErrorEvent(
+        "AUTH_EVENT_MANAGEMENT_POLICY_FAILED",
+        { name: "AuthorizationPolicyError" },
+        req.userId,
+      );
+      res.status(500).json({
+        success: false,
+        message: "Authorization check failed.",
+      });
       return;
     }
 
@@ -602,7 +860,7 @@ export const authorizeEventManagement = async (
         "Access denied. You must be an Administrator, Super Admin, event creator, listed organizer, or a mentor/class rep of an affiliated program to manage this event.",
     });
   } catch (error) {
-    console.error("Event management authorization error:", error);
+    logSafeErrorEvent("AUTH_EVENT_MANAGEMENT_FAILED", error, req.userId);
     res.status(500).json({
       success: false,
       message: "Authorization check failed.",

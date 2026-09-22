@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import AuditLog, { IAuditLog } from "../models/AuditLog";
 import { createLogger } from "../services/LoggerService";
 
@@ -33,17 +34,36 @@ export class AuditLogController {
 
       // Build filter query
       const filter: Record<string, unknown> = {};
+      const scopedFilters: Record<string, unknown>[] = [];
 
       if (action && typeof action === "string") {
         filter.action = action;
       }
 
       if (eventId && typeof eventId === "string") {
-        filter.eventId = eventId;
+        const eventFilters: Record<string, unknown>[] = [
+          { targetModel: "Event", targetId: eventId },
+        ];
+        if (mongoose.Types.ObjectId.isValid(eventId)) {
+          eventFilters.unshift({ eventId });
+        }
+        scopedFilters.push({
+          $or: eventFilters,
+        });
       }
 
       if (actorId && typeof actorId === "string") {
-        filter.actorId = actorId;
+        const actorFilters: Record<string, unknown>[] = [{ actorKey: actorId }];
+        if (mongoose.Types.ObjectId.isValid(actorId)) {
+          actorFilters.unshift({ actorId }, { "actor.id": actorId });
+        }
+        scopedFilters.push({
+          $or: actorFilters,
+        });
+      }
+
+      if (scopedFilters.length > 0) {
+        filter.$and = scopedFilters;
       }
 
       // Date filtering - if date is provided, filter for that specific day
@@ -94,11 +114,18 @@ export class AuditLogController {
         title?: string;
       }
       interface LeanAuditLog
-        extends Omit<IAuditLog, "actorId" | "eventId" | "actor"> {
+        extends Omit<IAuditLog, "_id" | "actorId" | "eventId" | "actor"> {
         _id: { toString(): string };
         actorId?: PopulatedUserRef | string;
         eventId?: PopulatedEventRef | string;
-        actor?: { id: unknown; role: string; email: string } | null;
+        actor?: { id: unknown; role: string; email?: string } | null;
+        version?: number;
+        actorType?: "user" | "worker" | "system" | null;
+        actorKey?: string | null;
+        source?: "http" | "socket" | "worker" | "system" | null;
+        correlationId?: string | null;
+        outcome?: "success" | "denied" | "failure" | "noop" | null;
+        reasonCode?: string | null;
         targetModel?: string;
         targetId?: string;
         details?: Record<string, unknown>;
@@ -133,7 +160,7 @@ export class AuditLogController {
             const actor = auditLog.actor as {
               id: unknown;
               role: string;
-              email: string;
+              email?: string;
             };
 
             // Check if actor.id was populated with user details
@@ -154,12 +181,17 @@ export class AuditLogController {
                 role: actor.role,
               };
             } else {
-              // Fallback if population failed
+              // A deleted/unpopulated version 2 user intentionally has no raw
+              // email fallback. Keep the identifier usable without inventing PII.
               actorIdStr = actor.id ? String(actor.id) : null;
+              const legacyEmail =
+                typeof actor.email === "string" ? actor.email : "";
               actorInfo = {
-                username: actor.email.split("@")[0],
-                email: actor.email,
-                name: "Unknown User",
+                username:
+                  legacyEmail.split("@")[0] ||
+                  (actorIdStr ? `user-${actorIdStr.slice(-6)}` : "user"),
+                email: legacyEmail,
+                name: "User",
                 role: actor.role,
               };
             }
@@ -182,6 +214,20 @@ export class AuditLogController {
             };
           } else if (typeof auditLog.actorId === "string") {
             actorIdStr = auditLog.actorId;
+          }
+
+          if (
+            !actorInfo &&
+            (auditLog.actorType === "worker" ||
+              auditLog.actorType === "system")
+          ) {
+            const actorKey = auditLog.actorKey || auditLog.actorType;
+            actorInfo = {
+              username: actorKey,
+              email: "",
+              name: actorKey,
+              role: auditLog.actorType === "worker" ? "Worker" : "System",
+            };
           }
 
           // Event info normalization - support both old and new format
@@ -219,9 +265,16 @@ export class AuditLogController {
 
           return {
             id: auditLog._id.toString(),
+            version: auditLog.version ?? 1,
             action: auditLog.action,
+            actorType: auditLog.actorType ?? null,
+            actorKey: auditLog.actorKey ?? null,
             actorId: actorIdStr,
             actorInfo,
+            source: auditLog.source ?? null,
+            correlationId: auditLog.correlationId ?? null,
+            outcome: auditLog.outcome ?? null,
+            reasonCode: auditLog.reasonCode ?? null,
             eventId: eventIdStr,
             eventTitle,
             metadata: auditLog.metadata,

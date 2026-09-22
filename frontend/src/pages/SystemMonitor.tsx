@@ -10,6 +10,8 @@ import {
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import PageHeader from "../components/ui/PageHeader";
+import AlumniNetworkModeControl from "../components/system/AlumniNetworkModeControl";
+import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
 
 interface MonitorStats {
   totalRequestsLastHour: number;
@@ -50,6 +52,7 @@ interface RateLimitingStatus {
 }
 
 export default function SystemMonitor() {
+  const { refresh: refreshRuntimeConfig } = useRuntimeConfig();
   const [stats, setStats] = useState<MonitorStats | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [rateLimitingStatus, setRateLimitingStatus] =
@@ -288,6 +291,10 @@ export default function SystemMonitor() {
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <AlumniNetworkModeControl
+          onRuntimeConfigRefresh={refreshRuntimeConfig}
+        />
+
         {/* Header Controls */}
         <div className="mb-6 flex justify-between items-center">
           <div className="flex items-center space-x-4">

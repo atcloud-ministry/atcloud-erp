@@ -101,4 +101,5 @@ beforeAll(() => {
 // Ensure RTL unmounts components between tests
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });

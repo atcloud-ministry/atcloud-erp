@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 /**
  * Integration test: Auto-unpublish when all roles are changed to not openToPublic
  *
@@ -32,6 +33,7 @@ describe("Auto-unpublish when all roles become non-public", () => {
 
     // Create admin user
     const adminRes = await request(app).post("/api/auth/register").send({
+      ...TEST_REGISTRATION_PROFILE,
       username: "adminuser",
       email: "adminuser@example.com",
       password: "AdminPass123!",
@@ -42,6 +44,7 @@ describe("Auto-unpublish when all roles become non-public", () => {
       gender: "female",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     });
     adminId = adminRes.body.data.user.id;
     await User.findByIdAndUpdate(adminId, {

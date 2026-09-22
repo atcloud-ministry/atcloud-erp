@@ -284,7 +284,7 @@ describe("PurchaseRefundController - Unit Tests", () => {
 
     describe("Refund Deadline Calculations", () => {
       it("should calculate correct refund deadline", () => {
-        const purchaseDate = new Date("2025-01-01T12:00:00Z");
+        const purchaseDate = new Date(2025, 0, 1, 12);
         const purchase = {
           status: "completed",
           purchaseDate,
@@ -294,14 +294,14 @@ describe("PurchaseRefundController - Unit Tests", () => {
 
         // Purchase date normalized to 2025-01-01 00:00:00.000
         // Deadline is 30 days later at end of day: 2025-01-31 23:59:59.999
-        const expectedDeadline = new Date("2025-02-01T07:59:59.999Z"); // End of Jan 31 in UTC
+        const expectedDeadline = new Date(2025, 0, 31, 23, 59, 59, 999);
         expect(result.refundDeadline.toISOString()).toBe(
           expectedDeadline.toISOString(),
         );
       });
 
       it("should normalize purchase date to start of day", () => {
-        const purchaseDate = new Date("2025-01-15T08:30:00Z");
+        const purchaseDate = new Date(2025, 0, 15, 8, 30);
         const purchase = {
           status: "completed",
           purchaseDate,
@@ -310,14 +310,14 @@ describe("PurchaseRefundController - Unit Tests", () => {
         const result = calculateRefundEligibility(purchase);
 
         // Purchase date should be normalized to start of day (00:00:00.000)
-        const expectedNormalizedDate = new Date("2025-01-15T08:00:00.000Z"); // Start of day in UTC-8
+        const expectedNormalizedDate = new Date(2025, 0, 15);
         expect(result.purchaseDate.toISOString()).toBe(
           expectedNormalizedDate.toISOString(),
         );
       });
 
       it("should handle leap year dates correctly", () => {
-        const purchaseDate = new Date("2024-02-15T12:00:00Z"); // Leap year
+        const purchaseDate = new Date(2024, 1, 15, 12); // Leap year
         const purchase = {
           status: "completed",
           purchaseDate,
@@ -326,14 +326,11 @@ describe("PurchaseRefundController - Unit Tests", () => {
         const result = calculateRefundEligibility(purchase);
 
         // Check that 30 days are added correctly (Feb 15 + 30 days = Mar 16)
-        // With end-of-day normalization, deadline is Mar 16 23:59:59.999 local time
-        // which is Mar 17 06:59:59.999 UTC (8 hour offset)
-        const deadline = result.refundDeadline;
-        expect(deadline.getUTCFullYear()).toBe(2024);
-        expect(deadline.getUTCMonth()).toBe(2); // March (0-indexed)
-        expect(deadline.getUTCDate()).toBe(17);
-        expect(deadline.getUTCHours()).toBe(6);
-        expect(deadline.getUTCMinutes()).toBe(59);
+        // Assert the calendar deadline, independent of the runner's UTC offset
+        // and any daylight-saving transition between February and March.
+        expect(result.refundDeadline).toEqual(
+          new Date(2024, 2, 16, 23, 59, 59, 999),
+        );
       });
     });
 
@@ -431,14 +428,23 @@ describe("PurchaseRefundController - Unit Tests", () => {
 
         const result = calculateRefundEligibility(purchase);
 
-        // Normalized to start of Jan 1, then 30 days to end of Jan 31
-        expect(result.refundDeadline.toISOString()).toBe(
-          new Date("2025-02-01T07:59:59.999Z").toISOString(),
+        // Normalize the incoming instant to the runner's local calendar day;
+        // east-of-UTC runners may already be on January 2.
+        expect(result.refundDeadline).toEqual(
+          new Date(
+            purchaseDate.getFullYear(),
+            purchaseDate.getMonth(),
+            purchaseDate.getDate() + 30,
+            23,
+            59,
+            59,
+            999,
+          ),
         );
       });
 
       it("should handle purchases at exactly noon", () => {
-        const noon = new Date("2025-01-15T12:00:00Z");
+        const noon = new Date(2025, 0, 15, 12);
         const purchase = {
           status: "completed",
           purchaseDate: noon,
@@ -447,7 +453,7 @@ describe("PurchaseRefundController - Unit Tests", () => {
         const result = calculateRefundEligibility(purchase);
 
         // Normalized to start of Jan 15, then 30 days to end of Feb 14
-        const expectedDeadline = new Date("2025-02-15T07:59:59.999Z");
+        const expectedDeadline = new Date(2025, 1, 14, 23, 59, 59, 999);
         expect(result.refundDeadline.toISOString()).toBe(
           expectedDeadline.toISOString(),
         );

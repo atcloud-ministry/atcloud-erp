@@ -1,3 +1,4 @@
+import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -14,6 +15,7 @@ describe("Feedback API Integration", () => {
 
     // Create and login a user
     const userData = {
+      ...TEST_REGISTRATION_PROFILE,
       username: "testuser",
       email: "test@example.com",
       password: "TestPass123!",
@@ -24,6 +26,7 @@ describe("Feedback API Integration", () => {
       gender: "male",
       isAtCloudLeader: false,
       acceptTerms: true,
+      registrationNoticeVersion: "registration-privacy-v1",
     };
 
     const registerResponse = await request(app)

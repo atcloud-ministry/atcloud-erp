@@ -20,7 +20,7 @@ export type EventUpdateType =
 export interface EventUpdate {
   eventId: string;
   updateType: EventUpdateType;
-  data: unknown;
+  data: null;
   timestamp: string;
 }
 
@@ -47,22 +47,130 @@ export interface UnreadCountUpdate {
   timestamp: string;
 }
 
+export interface AlumniHelpUpdate {
+  requestId: string;
+  requestRevision: number;
+  helpActionRequiredCount: number;
+  helpNotificationCount: number;
+  /** Present only for the accepted transition that created a private room. */
+  roomCreated?: {
+    conversationId: string;
+  };
+  /**
+   * Present only when a Help Request has just closed and its existing private
+   * room entered the seven-day write grace period. The room is scoped to the
+   * two authorized participants; no participant or message data is sent.
+   */
+  roomGraceStarted?: {
+    conversationId: string;
+    writeAccessEndsAt: string;
+  };
+  timestamp: string;
+}
+
+export interface ChatParticipantPayload {
+  id: string;
+  displayName: string;
+  avatar: string | null;
+}
+
+export interface ChatSafeLinkPayload {
+  url: string;
+  label: string;
+}
+
+export interface RealtimeChatMessagePayload {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  kind: "text" | "announcement";
+  sender: ChatParticipantPayload;
+  content: string | null;
+  safeLink: ChatSafeLinkPayload | null;
+  clientMessageId: string;
+  createdAt: string;
+}
+
+export interface ChatMessageUpdate {
+  message: RealtimeChatMessagePayload;
+  timestamp: string;
+}
+
+export interface ChatUnreadUpdate {
+  conversationId: string;
+  roomUnreadCount: number;
+  chatUnreadTotal: number;
+  lastReadSequence: number;
+  timestamp: string;
+}
+
 export interface ConnectedPayload {
   message: string;
   userId: string;
 }
 
+export interface AuthExpiredPayload {
+  expiredAt: string;
+}
+
+export interface ConnectionLimitPayload {
+  limit: number;
+  disconnectedAt: string;
+}
+
+export type SocketRoomErrorCode =
+  | "INVALID_EVENT_ID"
+  | "ACCOUNT_UNAVAILABLE"
+  | "EVENT_NOT_FOUND"
+  | "AUTHORIZATION_FAILED"
+  | "RATE_LIMITED"
+  | "REQUEST_IN_PROGRESS";
+
+export type SocketRoomAckResult =
+  | { ok: true; eventId: string }
+  | { ok: false; code: SocketRoomErrorCode };
+
+export type SocketRoomAck = (result: SocketRoomAckResult) => void;
+
+export type ConversationRoomErrorCode =
+  | "INVALID_CONVERSATION_ID"
+  | "ACCOUNT_UNAVAILABLE"
+  | "CONVERSATION_NOT_FOUND"
+  | "AUTHORIZATION_FAILED"
+  | "RATE_LIMITED"
+  | "REQUEST_IN_PROGRESS";
+
+export type ConversationRoomAckResult =
+  | { ok: true; conversationId: string }
+  | { ok: false; code: ConversationRoomErrorCode };
+
+export type ConversationRoomAck = (
+  result: ConversationRoomAckResult,
+) => void;
+
 export type ServerToClientEvents = {
   connected: (payload: ConnectedPayload) => void;
+  auth_expired: (payload: AuthExpiredPayload) => void;
+  connection_limit: (payload: ConnectionLimitPayload) => void;
   event_update: (payload: EventUpdate) => void;
   event_room_update: (payload: EventRoomUpdate) => void;
   system_message_update: (payload: SystemMessageUpdate) => void;
   bell_notification_update: (payload: BellNotificationUpdate) => void;
   unread_count_update: (payload: UnreadCountUpdate) => void;
+  alumni_help_update: (payload: AlumniHelpUpdate) => void;
+  chat_message: (payload: ChatMessageUpdate) => void;
+  chat_unread_update: (payload: ChatUnreadUpdate) => void;
 };
 
 export type ClientToServerEvents = {
-  join_event_room: (eventId: string) => void;
-  leave_event_room: (eventId: string) => void;
-  update_status: (status: "online" | "away" | "busy") => void;
+  join_event_room: (eventId: string, ack: SocketRoomAck) => void;
+  leave_event_room: (eventId: string, ack?: SocketRoomAck) => void;
+  join_conversation_room: (
+    conversationId: string,
+    ack: ConversationRoomAck,
+  ) => void;
+  leave_conversation_room: (
+    conversationId: string,
+    ack?: ConversationRoomAck,
+  ) => void;
 };

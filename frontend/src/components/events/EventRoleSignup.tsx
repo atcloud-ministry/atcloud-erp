@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import type { EventRole, OrganizerDetail } from "../../types/event";
 import {
@@ -10,7 +10,11 @@ import NameCardActionModal from "../common/NameCardActionModal";
 import NotificationPromptModal from "../common/NotificationPromptModal";
 import { canSeeGuestContactInSlot } from "../../utils/guestPrivacy";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
-import { API_BASE_URL, eventService } from "../../services/api";
+import {
+  eventService,
+  userOptionsService,
+  type UserPickerDTO,
+} from "../../services/api";
 
 // Lightweight inline editor for per-role agenda (admins/organizers only)
 function RoleAgendaEditor({
@@ -198,15 +202,9 @@ export default function EventRoleSignup({
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [userQuery, setUserQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<
-    Array<{
-      id: string;
-      username: string;
-      firstName?: string;
-      lastName?: string;
-    }>
-  >([]);
+  const [searchResults, setSearchResults] = useState<UserPickerDTO[]>([]);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const assignRequestIdRef = useRef(0);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 0,
@@ -308,61 +306,36 @@ export default function EventRoleSignup({
   };
 
   // Function to fetch users with pagination and search
-  const fetchUsers = async (page: number = 1, searchQuery: string = "") => {
+  const fetchUsers = useCallback(async (
+    page: number = 1,
+    searchQuery: string = "",
+  ) => {
+    const requestId = ++assignRequestIdRef.current;
     try {
       setAssignError(null);
       setIsSearching(true);
-      const params = new URLSearchParams();
-      if (searchQuery.trim()) params.set("search", searchQuery.trim());
-      params.set("page", page.toString());
-      params.set("limit", "20"); // Use max allowed limit for better UX
-      const token = localStorage.getItem("authToken");
-      const resp = await fetch(`${API_BASE_URL}/users?${params.toString()}`, {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-          "Content-Type": "application/json",
-        },
-      });
-      const json = (await resp.json()) as {
-        message?: string;
-        data?: {
-          users?: Array<{
-            id?: string;
-            _id?: string;
-            username: string;
-            firstName?: string;
-            lastName?: string;
-          }>;
-          pagination?: {
-            currentPage: number;
-            totalPages: number;
-            totalUsers: number;
-            hasNext: boolean;
-            hasPrev: boolean;
-          };
-        };
-      };
-      if (!resp.ok) throw new Error(json.message || "Search failed");
-
-      const users = json.data?.users || [];
-      const normalized = users.flatMap((u) => {
-        const id = u.id ?? u._id;
-        if (!id) return [] as const;
-        return [
-          {
-            id,
-            username: u.username,
-            firstName: u.firstName,
-            lastName: u.lastName,
-          },
-        ];
-      });
-      setSearchResults(normalized);
-
-      if (json.data?.pagination) {
-        setPagination(json.data.pagination);
+      if (!eventId) {
+        throw new Error("This event is unavailable for user assignment.");
       }
+
+      const result = await userOptionsService.list({
+        context: "event-role-assignee",
+        resourceId: eventId,
+        q: searchQuery.trim() || undefined,
+        page,
+        limit: 20,
+      });
+      if (requestId !== assignRequestIdRef.current) return;
+      setSearchResults(result.options);
+      setPagination({
+        currentPage: result.pagination.currentPage,
+        totalPages: result.pagination.totalPages,
+        totalUsers: result.pagination.totalOptions,
+        hasNext: result.pagination.hasNext,
+        hasPrev: result.pagination.hasPrev,
+      });
     } catch (e: unknown) {
+      if (requestId !== assignRequestIdRef.current) return;
       const message = e instanceof Error ? e.message : "Search failed";
       setAssignError(message);
       setSearchResults([]);
@@ -374,9 +347,11 @@ export default function EventRoleSignup({
         hasPrev: false,
       });
     } finally {
-      setIsSearching(false);
+      if (requestId === assignRequestIdRef.current) {
+        setIsSearching(false);
+      }
     }
-  };
+  }, [eventId]);
 
   // Load users when modal opens or search query changes
   useEffect(() => {
@@ -391,8 +366,10 @@ export default function EventRoleSignup({
     return () => {
       active = false;
       clearTimeout(handler);
+      assignRequestIdRef.current += 1;
+      setIsSearching(false);
     };
-  }, [userQuery, showAssignModal]);
+  }, [fetchUsers, userQuery, showAssignModal]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
