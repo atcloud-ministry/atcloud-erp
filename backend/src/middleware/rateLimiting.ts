@@ -161,7 +161,7 @@ export const generalLimiter = rateLimit({
   windowMs: positiveIntegerEnvironment("RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000),
   max: usesNonProductionLimits
     ? 10000
-    : positiveIntegerEnvironment("RATE_LIMIT_MAX_REQUESTS", 100),
+    : positiveIntegerEnvironment("RATE_LIMIT_MAX_REQUESTS", 600),
   message: {
     error: "Too many requests from this IP, please try again later.",
   },

@@ -45,7 +45,10 @@ interface AlumniHelpContextValue {
 const AlumniHelpContext = createContext<AlumniHelpContextValue | undefined>(
   undefined,
 );
-const FOREGROUND_RECONCILIATION_MS = 15_000;
+// Socket events update the count immediately. This timer only repairs missed
+// events after a silent connection loss, so it should not exhaust the shared
+// API rate-limit bucket while a member keeps a page open.
+const FOREGROUND_RECONCILIATION_MS = 60_000;
 
 export function isAlumniHelpUpdatePayload(
   value: unknown,

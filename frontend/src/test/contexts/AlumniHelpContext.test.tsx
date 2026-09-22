@@ -146,7 +146,7 @@ describe("AlumniHelpProvider", () => {
 
     vi.useFakeTimers();
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(2);
     visibility.mockReturnValue("visible");
     mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 1, helpNotificationCount: 2 });
@@ -165,10 +165,12 @@ describe("AlumniHelpProvider", () => {
     await act(async () => {});
     mocks.getNotificationCounts.mockResolvedValue({ helpActionRequiredCount: 0, helpNotificationCount: 1 });
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(mocks.getNotificationCounts).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
     expect(screen.getByLabelText("Alumni Help notification count")).toHaveTextContent("1");
     expect(screen.getByLabelText("Alumni Help refresh sequence")).toHaveTextContent("1");
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(mocks.getNotificationCounts).toHaveBeenCalledTimes(2);
   });
 

@@ -662,6 +662,31 @@ describe("Rate Limiting Middleware", () => {
       expect(() => assertRateLimitProductionConfiguration()).not.toThrow();
     });
 
+    test("normal production reads do not exhaust the shared fallback after 100 requests", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_RATE_LIMITING = "true";
+      process.env.RATE_LIMIT_WINDOW_MS = "900000";
+      process.env.RATE_LIMIT_MAX_REQUESTS = "600";
+      const { generalLimiter: productionGeneralLimiter } =
+        await importWithEnv();
+
+      const composedApp = express();
+      composedApp.use(productionGeneralLimiter);
+      composedApp.get("/api/runtime-config", (_req, res) =>
+        res.json({ ok: true }),
+      );
+      composedApp.get("/api/admin/users", (_req, res) =>
+        res.json({ ok: true }),
+      );
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const endpoint =
+          attempt % 2 === 0 ? "/api/runtime-config" : "/api/admin/users";
+        const response = await request(composedApp).get(endpoint).expect(200);
+        expect(response.headers["ratelimit-limit"]).toBe("600");
+      }
+    });
+
     test("directory search is limited independently by account and IP", async () => {
       process.env.NODE_ENV = "production";
       process.env.ENABLE_RATE_LIMITING = "true";
