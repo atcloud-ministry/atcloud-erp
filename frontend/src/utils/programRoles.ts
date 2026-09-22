@@ -30,6 +30,8 @@ type ProgramRoleSource = {
 };
 
 const cleanRoleId = (value: string, fallback: string) => {
+  // Existing purchases use this legacy ID; keep it stable across Program edits.
+  if (value.trim() === "classRep") return "classRep";
   const id = value
     .trim()
     .replace(/([a-z])([A-Z])/g, "$1-$2")
