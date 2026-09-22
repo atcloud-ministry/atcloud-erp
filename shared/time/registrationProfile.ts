@@ -148,6 +148,23 @@ export function normalizeNullableDisplayText(
   return normalized.length > 0 ? normalized : null;
 }
 
+/** Normalize a biography without collapsing its paragraph breaks. */
+export function normalizeNullableMultilineDisplayText(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .normalize("NFC")
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) =>
+      line.replace(/[\t\p{Zs}]+/gu, " ").replace(/^ +| +$/gu, ""),
+    )
+    .join("\n")
+    .replace(/^\n+|\n+$/gu, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function codePointLength(value: string): number {
   return Array.from(value).length;
 }
@@ -158,6 +175,21 @@ export function isValidDisplayText(
   maximumCodePoints = PROFILE_DISPLAY_TEXT_MAX_CODE_POINTS,
 ): value is string {
   if (typeof value !== "string" || CONTROL_CHARACTER_PATTERN.test(value)) {
+    return false;
+  }
+  const length = codePointLength(value);
+  return length >= minimumCodePoints && length <= maximumCodePoints;
+}
+
+export function isValidMultilineDisplayText(
+  value: unknown,
+  minimumCodePoints = 1,
+  maximumCodePoints = 2_000,
+): value is string {
+  if (
+    typeof value !== "string" ||
+    CONTROL_CHARACTER_PATTERN.test(value.replace(/\n/gu, ""))
+  ) {
     return false;
   }
   const length = codePointLength(value);

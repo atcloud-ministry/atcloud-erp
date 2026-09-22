@@ -5,6 +5,34 @@ import {
 } from "../../utils/programRoles";
 
 describe("program role utilities", () => {
+  it("preserves the legacy Class Representative role ID during a Program edit", () => {
+    const payload = buildProgramRolesPayload({
+      studentRoles: [
+        {
+          id: "classRep",
+          name: "Class Representative",
+          discountEligible: true,
+          discountAmount: 0,
+          limit: 0,
+          count: 1,
+        },
+        {
+          id: "class-rep",
+          name: "Different Role",
+          discountEligible: false,
+          discountAmount: 0,
+          limit: 0,
+          count: 0,
+        },
+      ],
+    });
+
+    expect(payload.studentRoles.map((role) => role.id)).toEqual([
+      "classRep",
+      "class-rep",
+    ]);
+  });
+
   it("preserves programs with no tuition discount roles", () => {
     const roles = normalizeProgramRoles({
       programRoles: {

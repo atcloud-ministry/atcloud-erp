@@ -94,9 +94,12 @@ export function initializeProgramRoleCounts(
   };
 }
 
+export class ProgramRoleInUseError extends Error {}
+
 export function preserveProgramRoleCounts(
   program: ProgramRoleSource,
   submittedProgramRoles: unknown,
+  purchasedRoleIds: ReadonlySet<string> = new Set(),
 ): unknown {
   const normalizedSubmitted = normalizeSubmittedProgramRoles(
     submittedProgramRoles,
@@ -111,15 +114,17 @@ export function preserveProgramRoleCounts(
   );
 
   for (const currentRole of currentRoles) {
-    if (currentRole.count <= 0) continue;
+    if (currentRole.count <= 0 && !purchasedRoleIds.has(currentRole.id)) {
+      continue;
+    }
     const submittedRole = submittedById.get(currentRole.id);
     if (!submittedRole) {
-      throw new Error(
+      throw new ProgramRoleInUseError(
         `Student role ${currentRole.id} cannot be removed while it has active enrollments.`,
       );
     }
     if (submittedRole.discountEligible !== currentRole.discountEligible) {
-      throw new Error(
+      throw new ProgramRoleInUseError(
         `Student role ${currentRole.id} discount eligibility cannot change while it has active enrollments.`,
       );
     }

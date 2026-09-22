@@ -50,6 +50,10 @@ function toTrimmedString(value: unknown, fallback: string): string {
 }
 
 function slugifyRoleId(value: string, fallback: string): string {
+  // Existing purchases use this legacy ID; keep it stable across Program edits.
+  if (value.trim() === LEGACY_CLASS_REP_ROLE_ID) {
+    return LEGACY_CLASS_REP_ROLE_ID;
+  }
   const slug = value
     .trim()
     .replace(/([a-z])([A-Z])/g, "$1-$2")

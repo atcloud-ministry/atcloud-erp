@@ -13,6 +13,7 @@ vi.mock("../../../../src/models", () => ({
   },
   Purchase: {
     findOne: vi.fn(),
+    distinct: vi.fn(),
   },
 }));
 
@@ -107,6 +108,7 @@ describe("UpdateController", () => {
     vi.mocked(
       UserAssignmentSnapshotService.resolveProgramMentors,
     ).mockResolvedValue([]);
+    vi.mocked(Purchase.distinct).mockResolvedValue([]);
   });
 
   describe("update", () => {
@@ -487,6 +489,112 @@ describe("UpdateController", () => {
           },
         });
         expect(mockProgram.classRepCount).toBe(4);
+      });
+
+      it.each([
+        {
+          studentRoles: [
+            { id: "mentee", name: "Mentee", discountEligible: false },
+          ],
+          message:
+            "Student role classRep cannot be removed while it has active enrollments.",
+        },
+        {
+          studentRoles: [
+            { id: "mentee", name: "Mentee", discountEligible: false },
+            {
+              id: "classRep",
+              name: "Class Representative",
+              discountEligible: false,
+            },
+          ],
+          message:
+            "Student role classRep discount eligibility cannot change while it has active enrollments.",
+        },
+      ])(
+        "should reject removing or reclassifying a purchased role when its count is zero",
+        async ({ studentRoles, message }) => {
+          mockProgram = createMockProgram({
+            programRoles: {
+              teacherRoleName: "Mentor",
+              studentRoles: [
+                {
+                  id: "mentee",
+                  name: "Mentee",
+                  discountEligible: false,
+                  count: 0,
+                },
+                {
+                  id: "classRep",
+                  name: "Class Representative",
+                  discountEligible: true,
+                  count: 0,
+                },
+              ],
+            },
+          });
+          vi.mocked(Program.findById).mockResolvedValue(mockProgram as any);
+          vi.mocked(Purchase.distinct).mockResolvedValue(["classRep"]);
+          mockReq.body = {
+            programRoles: { teacherRoleName: "Mentor", studentRoles },
+          };
+
+          await UpdateController.update(mockReq as Request, mockRes as Response);
+
+          expect(Purchase.distinct).toHaveBeenCalledWith("studentRoleId", {
+            purchaseType: "program",
+            programId,
+            status: "completed",
+            unenrolledAt: { $exists: false },
+            studentRoleId: { $type: "string" },
+          });
+          expect(statusMock).toHaveBeenCalledWith(409);
+          expect(jsonMock).toHaveBeenCalledWith({ success: false, message });
+          expect(mockProgram.set).not.toHaveBeenCalled();
+          expect(mockProgram.save).not.toHaveBeenCalled();
+        },
+      );
+
+      it("should allow a purchased role with zero count when its ID and eligibility remain stable", async () => {
+        mockProgram = createMockProgram({
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              {
+                id: "mentee",
+                name: "Mentee",
+                discountEligible: false,
+                count: 0,
+              },
+              {
+                id: "classRep",
+                name: "Class Representative",
+                discountEligible: true,
+                count: 0,
+              },
+            ],
+          },
+        });
+        vi.mocked(Program.findById).mockResolvedValue(mockProgram as any);
+        vi.mocked(Purchase.distinct).mockResolvedValue(["classRep"]);
+        mockReq.body = {
+          programRoles: {
+            teacherRoleName: "Mentor",
+            studentRoles: [
+              { id: "mentee", name: "Mentee", discountEligible: false },
+              {
+                id: "classRep",
+                name: "Class Representative",
+                discountEligible: true,
+              },
+            ],
+          },
+        };
+
+        await UpdateController.update(mockReq as Request, mockRes as Response);
+
+        expect(statusMock).toHaveBeenCalledWith(200);
+        expect(mockProgram.save).toHaveBeenCalledTimes(1);
       });
 
       it("should reject castable discount flags that could clear an occupied role", async () => {

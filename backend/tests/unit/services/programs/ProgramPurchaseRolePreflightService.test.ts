@@ -44,6 +44,24 @@ function query<T>(value: T) {
 }
 
 describe("legacy Program purchase student-role candidate", () => {
+  it("keeps an explicit legacy Class Representative purchase role valid", () => {
+    const program = programWithRoles([
+      { id: "mentee", name: "Mentee", discountEligible: false },
+      { id: "classRep", name: "Class Representative", discountEligible: true },
+    ]);
+
+    expect(
+      resolveCanonicalProgramPurchaseRole(program, {
+        studentRoleId: "classRep",
+        isClassRep: true,
+      }),
+    ).toEqual({
+      status: "resolved",
+      studentRoleId: "classRep",
+      studentRoleName: "Class Representative",
+    });
+  });
+
   it("uses the exact legacy defaults for Programs without explicit roles", () => {
     const program = programWithRoles();
 
