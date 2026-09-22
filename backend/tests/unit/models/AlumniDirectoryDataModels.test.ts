@@ -165,6 +165,22 @@ describe("AlumniProfile model", () => {
     expect(profile.searchProjection.displayNameKey).toBe("jose");
   });
 
+  it("preserves About paragraphs and rejects forbidden control characters", async () => {
+    const profile = new AlumniProfile({
+      userId: new mongoose.Types.ObjectId(),
+      bio: " First   paragraph\r\n\r\nSecond\tparagraph ",
+      searchProjection: emptySearchProjection(),
+    });
+
+    await expect(profile.validate()).resolves.toBeUndefined();
+    expect(profile.bio).toBe("First paragraph\n\nSecond paragraph");
+
+    profile.bio = "First\u0000\n\nSecond";
+    await expect(profile.validate()).rejects.toThrow("Bio must be 1-2000 characters");
+    profile.bio = "First\u007f\n\nSecond";
+    await expect(profile.validate()).rejects.toThrow("Bio must be 1-2000 characters");
+  });
+
   it("requires a consent pointer and timestamp only for published state", async () => {
     const invalid = new AlumniProfile({
       userId: new mongoose.Types.ObjectId(),

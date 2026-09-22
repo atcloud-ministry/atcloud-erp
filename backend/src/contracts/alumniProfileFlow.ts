@@ -1,8 +1,10 @@
 import {
   codePointLength,
   isValidDisplayText,
+  isValidMultilineDisplayText,
   normalizeDisplayText,
   normalizeNullableDisplayText,
+  normalizeNullableMultilineDisplayText,
 } from "@atcloud/shared-time/registration-profile";
 import { ALUMNI_PROFILE_PUBLICATION_CONSENT } from "../config/alumniProfilePublicationConsent";
 import {
@@ -182,6 +184,25 @@ function nullableDisplayText(
   return normalized;
 }
 
+function nullableMultilineDisplayText(
+  value: unknown,
+  path: string,
+  maximum: number,
+): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    return fail(path, `${path} must be a string or null`);
+  }
+  const normalized = normalizeNullableMultilineDisplayText(value);
+  if (
+    normalized === null ||
+    !isValidMultilineDisplayText(normalized, 1, maximum)
+  ) {
+    return fail(path, `${path} must contain 1-${maximum} characters or be null`);
+  }
+  return normalized;
+}
+
 function skills(value: unknown, path: string): readonly string[] {
   if (!Array.isArray(value) || value.length > ALUMNI_PROFILE_FIELD_LIMITS.skills) {
     return fail(
@@ -260,7 +281,7 @@ function parseFields(
     result.skills = skills(object.skills, `${path}.skills`);
   }
   if (Object.prototype.hasOwnProperty.call(object, "bio")) {
-    result.bio = nullableDisplayText(
+    result.bio = nullableMultilineDisplayText(
       object.bio,
       `${path}.bio`,
       ALUMNI_PROFILE_FIELD_LIMITS.bio,

@@ -1,8 +1,10 @@
 import {
   codePointLength,
   isValidDisplayText,
+  isValidMultilineDisplayText,
   normalizeDisplayText,
   normalizeNullableDisplayText,
+  normalizeNullableMultilineDisplayText,
   normalizeSearchText,
 } from "@atcloud/shared-time/registration-profile";
 import mongoose, { type Document, type Model, Schema } from "mongoose";
@@ -62,6 +64,12 @@ export interface IAlumniProfile extends Document {
 
 function normalizedNullableDisplayText(value: unknown): unknown {
   return typeof value === "string" ? normalizeNullableDisplayText(value) : value;
+}
+
+function normalizedNullableMultilineDisplayText(value: unknown): unknown {
+  return typeof value === "string"
+    ? normalizeNullableMultilineDisplayText(value)
+    : value;
 }
 
 function normalizeDisplayTextArray(value: unknown): unknown {
@@ -220,10 +228,11 @@ const alumniProfileSchema = new Schema<IAlumniProfile>(
     bio: {
       type: String,
       default: null,
-      set: normalizedNullableDisplayText,
+      set: normalizedNullableMultilineDisplayText,
       validate: {
         validator: (value: unknown) =>
-          value == null || isValidDisplayText(value, 1, MAX_BIO_CODE_POINTS),
+          value == null ||
+          isValidMultilineDisplayText(value, 1, MAX_BIO_CODE_POINTS),
         message: "Bio must be 1-2000 characters.",
       },
     },

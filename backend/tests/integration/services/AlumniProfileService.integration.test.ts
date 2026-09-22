@@ -267,7 +267,7 @@ describe("M2-03 alumni profile lifecycle", () => {
       professionalHeadline: "Product Leader",
       industry: "Technology",
       skills: ["Product Strategy", "Mentoring"],
-      bio: "private biography value",
+      bio: "private biography value\n\nsecond paragraph",
       helpOfferings: {
         careerAdvice: true,
         warmIntroduction: true,
@@ -295,7 +295,7 @@ describe("M2-03 alumni profile lifecycle", () => {
       professionalHeadline: "Product Leader",
       industry: "Technology",
       skills: ["Product Strategy", "Mentoring"],
-      bio: "private biography value",
+      bio: "private biography value\n\nsecond paragraph",
       helpOfferings: {
         careerAdvice: true,
         warmIntroduction: true,
@@ -315,6 +315,12 @@ describe("M2-03 alumni profile lifecycle", () => {
     });
     expect(stored?.searchProjection.searchText).toContain("product strategy");
     expect(stored?.searchProjection.searchText).toContain("emba mentor circles");
+    expect((await service.getOwn(userId.toString())).bio).toBe(
+      "private biography value\n\nsecond paragraph",
+    );
+    expect((await service.previewOwn(userId.toString())).bio).toBe(
+      "private biography value\n\nsecond paragraph",
+    );
     expect(await IdempotencyRecord.countDocuments({})).toBe(1);
     expect(
       await AuditLog.countDocuments({
