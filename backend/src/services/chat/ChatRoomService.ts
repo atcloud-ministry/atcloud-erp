@@ -524,6 +524,7 @@ export class ChatRoomService {
       { conversation, member },
       actorId,
       now,
+      false,
     );
 
     const canSend =
@@ -2019,6 +2020,7 @@ export class ChatRoomService {
     access: RoomAccess,
     actorId: mongoose.Types.ObjectId,
     now: Date,
+    concealResolverFailure = true,
   ): Promise<void> {
     if (
       access.conversation.kind !== "program" ||
@@ -2036,7 +2038,8 @@ export class ChatRoomService {
         actorId,
         { now },
       );
-    } catch {
+    } catch (error) {
+      if (!concealResolverFailure) throw error;
       throw chatRoomNotFound();
     }
     const canonicalActor = resolution.membership;

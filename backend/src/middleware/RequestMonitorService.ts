@@ -160,11 +160,8 @@ class RequestMonitorService {
   }
 
   private getClientIP(req: Request): string {
-    const forwarded = req.headers["x-forwarded-for"];
-    const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
     return (
-      forwardedValue?.split(",", 1)[0].trim() ||
-      (req.headers["x-real-ip"] as string | undefined) ||
+      req.ip ||
       req.socket?.remoteAddress ||
       req.connection?.remoteAddress ||
       "unknown"

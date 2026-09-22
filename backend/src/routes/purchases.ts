@@ -35,6 +35,9 @@ router.get("/my-pending-purchases", PurchasePendingController.getMyPendingPurcha
 router.post("/retry/:id", PurchaseRetryController.retryPendingPurchase);
 
 // Check if user has access to a program
+router.post("/check-access/batch", PurchaseAccessController.checkProgramsAccess);
+
+// Check if user has access to one program (kept for detail views)
 router.get("/check-access/:programId", PurchaseAccessController.checkProgramAccess);
 
 // Check refund eligibility for a purchase

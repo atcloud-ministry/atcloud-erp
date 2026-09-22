@@ -88,9 +88,7 @@ describe("ProgramChatRoomLink", () => {
   });
 
   it("conceals the entry when lookup says the viewer has no membership", async () => {
-    mocks.getProgramRoom.mockRejectedValueOnce(
-      Object.assign(new Error("The chat room was not found."), { status: 404 }),
-    );
+    mocks.getProgramRoom.mockResolvedValueOnce({ room: null });
     renderLink();
     await waitFor(() => expect(mocks.getProgramRoom).toHaveBeenCalledOnce());
     expect(screen.queryByRole("link")).toBeNull();
@@ -101,11 +99,6 @@ describe("ProgramChatRoomLink", () => {
     vi.useFakeTimers();
     try {
       mocks.getProgramRoom
-        .mockRejectedValueOnce(
-          Object.assign(new Error("The chat room was not found."), {
-            status: 404,
-          }),
-        )
         .mockRejectedValueOnce(
           Object.assign(new Error("Program Room projection is changing."), {
             status: 409,
@@ -129,12 +122,6 @@ describe("ProgramChatRoomLink", () => {
         await vi.advanceTimersByTimeAsync(250);
       });
       expect(mocks.getProgramRoom).toHaveBeenCalledTimes(2);
-      expect(screen.queryByRole("link", { name: "Open Chat Room" })).toBeNull();
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(750);
-      });
-      expect(mocks.getProgramRoom).toHaveBeenCalledTimes(3);
       expect(
         screen.getByRole("link", { name: "Open Chat Room" }),
       ).toHaveAttribute("href", `/dashboard/chat-rooms/${ROOM_ID}`);
@@ -177,8 +164,8 @@ describe("ProgramChatRoomLink", () => {
     vi.useFakeTimers();
     try {
       mocks.getProgramRoom.mockRejectedValue(
-        Object.assign(new Error("The chat room was not found."), {
-          status: 404,
+        Object.assign(new Error("Program Room projection is changing."), {
+          status: 409,
         }),
       );
       const view = renderLink();
@@ -190,6 +177,26 @@ describe("ProgramChatRoomLink", () => {
         await vi.advanceTimersByTimeAsync(3_000);
       });
       expect(mocks.getProgramRoom).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry a legacy not-found response", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getProgramRoom.mockRejectedValue(
+        Object.assign(new Error("The chat room was not found."), {
+          status: 404,
+        }),
+      );
+      renderLink();
+      await act(async () => Promise.resolve());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+      expect(mocks.getProgramRoom).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("link")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

@@ -150,8 +150,32 @@ function isHealthProbe(req: Request): boolean {
   return HEALTH_PROBE_PATHS.has(pathname);
 }
 
+/**
+ * Public upload reads are served as static files and can be requested many
+ * times while rendering a single page (for example, one request per avatar).
+ * They must not consume the shared API fallback bucket. Keep the exemption
+ * deliberately narrow: only retrieval/preflight methods under the static
+ * `/uploads` mount are skipped, so any mutation-shaped request still passes
+ * through the fallback limiter.
+ */
+function isStaticUploadRead(req: Request): boolean {
+  if (
+    req.method !== "GET" &&
+    req.method !== "HEAD" &&
+    req.method !== "OPTIONS"
+  ) {
+    return false;
+  }
+  const pathname =
+    req.path.length > 1 ? req.path.replace(/\/+$/u, "") : req.path;
+  return hasPathPrefix(pathname, "/uploads");
+}
+
 const skipGeneralRateLimit = (req: Request): boolean =>
-  skipRateLimit(req) || isHealthProbe(req) || hasSpecializedRateLimit(req);
+  skipRateLimit(req) ||
+  isHealthProbe(req) ||
+  isStaticUploadRead(req) ||
+  hasSpecializedRateLimit(req);
 
 // Development mode: much more generous limits
 // Production mode: strict limits for security
@@ -168,6 +192,22 @@ export const generalLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skip: skipGeneralRateLimit,
+});
+
+// Static uploads use a separate, high-ceiling bucket so image-heavy pages do
+// not starve the API while abusive file/404 floods remain bounded.
+export const staticUploadReadLimiter = rateLimit({
+  windowMs: positiveIntegerEnvironment("RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000),
+  max: usesNonProductionLimits
+    ? 30_000
+    : positiveIntegerEnvironment("STATIC_UPLOAD_RATE_LIMIT_MAX_REQUESTS", 3_000),
+  message: {
+    error: "Too many static file requests from this IP, please try again later.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req: Request) =>
+    skipRateLimit(req) || (req.method !== "GET" && req.method !== "HEAD"),
 });
 
 // Strict rate limiting for authentication endpoints
