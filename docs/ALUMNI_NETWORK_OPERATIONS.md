@@ -22,8 +22,8 @@
 
 - `GET /api/readiness`：检查 MongoDB ping 与 reliability foundation，返回 `200` 或 `503`。
 - `GET /api/readiness/live`：进程存活探针，返回 `200`。
-- Render health check 使用 `/api/readiness`。
-- Deployment guard 校验单实例、`/api/readiness` health check 与关键 production env。
+- Render health check 使用 `/api/readiness/live`，避免短暂的外部依赖波动重启唯一实例。
+- Deployment guard 校验单实例、`/api/readiness/live` health check 与关键 production env。
 - readiness 查询按 2 秒窗口合并和缓存；单次探测期限为 2 秒。
 - feature-control 状态独立记录；读取异常时 Alumni Network runtime mode 为 `off`。
 
