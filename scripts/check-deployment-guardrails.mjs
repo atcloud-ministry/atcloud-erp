@@ -167,13 +167,13 @@ function checkRenderTemplateContract() {
       "render.yaml backend service: expected exactly one active healthCheckPath key.",
     );
   }
-  const activeReadinessPaths =
+  const activeLivenessPaths =
     backendService.match(
-      /^[ \t]*healthCheckPath:\s*\/api\/readiness\s*$/gm,
+      /^[ \t]*healthCheckPath:\s*\/api\/readiness\/live\s*$/gm,
     ) || [];
-  if (activeReadinessPaths.length !== 1) {
+  if (activeLivenessPaths.length !== 1) {
     fail(
-      "render.yaml backend service: expected exactly one active /api/readiness healthCheckPath.",
+      "render.yaml backend service: expected exactly one active /api/readiness/live healthCheckPath.",
     );
   }
   const activeInstanceKeys =
@@ -285,8 +285,8 @@ function checkRenderTemplateContract() {
       "durable outbox delivery must remain enabled after the versioned invitation handler is registered.",
     ],
     [
-      /^[ \t]*healthCheckPath:\s*\/api\/readiness\s*$/m,
-      "backend health checks must use the dependency-aware readiness endpoint.",
+      /^[ \t]*healthCheckPath:\s*\/api\/readiness\/live\s*$/m,
+      "backend health checks must use the process liveness endpoint.",
     ],
     [
       /^[ \t]*- key:\s*ALUMNI_NETWORK_RELEASE_AVAILABLE\s*\r?\n[ \t]*value:\s*false\s*$/m,
