@@ -133,17 +133,17 @@ test("serves an installable manifest and branded platform metadata", async ({
   expect(manifest.icons).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        src: "/pwa-icon-192.png",
+        src: "/pwa-icon-192.png?v=white-20260922",
         sizes: "192x192",
         purpose: "any",
       }),
       expect.objectContaining({
-        src: "/pwa-icon-512.png",
+        src: "/pwa-icon-512.png?v=white-20260922",
         sizes: "512x512",
         purpose: "any",
       }),
       expect.objectContaining({
-        src: "/pwa-maskable-512.png",
+        src: "/pwa-maskable-512.png?v=white-20260922",
         sizes: "512x512",
         purpose: "maskable",
       }),
@@ -184,6 +184,32 @@ test("serves an installable manifest and branded platform metadata", async ({
   expect(appleIconPixels.size).toEqual([180, 180]);
   expect(appleIconPixels.background).toEqual([255, 255, 255, 255]);
   expect(appleIconPixels.mark[2]).toBeGreaterThan(appleIconPixels.mark[0]);
+  for (const manifestIcon of manifest.icons) {
+    const pixels = await page.evaluate(async (source: string) => {
+      const icon = new Image();
+      icon.src = source;
+      await icon.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = icon.naturalWidth;
+      canvas.height = icon.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas 2D context is unavailable");
+      context.drawImage(icon, 0, 0);
+      const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let coloredPixels = 0;
+      for (let offset = 0; offset < data.length; offset += 4) {
+        if (data[offset] !== 255 || data[offset + 1] !== 255 || data[offset + 2] !== 255) {
+          coloredPixels += 1;
+        }
+      }
+      return {
+        background: Array.from(data.subarray(0, 4)),
+        coloredPixels,
+      };
+    }, manifestIcon.src);
+    expect(pixels.background).toEqual([255, 255, 255, 255]);
+    expect(pixels.coloredPixels).toBeGreaterThan(100);
+  }
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     "content",
     "#111827",
