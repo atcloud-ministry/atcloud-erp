@@ -100,11 +100,10 @@ function deferred(): {
 }
 
 describe("ReliabilityFoundationService", () => {
-  it("wires the alumni delivery handlers into the production registry", () => {
+  it("registers current notification deliveries without the retired roster invitation email", () => {
     expect(
       createProductionNotificationOutboxDeliveryRegistry().supportedDeliveries,
     ).toEqual([
-      { topic: "alumni.invitation.email", payloadVersion: 1 },
       { topic: "alumni.help.workflow", payloadVersion: 1 },
       { topic: "alumni.help.external_notification", payloadVersion: 1 },
       { topic: "chat.message.persisted", payloadVersion: 1 },

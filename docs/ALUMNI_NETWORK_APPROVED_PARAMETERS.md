@@ -36,10 +36,10 @@ Required contracts 用于新注册；现有账号通过 profile-completion flow 
 | --- | --- |
 | User KPI/PII、AlumniProfile、AlumniAffiliation | Account deletion 获准后立即停止公开展示，30 天内从 primary database 删除 |
 | Withdrawn AlumniProfile | 立即停止公开展示；账号存在期间保留为 private draft |
-| AlumniImportBatch raw rows / row errors | Batch terminal 后 30 天 |
-| AlumniImportBatch counts / checksum / status | Batch terminal 后 6 个月 |
-| 未 claim 的 roster / invitation contact | `lastInvitationSentAt` 后 6 个月 |
-| Invitation secret | `expiresAt = issuedAt + 14 days`；claim 或 reissue 立即使现有 secret 失效 |
+| 历史 AlumniImportBatch raw rows / row errors | Batch terminal 后 30 天 |
+| 历史 AlumniImportBatch counts / checksum / status | Batch terminal 后 6 个月 |
+| 历史未 claim 的 roster / invitation contact | `lastInvitationSentAt` 后 6 个月 |
+| 历史 Invitation secret | `expiresAt = issuedAt + 14 days`；claim 或 reissue 立即使现有 secret 失效 |
 | ConsentRecord | Superseded、withdrawn 或 account deletion 后 12 个月 |
 | 从未 accepted 的 Help Request | Declined 或 withdrawn 后 2 个月 |
 | 曾 accepted 的 Help Request、outcome revisions、timeline | `purgeAt = max(closedAt + 12个月, latestOutcomeDueAt + 30天)` |
@@ -47,7 +47,7 @@ Required contracts 用于新注册；现有账号通过 profile-completion flow 
 | Conversation、ConversationMember、access windows | `purgeAt = max(archivedAt + 24个月, latestChatMessage.purgeAt + 30天)` |
 | PushSubscription | Unsubscribe 或 endpoint permanent failure 后立即删除；连续 90 天未成功使用时删除 |
 | NotificationOutbox | Delivered 后 30 天；dead 后 90 天；pending / processing 保留至 terminal |
-| AuditLog | 12 个 UTC calendar months；fallback TTL 为 365 天 |
+| AuditLog | 当前 production 保留 3 个 UTC calendar months；fallback TTL 为 180 天 |
 | De-identified KPI aggregates | 无自动到期；任何可筛选结果少于 5 人时不返回 |
 
 曾 accepted 的 Help Request 在记录 immutable `closedAt` 后开始 retention clock。

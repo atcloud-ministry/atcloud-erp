@@ -36,7 +36,6 @@ const SPECIALIZED_RATE_LIMIT_ROUTES = new Set([
   "GET /api/analytics/trends",
   "GET /api/analytics/registration-profile-kpis/export",
   "GET /api/analytics/export",
-  "POST /api/admin/alumni-imports/dry-run",
   "GET /api/role-assignments/reject/validate",
   "POST /api/role-assignments/reject/reject",
 ]);
