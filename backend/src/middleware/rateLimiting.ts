@@ -40,6 +40,13 @@ const SPECIALIZED_RATE_LIMIT_ROUTES = new Set([
   "POST /api/role-assignments/reject/reject",
 ]);
 
+// Render probes readiness on a schedule. Counting those probes against the
+// per-IP API bucket can make a healthy instance return 429 and be restarted.
+const HEALTH_PROBE_PATHS = new Set([
+  "/api/readiness",
+  "/api/readiness/live",
+]);
+
 const SECURITY_RATE_LIMIT_ENV = [
   "RATE_LIMIT_WINDOW_MS",
   "RATE_LIMIT_MAX_REQUESTS",
@@ -136,8 +143,15 @@ export function hasSpecializedRateLimit(req: Request): boolean {
   );
 }
 
+function isHealthProbe(req: Request): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const pathname =
+    req.path.length > 1 ? req.path.replace(/\/+$/u, "") : req.path;
+  return HEALTH_PROBE_PATHS.has(pathname);
+}
+
 const skipGeneralRateLimit = (req: Request): boolean =>
-  skipRateLimit(req) || hasSpecializedRateLimit(req);
+  skipRateLimit(req) || isHealthProbe(req) || hasSpecializedRateLimit(req);
 
 // Development mode: much more generous limits
 // Production mode: strict limits for security
