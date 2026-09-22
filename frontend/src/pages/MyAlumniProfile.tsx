@@ -310,7 +310,27 @@ export default function MyAlumniProfile() {
           pendingClaim.current = null;
         }
       }
-      const nextProfile = await alumniDirectoryService.getOwn(signal);
+      let nextProfile: OwnAlumniProfileDTO;
+      try {
+        nextProfile = await alumniDirectoryService.getOwn(signal);
+      } catch (getError) {
+        if (!isNotFound(getError) || !writable) throw getError;
+        try {
+          nextProfile = await alumniDirectoryService.ensureOwnDraft(signal);
+        } catch (createError) {
+          if (
+            isNotFound(createError) ||
+            (createError &&
+              typeof createError === "object" &&
+              "status" in createError &&
+              (createError as { status?: unknown }).status === 409)
+          ) {
+            setNotClaimed(true);
+            return;
+          }
+          throw createError;
+        }
+      }
       if (!signal?.aborted) acceptProfile(nextProfile);
     } catch (loadError) {
       if (signal?.aborted) {
@@ -318,6 +338,7 @@ export default function MyAlumniProfile() {
       }
       if (isNotFound(loadError)) {
         setNotClaimed(true);
+        setClaimPaused(!writable);
       } else if (
         !(loadError instanceof DOMException && loadError.name === "AbortError")
       ) {
@@ -541,9 +562,22 @@ export default function MyAlumniProfile() {
             </h2>
             <p className="mt-2 text-sm leading-6 text-gray-600">
               {claimPaused
-                ? "Profile claiming is temporarily paused while Alumni Network changes are read-only. Reopen the secure link in your invitation email when editing is available."
-                : "Use the secure link in your alumni invitation email to claim your verified affiliation and create this profile."}
+                ? "Alumni Profile updates are temporarily paused. Please try again when editing is available."
+                : "Complete your ERP account information to create your private Alumni Profile. If your account information is already complete, try again."}
             </p>
+            {!claimPaused && (
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  className="inline-flex min-h-10 items-center rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
+                  to="/dashboard/profile?mode=complete"
+                >
+                  Complete account profile
+                </Link>
+                <Button onClick={retryLoad} variant="outline">
+                  Try Again
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

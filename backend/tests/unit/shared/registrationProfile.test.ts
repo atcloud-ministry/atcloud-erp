@@ -8,6 +8,7 @@ import {
   isIsoCountryCode,
   isIsoSubdivisionCode,
   normalizeDisplayText,
+  normalizePhoneToE164,
   normalizeSearchText,
   validateRegistrationProfile,
 } from "@atcloud/shared-time/registration-profile";
@@ -42,13 +43,41 @@ describe("registration profile shared contract", () => {
     expect(isIsoSubdivisionCode("GB-ZZZ", "GB")).toBe(false);
   });
 
-  it("validates canonical E.164 boundaries", () => {
-    expect(isE164Phone("+12345678")).toBe(true);
-    expect(isE164Phone("+123456789012345")).toBe(true);
-    expect(isE164Phone("+1234567")).toBe(false);
+  it("validates real canonical phone numbers, not only E.164 length", () => {
+    expect(isE164Phone("+15102581542")).toBe(true);
+    expect(isE164Phone("+442079460958")).toBe(true);
+    expect(isE164Phone("+12345678")).toBe(false);
+    expect(isE164Phone("+123456789012345")).toBe(false);
+    expect(isE164Phone("+11234567890")).toBe(false);
     expect(isE164Phone("+1234567890123456")).toBe(false);
     expect(isE164Phone("+0123456789")).toBe(false);
     expect(isE164Phone("12065550123")).toBe(false);
+  });
+
+  it("normalizes selected-country and explicit international input without extracting unrelated text", () => {
+    expect(normalizePhoneToE164("5102581542", "US")).toBe("+15102581542");
+    expect(normalizePhoneToE164("+44 20 7946 0958", "US")).toBe(
+      "+442079460958",
+    );
+    expect(normalizePhoneToE164("5102581542")).toBeNull();
+    expect(normalizePhoneToE164("Call me at 5102581542", "US")).toBeNull();
+    expect(normalizePhoneToE164("+11234567890", "US")).toBeNull();
+    expect(normalizePhoneToE164("5102581542 ext 123", "US")).toBeNull();
+  });
+
+  it("gives a person-facing phone issue when an impossible E.164 number blocks readiness", () => {
+    const result = validateRegistrationProfile(
+      { ...validInput(), phone: "+11234567890" },
+      NOW,
+    );
+    expect(result).toMatchObject({ success: false });
+    if (!result.success) {
+      expect(result.issues).toContainEqual({
+        field: "phone",
+        code: "invalid_format",
+        message: "Enter a valid phone number, including its country code.",
+      });
+    }
   });
 
   it("validates birth year against the current UTC year", () => {

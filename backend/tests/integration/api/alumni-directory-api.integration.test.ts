@@ -312,6 +312,25 @@ describe("M2-06 Alumni Directory HTTP authorization and DTO boundary", () => {
     });
   });
 
+  it("keeps own-profile GET write-free in read-only mode", async () => {
+    const caller = await createUser({ label: "legacydraft" });
+    await enableDirectory(caller._id);
+    const authorization = `Bearer ${accessToken(caller)}`;
+
+    await request(app)
+      .get("/api/directory/me")
+      .set("Authorization", authorization)
+      .expect(404);
+    expect(await AlumniProfile.countDocuments({ userId: caller._id })).toBe(0);
+
+    const denied = await request(app)
+      .post("/api/directory/me/draft")
+      .set("Authorization", authorization)
+      .expect(503);
+    expect(denied.body).toMatchObject({ code: "ALUMNI_NETWORK_WRITE_UNAVAILABLE" });
+    expect(await AlumniProfile.countDocuments({ userId: caller._id })).toBe(0);
+  });
+
   it("returns exact list and detail HTTP DTOs without private User fields", async () => {
     const caller = await createUser({ label: "reader" });
     await enableDirectory(caller._id);

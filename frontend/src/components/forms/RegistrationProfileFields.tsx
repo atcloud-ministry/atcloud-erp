@@ -86,7 +86,7 @@ export function PhoneNumberFields<TFormValues extends FieldValues>({
         placeholder="Select phone country"
         required
         disabled={disabled}
-        helperText="Used only to format this phone number; it does not set your residence."
+        helperText="Select where your number is from. This does not set your residence."
       />
       <FormField
         label="Phone"
@@ -94,10 +94,10 @@ export function PhoneNumberFields<TFormValues extends FieldValues>({
         register={register}
         errors={errors}
         type="tel"
-        placeholder="Enter your phone number"
+        placeholder="Enter your phone number (e.g. 510 258 1542)"
         required
         disabled={disabled}
-        helperText="Private. We save this number in international format."
+        helperText="Private. Enter a national number for the selected country, or start with + for a full international number. Saved in international format."
       />
     </div>
   );

@@ -163,6 +163,25 @@ describe("owner alumni profile API client", () => {
     }
   });
 
+  it("creates a missing private draft through the writable endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      apiResponse({ profile: ownProfile }),
+    );
+    const controller = new AbortController();
+
+    await expect(
+      alumniDirectoryService.ensureOwnDraft(controller.signal),
+    ).resolves.toEqual(ownProfile);
+    expect(new URL(String(fetchMock.mock.calls[0][0])).pathname).toBe(
+      "/api/directory/me/draft",
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      signal: controller.signal,
+      credentials: "include",
+    });
+  });
+
   it.each([
     [
       "update",

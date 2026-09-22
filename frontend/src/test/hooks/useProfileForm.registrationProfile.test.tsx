@@ -117,6 +117,7 @@ describe("useProfileForm registration profile submission", () => {
 
   it("allows an incomplete legacy user to save unrelated fields without submitting the eight fields", async () => {
     Object.assign(mocks.currentUser, {
+      phone: "4155552671",
       birthYear: undefined,
       residenceCountryCode: undefined,
       residenceRegion: undefined,
@@ -156,6 +157,42 @@ describe("useProfileForm registration profile submission", () => {
       expect.objectContaining({
         homeAddress: "legacy private street address",
       }),
+    );
+  });
+
+  it("converts a deliberately edited legacy phone number using the selected country", async () => {
+    mocks.currentUser.phone = "4155552671";
+    const { result } = renderHook(() => useProfileForm());
+
+    act(() => {
+      result.current.form.setValue("phone", "5102581542");
+    });
+    await act(async () => {
+      await result.current.onSubmit();
+    });
+
+    await waitFor(() => {
+      expect(mocks.updateProfile).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.updateProfile.mock.calls[0][0]).toMatchObject({
+      phone: "+15102581542",
+    });
+  });
+
+  it("surfaces a clear save error for an impossible edited number", async () => {
+    const { result } = renderHook(() => useProfileForm());
+
+    act(() => {
+      result.current.form.setValue("phone", "+11234567890");
+    });
+    await act(async () => {
+      await result.current.onSubmit();
+    });
+
+    expect(mocks.updateProfile).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "Enter a valid phone number, including its country code.",
+      expect.objectContaining({ title: "Profile Incomplete" }),
     );
   });
 });

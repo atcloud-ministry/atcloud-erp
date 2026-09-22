@@ -13,16 +13,12 @@ import { getAvatarUrlWithCacheBust } from "../utils/avatarUtils";
 import type { AuthUser } from "../types";
 import {
   hasRegistrationProfileFieldChanges,
-  inferPhoneCountry,
+  getDefaultPhoneCountry,
   isRegistrationProfileComplete,
   prepareRegistrationProfileSubmission,
 } from "../utils/registrationProfile";
 
 function profileFormValues(user: AuthUser | null): ProfileFormData {
-  const phoneCountryCode = user?.phone
-    ? inferPhoneCountry(user.phone)
-    : null;
-
   return {
     firstName: user?.firstName ?? "",
     lastName: user?.lastName ?? "",
@@ -30,8 +26,10 @@ function profileFormValues(user: AuthUser | null): ProfileFormData {
     email: user?.email ?? "",
     gender: user?.gender ?? "",
     phone: user?.phone ?? "",
-    phoneCountryCode:
-      phoneCountryCode ?? user?.residenceCountryCode ?? "",
+    phoneCountryCode: getDefaultPhoneCountry(
+      user?.phone,
+      user?.residenceCountryCode,
+    ),
     birthYear: user?.birthYear ?? "",
     residenceCity: user?.residenceCity ?? "",
     residenceRegion: user?.residenceRegion ?? "",
@@ -163,7 +161,9 @@ export function useProfileForm({
         });
       }
       notification.error(
-        "Please complete the required contact, residence, and employment fields.",
+        registrationProfile.issues.find((issue) => issue.field === "phone")
+          ?.message ??
+          "Please complete the required contact, residence, and employment fields.",
         { title: "Profile Incomplete" },
       );
       return;

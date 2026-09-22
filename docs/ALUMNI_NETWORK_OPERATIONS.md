@@ -70,76 +70,25 @@ npm run test:e2e:fullstack
 该命令使用 loopback MongoDB replica set、production frontend build、built Express server、真实 JWT、
 浏览器 CORS 请求与 `off → read_only → on → off` 控制链路。CI 的 `fullstack-e2e` job 执行同一命令。
 
-## 6. Alumni roster production qualification
+## 6. Account-linked Alumni Profile production qualification
 
-执行窗口内保持 Alumni Network mode 为 `off`。先使用同一 release artifact 执行 migration，
-再部署 backend 并等待 readiness healthy；涉及 roster 数据的写操作随后执行。CSV 放在受限的
-临时路径；MongoDB URI 仅通过 `MONGODB_URI` 环境变量提供。`--operator` 使用 release/operator
-code，不填写姓名或邮箱。
-
-1. 构建 production CLI，并确认 migration ledger 与计划：
+执行窗口内保持 Alumni Network mode 为 `off`。使用同一 release artifact 运行 migration，
+其中 `20260921_002_backfill-private-alumni-drafts` 为已补全账号幂等建立私密草稿。
+MongoDB URI 仅通过 `MONGODB_URI` 环境变量提供；`--operator` 使用 release/operator code。
 
 ~~~bash
 cd backend
 npm run build
 npm run -s migration -- status --json
 npm run -s migration -- dry-run --json
-~~~
-
-2. 执行 migration 后再次取得 healthy status。写命令使用实际 database name、operator 和完整确认参数：
-
-~~~bash
 npm run -s migration -- apply --confirm-db DATABASE --operator RELEASE_CODE --execute --yes --json
 npm run -s migration -- status --json
 ~~~
 
-部署同一 release artifact 的 backend，确认 `/api/readiness` healthy，并保持 Alumni Network mode
-为 `off`。
-
-3. 检查批准的 CSV。将输出的 exact-byte SHA-256、`totalRows` 和规范化 email 去重后的
-`uniqueContacts` 与数据负责人批准的 source manifest 对照：
-
-~~~bash
-npm run -s alumni-import -- inspect --file /restricted/alumni.csv --json
-~~~
-
-4. 使用批准值执行 dry-run；保存返回的 `batch.id`。`--idempotency-key` 使用本次操作固定 UUID，
-重试时沿用同一个值：
-
-~~~bash
-npm run -s alumni-import -- dry-run --file /restricted/alumni.csv \
-  --expected-sha256 SHA256 --expected-row-count ROWS \
-  --expected-unique-contacts CONTACTS --actor-id ACTOR_OBJECT_ID \
-  --idempotency-key UUID --confirm-db DATABASE --operator RELEASE_CODE \
-  --execute --yes --json
-~~~
-
-5. 立即验证 batch、Program mapping、当前 account matching、row errors/counts，以及所有现存
-alumni affiliation identity。报告只包含 versioned aggregate counts：
-
-~~~bash
-npm run -s alumni-import -- verify --file /restricted/alumni.csv \
-  --batch-id BATCH_OBJECT_ID --expected-sha256 SHA256 \
-  --expected-row-count ROWS --expected-unique-contacts CONTACTS \
-  --actor-id ACTOR_OBJECT_ID --confirm-db DATABASE --json
-~~~
-
-6. verification 通过后，记录 batch ID、revision、负责人和计划处理时间。用于后续 review/apply 的
-production batch 保留至 release window；仅用于 qualification 的 batch 立即以
-`operator_request` 取消。verification 为 `failed` 时，以 `data_validation_failed` 取消后再修正
-source 或 production data。取消时使用报告中的 batch revision 和相同 source expectations：
-
-~~~bash
-npm run -s alumni-import -- cancel --batch-id BATCH_OBJECT_ID \
-  --expected-revision REVISION --expected-sha256 SHA256 \
-  --expected-row-count ROWS --expected-unique-contacts CONTACTS \
-  --reason-code REASON_CODE --actor-id ACTOR_OBJECT_ID \
-  --idempotency-key UUID --confirm-db DATABASE --operator RELEASE_CODE \
-  --execute --yes --json
-~~~
-
-Exit code `0` 表示通过，`2` 表示 CLI 参数错误，`3` 表示 expectation、authorization、readiness、
-index 或 verification gate 未通过。保存 aggregate JSON、migration status 和 AuditLog evidence；完成后删除临时 CSV。
+确认 migration ledger 将该版本标记为 applied，索引与 `/api/readiness` healthy。使用受控的
+已补全老账号与新注册账号检查：`My Alumni Profile` 返回私密 draft，编辑和预览正常；用户
+完成邮箱验证并同意发布后，Directory card 与 Request Help 可用。记录 aggregate counts、
+migration status 和 smoke 结果。
 
 ## 7. G1-04 release-candidate device qualification
 

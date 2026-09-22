@@ -1,8 +1,8 @@
 import {
-  E164_PHONE_PATTERN,
   EMPLOYMENT_STATUSES,
   REGISTRATION_PROFILE_FIELDS,
   employmentRequiresCompany,
+  normalizePhoneToE164 as normalizeSharedPhoneToE164,
   validateRegistrationProfile,
   type EmploymentStatus,
   type RegistrationProfileInput,
@@ -72,18 +72,23 @@ export function normalizePhoneToE164(
   value: unknown,
   countryCode: unknown,
 ): string | null {
-  if (typeof value !== "string") return null;
-  const input = value.trim();
-  if (E164_PHONE_PATTERN.test(input)) return input;
-  if (!input || !isSupportedPhoneCountry(countryCode)) return null;
-
-  const parsed = parsePhoneNumberFromString(input, countryCode);
-  return parsed && E164_PHONE_PATTERN.test(parsed.number) ? parsed.number : null;
+  return normalizeSharedPhoneToE164(value, countryCode);
 }
 
 export function inferPhoneCountry(value: unknown): CountryCode | null {
   if (typeof value !== "string" || !value.trim()) return null;
   return parsePhoneNumberFromString(value.trim())?.country ?? null;
+}
+
+export function getDefaultPhoneCountry(
+  phone: unknown,
+  residenceCountryCode?: unknown,
+): CountryCode {
+  const inferred = inferPhoneCountry(phone);
+  if (inferred) return inferred;
+  return isSupportedPhoneCountry(residenceCountryCode)
+    ? residenceCountryCode
+    : "US";
 }
 
 export interface RegistrationProfileFormInput extends RegistrationProfileInput {

@@ -15,10 +15,12 @@ import { createLogger } from "../../services/LoggerService";
 import { createErrorResponse, createSuccessResponse } from "../../types/api";
 import { RegisterRequest, UserDocLike, LoggerLike } from "./types";
 import {
+  normalizePhoneToE164,
   validateRegistrationProfile,
   type RegistrationProfileFields,
 } from "@atcloud/shared-time/registration-profile";
 import { REGISTRATION_PRIVACY_NOTICE } from "../../config/registrationPrivacyNotice";
+import { ensurePrivateAlumniDraft } from "../../services/alumni/AlumniDraftProfileService";
 
 const REGISTRATION_LOG_CONTEXT = "Registration";
 
@@ -158,7 +160,10 @@ export default class RegistrationController {
       }
 
       const registrationProfileResult = validateRegistrationProfile({
-        phone,
+        phone: normalizePhoneToE164(
+          phone,
+          req.body.phoneCountryCode ?? "US",
+        ) ?? phone,
         birthYear,
         residenceCity,
         residenceRegion,
@@ -287,6 +292,16 @@ export default class RegistrationController {
       ).generateEmailVerificationToken?.();
 
       await user.save();
+      try {
+        await ensurePrivateAlumniDraft(user);
+      } catch (draftError) {
+        // The account has committed; a draft can be provisioned later through
+        // the explicit writable endpoint or the versioned backfill.
+        logRegistrationEvent("error", "REGISTRATION_ALUMNI_DRAFT_FAILED", {
+          userId: String((user as unknown as UserDocLike)._id),
+          error: draftError,
+        });
+      }
 
       // Send @Cloud role admin notifications if user signed up as @Cloud co-worker
       if (isAtCloudLeader) {

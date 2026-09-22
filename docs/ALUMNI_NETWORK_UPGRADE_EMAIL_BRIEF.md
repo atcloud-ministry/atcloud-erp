@@ -1,7 +1,7 @@
 # @Cloud Alumni Network Upgrade — Implementation Brief
 
 **Suggested subject:** Approved Scope and Delivery Plan for the @Cloud Alumni Network Upgrade
-**Version:** 2.4
+**Version:** 2.5
 **Prepared:** September 10, 2026
 **Updated:** September 21, 2026
 **Project leads:** Sam Ma, Executive Director; Travis Fan, Assistant Director of IT and Website
@@ -22,15 +22,17 @@ responsive web access, an installable PWA, notifications, and measurable help ou
 | System Messages | `/dashboard/system-messages` | ERP system and workflow notices |
 | User Management | `/dashboard/admin/users` | Existing authorized account-management functions |
 
-Community opens Alumni Directory and uses the same name for all active, verified members.
+Alumni Community opens Alumni Directory and uses the same name for all active, verified members.
 Administration gives authorized staff access to User Management. Chat Rooms is a separate top-level
 destination with a conversation-bubble icon. Existing links redirect to the routes above.
 
-Approximately 322 alumni records pass through account matching, eligibility review, invitation, and
-claim. An active, verified alumnus with valid consent and a verified affiliation can publish a profile. Cards
-show identity, professional summary, general location, cohort, three offering states, and Request
-Help. Search covers those fields. Career Advice, Warm Introduction, and Formal Employee Referral are
-enabled independently, and Request Help displays the member's current offerings.
+Registration creates a private Alumni Profile draft linked to the member's ERP account. Existing
+members receive a draft when they complete their account information; already-complete accounts are
+filled in through a repeat-safe migration. The website then guides each member to complete the draft.
+An active, email-verified member can publish after giving separate publication consent. Cards show
+identity, professional summary, general location, any verified cohort information, three offering
+states, and Request Help. Search covers those fields. Career Advice, Warm Introduction, and Formal
+Employee Referral are enabled independently, and Request Help displays the member's current offerings.
 
 ### Alumni Help and results
 
@@ -101,10 +103,10 @@ qualification, and Android browser automation.
 
 ## 2. Code delivery
 
-1. **Registration/KPI:** private phone, birth year, structured residence and employment fields,
-   existing-user completion, migration, and privacy-safe analytics.
-2. **Community/Directory:** routes, redirects, profile/consent/affiliation data, roster import,
-   invitation/claim, cards, search, Members, and User Management entry.
+1. **Registration/KPI:** private phone with country-aware automatic formatting, birth year,
+   structured residence and employment fields, existing-user completion, migration, and privacy-safe analytics.
+2. **Community/Directory:** routes, redirects, account-linked private profile creation and onboarding,
+   publication consent, cards, search, Members, and User Management entry.
 3. **Data boundaries:** `/api/directory` returns Directory DTOs, `/api/community/members` returns
    CommunityMemberDTO, and `/api/admin/users` returns AdminUserDTO under the existing permission.
    Purpose-scoped UserPickerDTO APIs and server-side contact resolution replace broad user lookups;

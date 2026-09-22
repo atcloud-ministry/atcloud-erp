@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
+import AlumniProfile from "../../../src/models/AlumniProfile";
 import User from "../../../src/models/User";
 
 describe("Users API Integration Tests", () => {
@@ -480,7 +481,7 @@ describe("Users API Integration Tests", () => {
       const updateData = {
         firstName: "Updated",
         lastName: "Name",
-        phone: "+1234567890",
+        phone: "+15102581542",
       };
 
       const response = await request(app)
@@ -495,7 +496,7 @@ describe("Users API Integration Tests", () => {
         data: {
           firstName: "Updated",
           lastName: "Name",
-          phone: "+1234567890",
+          phone: "+15102581542",
         },
       });
     });
@@ -548,6 +549,34 @@ describe("Users API Integration Tests", () => {
       expect(updated?.residenceCity).toBe("San José");
       expect(updated?.homeAddress).toBeUndefined();
       expect(updated?.phone).toBe(TEST_REGISTRATION_PROFILE.phone);
+    });
+
+    it("creates a private Alumni Profile when an existing user completes account fields", async () => {
+      await AlumniProfile.deleteOne({ userId });
+      await User.updateOne(
+        { _id: userId },
+        { $unset: { phone: 1, birthYear: 1, residenceCity: 1 } },
+      );
+
+      await request(app)
+        .put("/api/users/profile")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send({
+          phone: TEST_REGISTRATION_PROFILE.phone,
+          birthYear: TEST_REGISTRATION_PROFILE.birthYear,
+          residenceCity: TEST_REGISTRATION_PROFILE.residenceCity,
+        })
+        .expect(200);
+
+      const draft = await AlumniProfile.findOne({ userId });
+      expect(draft).toMatchObject({
+        publishStatus: "draft",
+        helpOfferings: {
+          careerAdvice: false,
+          warmIntroduction: false,
+          formalEmployeeReferral: false,
+        },
+      });
     });
 
     it("allows an unrelated edit during the legacy completion grace period", async () => {

@@ -2,10 +2,10 @@
 
 ## 文档状态
 
-- 版本：4.2
-- 更新时间：2026-09-20
+- 版本：4.3
+- 更新时间：2026-09-21
 - 状态：Approved
-- 实施进度：M0–M6、G1-01–G1-03 已完成
+- 实施进度：M0–M6、G1-01–G1-03、ADD-004 已完成
 - 下一任务：G1-04 staging release-candidate qualification
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
@@ -19,7 +19,7 @@
 
 | 页面 | Route | 交付内容 |
 | --- | --- | --- |
-| Community | `/dashboard/community` | 默认打开 Alumni Directory |
+| Alumni Community | `/dashboard/community` | 默认打开 Alumni Directory |
 | Alumni Directory | `/dashboard/community/alumni` | 搜索和浏览 alumni cards |
 | Alumni Profile | `/dashboard/community/alumni/:profileId` | 公开资料与 Request Help |
 | My Alumni Profile | `/dashboard/community/alumni/me` | 编辑、预览、同意发布、发布和撤回 |
@@ -31,7 +31,7 @@
 | System Messages | `/dashboard/system-messages` | ERP 系统与工作流通知 |
 | User Management | `/dashboard/admin/users` | 现有账号管理功能 |
 
-`Community` 对 active + verified ERP members 使用统一名称和页面。拥有现有
+`Alumni Community` 对 active + verified ERP members 使用统一名称和页面。拥有现有
 account-management permission 的用户同时看到 `Administration → User Management`。
 `Chat Rooms` 是独立顶级标签，使用对话泡泡 icon。
 
@@ -41,9 +41,9 @@ Community routes。
 
 ### 1.2 Alumni Directory
 
-系统处理约 322 人的 alumni roster，完成 account matching、eligibility review、invitation
-和 claim。Directory 展示 active + verified account、`publishStatus=published`、有效 publication
-consent 且至少一个 verified affiliation 的 profile。
+新用户注册时自动获得与 ERP 账号关联的私密 Alumni Profile 草稿；现有用户补全账号资料后
+获得草稿，已补全的现有用户执行幂等补建。登录后引导本人完善资料。Directory 展示 active +
+verified account、`publishStatus=published` 且持有有效 publication consent 的 profile。
 
 Alumni 可以编辑、预览、发布和撤回 profile，并分别启用 Career Advice、Warm Introduction
 和 Formal Employee Referral。
@@ -64,7 +64,7 @@ Seattle · EMBA 2022
 [Request Help]
 ~~~
 
-Card 和 profile detail 使用已发布的职业资料、一般位置、verified affiliations 和三项
+Card 和 profile detail 使用已发布的职业资料、一般位置、已有 verified affiliations 和三项
 offering 状态。`Request Help` 显示该 alumni 当前启用的 offering。
 
 ### 1.3 Alumni Help
@@ -232,8 +232,10 @@ failure 生成 outbox delivery。
 | company | employed/self-employed 时 required |
 | occupation | optional |
 
-现有账号通过 profile-completion grace period 补充字段。`User` 保存 canonical employment/KPI
-data；`AlumniProfile.searchProjection` 是 derived、rebuildable search data。
+现有账号补齐字段时建立私密 Alumni Profile 草稿；已经补齐的账号执行幂等补建。
+电话按所选国家解析和校验，保存为国际格式；美国号码 `5102581542` 保存为
+`+15102581542`。`User` 保存 canonical employment/KPI data；
+`AlumniProfile.searchProjection` 是 derived、rebuildable search data。
 
 | API | Page-specific response |
 | --- | --- |
@@ -245,7 +247,7 @@ data；`AlumniProfile.searchProjection` 是 derived、rebuildable search data。
 | `/api/programs/:programId/community-settings` | `ProgramCommunitySettingsDTO` |
 | `/api/push/subscriptions` | `PushSubscriptionDTO` |
 
-Directory DTO 提供 published profile、general location、verified affiliation 和 help offering
+Directory DTO 提供 published profile、general location、已有 verified affiliation 和 help offering
 字段；CommunityMemberDTO 提供 member display data；AdminUserDTO 提供现有账号管理字段与操作。
 所有 serializer 使用明确字段表，并按 resource 在 HTTP、Socket 和 worker 层执行 authorization。
 现有 `/api/users` 和 search consumers 迁移到对应的 page-specific API；compatibility access
@@ -357,6 +359,8 @@ Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实�
   - 验证：backend unit 7,071、HTTP 458、MongoDB integration 1,966；migration suite 41、322-row qualification、CLI smoke、lint、type-check、production build、checksum、deployment guards 与独立审查通过。
 - [x] G1-03 建立 isolated backup/restore qualification、rollback runbook、outbox/deadline/membership/Service Worker recovery。
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。
+- [x] ADD-004 注册与账号补全时幂等建立私密 Alumni Profile 草稿，加入页面引导，允许本人同意发布后进入 Directory／提供帮助，并改进电话自动格式化与提示。
+  - 验证：backend unit 7,166、HTTP 460、MongoDB integration 全量 1,996，以及新增注册 23、老账号补全 53；frontend 2,335、PWA 16/16；lint、type-check、production/PWA build、migration checksum 和独立审查通过。
 - [ ] G1-04 完成隔离本机容量回归、Atlas Free staging 运行验证、full regression 和 real-device qualification。
   - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
     - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
@@ -369,7 +373,7 @@ Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实�
   - 2026-09-21 进度：staging 前后端 `e358b16a`、Atlas Free 迁移 11/11、readiness 正常；本机容量回归、backend unit/HTTP/integration、frontend、PWA 16/16 和 full-stack E2E 2/2 通过。等待 iPad 与 desktop 实机结果。
 - [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
   - 2026-09-21 进度：Atlas Free 已配置 256 MB 容量及 250 连接邮件预警，运行说明已加入用户问题排查步骤。
-- [ ] G1-06 在一次 production release 中执行 production migration、权威 roster inspect/dry-run/verify，开启 M0–M6，并执行 smoke verification。
+- [ ] G1-06 在一次 production release 中执行 production migration、现有账号草稿补建与验证、开启 M0–M6，并执行 smoke verification。
 
 ### M7 — 上线后改进
 

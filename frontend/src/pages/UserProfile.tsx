@@ -28,7 +28,7 @@ import {
 } from "../schemas/profileSchema";
 import {
   hasRegistrationProfileFieldChanges,
-  inferPhoneCountry,
+  getDefaultPhoneCountry,
   isRegistrationProfileComplete,
   prepareRegistrationProfileSubmission,
 } from "../utils/registrationProfile";
@@ -43,7 +43,7 @@ function adminProfileFormValues(
   return {
     phone: user?.phone ?? "",
     phoneCountryCode:
-      inferPhoneCountry(user?.phone) ?? user?.residenceCountryCode ?? "",
+      getDefaultPhoneCountry(user?.phone, user?.residenceCountryCode),
     birthYear: user?.birthYear ?? "",
     residenceCity: user?.residenceCity ?? "",
     residenceRegion: user?.residenceRegion ?? "",
@@ -183,7 +183,9 @@ export default function UserProfile() {
         });
       }
       notification.error(
-        "Please complete the required contact, residence, and employment fields.",
+        registrationProfile.issues.find((issue) => issue.field === "phone")
+          ?.message ??
+          "Please complete the required contact, residence, and employment fields.",
         { title: "Profile Incomplete" },
       );
       return;

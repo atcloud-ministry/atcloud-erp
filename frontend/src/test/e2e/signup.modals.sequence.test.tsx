@@ -47,6 +47,8 @@ describe("SignUp modal sequence", () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByLabelText(/Phone Country/i)).toHaveValue("US");
+
     // Fill required fields (use placeholders and display values due to markup)
     fireEvent.change(screen.getByPlaceholderText(/Choose a username/i), {
       target: { value: "johndoe" },
@@ -76,11 +78,8 @@ describe("SignUp modal sequence", () => {
     fireEvent.change(screen.getByLabelText(/Birth Year/i), {
       target: { value: "1990" },
     });
-    fireEvent.change(screen.getByLabelText(/Phone Country/i), {
-      target: { value: "US" },
-    });
     fireEvent.change(screen.getByPlaceholderText(/Enter your phone number/i), {
-      target: { value: "415 555 2671" },
+      target: { value: "5102581542" },
     });
     fireEvent.change(screen.getByLabelText(/Country of Residence/i), {
       target: { value: "US" },
@@ -112,7 +111,7 @@ describe("SignUp modal sequence", () => {
     expect(firstTitle).toBeInTheDocument();
     expect(authService.register).toHaveBeenCalledWith(
       expect.objectContaining({
-        phone: "+14155552671",
+        phone: "+15102581542",
         birthYear: 1990,
         residenceCountryCode: "US",
         residenceRegion: "US-CA",

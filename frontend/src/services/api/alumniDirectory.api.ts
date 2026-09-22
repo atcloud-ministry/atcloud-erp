@@ -120,6 +120,17 @@ class AlumniDirectoryApiClient extends BaseApiClient {
     return decodeOwnAlumniProfileResponse(response.data);
   }
 
+  async ensureOwnDraft(signal?: AbortSignal): Promise<OwnAlumniProfileDTO> {
+    const response = await this.request<unknown>("/directory/me/draft", {
+      method: "POST",
+      signal,
+    });
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to create your alumni profile");
+    }
+    return decodeOwnAlumniProfileResponse(response.data);
+  }
+
   async previewOwn(signal?: AbortSignal): Promise<DirectoryDetailDTO> {
     const response = await this.request<unknown>("/directory/me/preview", {
       signal,
@@ -184,6 +195,8 @@ export const alumniDirectoryService = {
   get: (profileId: string, signal?: AbortSignal) =>
     alumniDirectoryApiClient.get(profileId, signal),
   getOwn: (signal?: AbortSignal) => alumniDirectoryApiClient.getOwn(signal),
+  ensureOwnDraft: (signal?: AbortSignal) =>
+    alumniDirectoryApiClient.ensureOwnDraft(signal),
   previewOwn: (signal?: AbortSignal) =>
     alumniDirectoryApiClient.previewOwn(signal),
   updateOwn: (input: AlumniProfileUpdateInput, idempotencyKey: string) =>

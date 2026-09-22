@@ -32,6 +32,24 @@ describe("registrationProfileFormSchema", () => {
     ).rejects.toThrow("Phone country is required");
   });
 
+  it("accepts a full international number regardless of the selected country", async () => {
+    await expect(
+      registrationProfileFormSchema.validate({
+        ...validProfile,
+        phone: "+44 20 7946 0958",
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("rejects impossible numbers with a useful field-level message", async () => {
+    await expect(
+      registrationProfileFormSchema.validate({
+        ...validProfile,
+        phone: "+11234567890",
+      }),
+    ).rejects.toThrow("Enter a valid number for the selected country");
+  });
+
   it("requires a US state and validates it against the residence country", async () => {
     await expect(
       registrationProfileFormSchema.validate({

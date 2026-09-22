@@ -302,9 +302,15 @@ describe("User Model", () => {
           ...completeProfile,
           phone: "206-555-0123",
         });
+        const impossibleCanonicalUser = new User({
+          ...userData,
+          ...completeProfile,
+          phone: "+11234567890",
+        });
 
         expect(legacyUser.validateSync()?.errors?.phone).toBeUndefined();
         expect(completeUser.validateSync()?.errors?.phone).toBeDefined();
+        expect(impossibleCanonicalUser.validateSync()?.errors?.phone).toBeDefined();
       });
 
       it("rejects invalid birth years, countries, and US subdivisions", () => {

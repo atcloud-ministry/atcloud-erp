@@ -248,6 +248,16 @@ describe("M3 Alumni Help service integration", () => {
     await Promise.all(collections.map((model) => model.deleteMany({})));
   });
 
+  it("accepts a published provider with consent but no verified affiliation", async () => {
+    await AlumniAffiliation.deleteMany({ alumniProfileId: profileId });
+    const requesterId = await insertUser("NoAffiliation");
+    const result = await createRequest(requesterId, "career_advice");
+    expect(result.request).toMatchObject({
+      alumniProfileId: profileId.toString(),
+      status: "requested",
+    });
+  });
+
   it("persists and acknowledges peer notifications through every lifecycle and outcome action", async () => {
     const requesterId = await insertUser("Notification");
     let current = await createRequest(requesterId, "career_advice");

@@ -12,6 +12,7 @@ import {
 import {
   synchronizeExistingAlumniProfileProjection,
 } from "../../services/alumni/AlumniProfileProjectionSyncService";
+import { ensurePrivateAlumniDraft } from "../../services/alumni/AlumniDraftProfileService";
 import { mongoTransactionService } from "../../services/reliability/MongoTransactionService";
 import { serializeSelfUser } from "../../serializers/userReadSerializers";
 
@@ -140,6 +141,7 @@ export default class UpdateProfileController {
           );
         }
         const updatedUser = await oldUser.save({ session });
+        await ensurePrivateAlumniDraft(updatedUser, session);
         await synchronizeExistingAlumniProfileProjection(updatedUser, session);
         return {
           kind: "updated",

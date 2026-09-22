@@ -51,6 +51,9 @@
     "build:esm": "tsc -p tsconfig.esm.json && mv dist/esm/timezoneSearch.js dist/esm/timezoneSearch.mjs && cp esm-package.json dist/esm/package.json",
     "prepare": "npm run build"
   },
+  "dependencies": {
+    "libphonenumber-js": "1.13.13"
+  },
   "devDependencies": {
     "iso-3166": "4.4.0",
     "typescript": "5.8.3"

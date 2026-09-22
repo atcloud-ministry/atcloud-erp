@@ -60,7 +60,7 @@ function sourceMigration(
 describe("migration registry", () => {
   it("exports the immutable checksum-backed production registry", () => {
     expect(Object.isFrozen(MIGRATION_REGISTRY)).toBe(true);
-    expect(MIGRATION_REGISTRY).toHaveLength(11);
+    expect(MIGRATION_REGISTRY).toHaveLength(12);
     expect(MIGRATION_REGISTRY[0]).toMatchObject({
       id: "20260911_001_inventory-registration-profile",
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -109,6 +109,10 @@ describe("migration registry", () => {
     });
     expect(MIGRATION_REGISTRY[10]).toMatchObject({
       id: "20260921_001_reconcile-confirmed-alumni-help-closures",
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(MIGRATION_REGISTRY[11]).toMatchObject({
+      id: "20260921_002_backfill-private-alumni-drafts",
       checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(MIGRATION_REGISTRY.every((entry) => Object.isFrozen(entry))).toBe(true);

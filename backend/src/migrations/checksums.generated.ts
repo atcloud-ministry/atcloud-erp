@@ -11,6 +11,7 @@ import { migration as migrationSource7 } from "./versions/20260919_001_validate-
 import { migration as migrationSource8 } from "./versions/20260919_002_replace-alumni-affiliation-identity-index";
 import { migration as migrationSource9 } from "./versions/20260919_003_reconcile-alumni-import-retention-indexes";
 import { migration as migrationSource10 } from "./versions/20260921_001_reconcile-confirmed-alumni-help-closures";
+import { migration as migrationSource11 } from "./versions/20260921_002_backfill-private-alumni-drafts";
 
 export const MIGRATION_CHECKSUMS: Readonly<Record<string, string>> =
   Object.freeze({
@@ -25,6 +26,7 @@ export const MIGRATION_CHECKSUMS: Readonly<Record<string, string>> =
   "20260919_002_replace-alumni-affiliation-identity-index": "3652abcbc017dc534d2be81134548ba4ee4ccd849ecbe8f909b9db4da26054a0",
   "20260919_003_reconcile-alumni-import-retention-indexes": "04deafac82884956f054822323f2c93ec851f9b1581a99d5ae165fd1e0d7983f",
   "20260921_001_reconcile-confirmed-alumni-help-closures": "c59a25fe1938313199c4b3a42f320f9fe54f7f5c4b180989806b7b7c40bde2e7",
+  "20260921_002_backfill-private-alumni-drafts": "26ba1f9a8fbe62fce7e332f2fad72a73893f12798a73c5b1e656e5c5c483d0db",
   });
 
 export const MIGRATION_SOURCE_DEFINITIONS: readonly MigrationSourceDefinition[] =
@@ -40,4 +42,5 @@ export const MIGRATION_SOURCE_DEFINITIONS: readonly MigrationSourceDefinition[] 
   migrationSource8,
   migrationSource9,
   migrationSource10,
+  migrationSource11,
   ]);

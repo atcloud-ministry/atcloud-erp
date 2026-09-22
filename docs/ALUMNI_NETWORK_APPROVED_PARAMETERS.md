@@ -1,7 +1,7 @@
 # @Cloud Alumni Network 已批准参数
 
-- 版本：1.1
-- 批准日期：2026-09-10；Atlas Free 发布方案由 Travis 于 2026-09-21 批准
+- 版本：1.2
+- 批准日期：2026-09-10；Atlas Free 发布方案及自助 Alumni Profile／电话体验修正由 Travis 于 2026-09-21 批准
 - 批准人：Travis Fan，Assistant Director of IT and Website
 - 适用范围：M1–M6 与 G1
 
@@ -11,7 +11,7 @@
 
 | Field | Contract |
 | --- | --- |
-| `phone` | Required、private；使用 country selector 解析并保存为 E.164；格式为 `^\+[1-9]\d{7,14}$` |
+| `phone` | Required、private；按所选国家解析有效号码，保存为国际格式；美国号码 `5102581542` 保存为 `+15102581542`；新注册默认美国且可更改 |
 | `birthYear` | Required、private BSON integer；范围为 `1900` 至当前 UTC year |
 | `residenceCountryCode` | Required；ISO 3166-1 alpha-2 uppercase |
 | `residenceRegion` | US required，其他国家 optional；UI 显示名称，保存对应 ISO 3166-2 code |
@@ -25,8 +25,8 @@
 
 本人及拥有现有 User Management permission 的用户可以读取 exact private fields。Directory DTO
 不返回 `phone` 或 `birthYear`。Birth-year KPI 使用十年区间；任何可筛选结果少于 5 人时不返回。
-Required contracts 用于新注册；现有账号通过 profile-completion grace flow 补齐，并在 Alumni
-Profile publish 前满足 required fields。
+Required contracts 用于新注册；现有账号通过 profile-completion flow 补齐。注册和补全时
+幂等建立私密 Alumni Profile 草稿；已补全的账号执行补建。资料公开须由本人另行同意。
 
 ## 2. Retention
 
@@ -130,7 +130,7 @@ membership 仍按 eligibility resolver 的结果完整建立。
 | Parameter | Approved value |
 | --- | --- |
 | Production Atlas tier | Free，沿用当前集群；staging 与 production 使用不同 database |
-| Release qualification | 验证现有生产库 migration、索引/TTL、数据一致性、roster 和上线 smoke |
+| Release qualification | 验证现有生产库 migration、索引/TTL、账号草稿补建与数据一致性，以及上线 smoke |
 | Uploaded assets | 验证 Render `/uploads` 在正常部署后仍可访问 |
 | Atlas monthly cost | `$0`；Render 与其他服务按实际用量另计 |
 

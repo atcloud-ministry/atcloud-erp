@@ -204,6 +204,62 @@ describe("M2-03 alumni profile lifecycle", () => {
     expect(serialized).not.toContain("documentHash");
   });
 
+  it("provisions a complete legacy account only through an explicit write", async () => {
+    const userId = await createUser();
+    await expect(service.getOwn(userId.toString())).rejects.toMatchObject({
+      code: "ALUMNI_PROFILE_NOT_FOUND",
+    });
+    expect(await AlumniProfile.countDocuments({ userId })).toBe(0);
+    const first = await service.ensureOwnDraft(userId.toString());
+    const second = await service.ensureOwnDraft(userId.toString());
+
+    expect(first).toMatchObject({
+      publishStatus: "draft",
+      revision: 0,
+      affiliations: [],
+      publishReadiness: { ready: true, issues: [] },
+    });
+    expect(second.id).toBe(first.id);
+    expect(await AlumniProfile.countDocuments({ userId })).toBe(1);
+    expect(await ConsentRecord.countDocuments({ subjectUserId: userId })).toBe(0);
+  });
+
+  it("does not provision an invalid legacy account", async () => {
+    const userId = await createUser();
+    await User.collection.updateOne({ _id: userId }, { $unset: { residenceRegion: 1 } });
+    await expect(service.ensureOwnDraft(userId.toString())).rejects.toMatchObject({
+      code: "ALUMNI_PROFILE_NOT_PUBLISHABLE",
+      issues: expect.arrayContaining([expect.objectContaining({ field: "residenceRegion" })]),
+    });
+    expect(await AlumniProfile.countDocuments({ userId })).toBe(0);
+  });
+
+  it("publishes a complete private draft without an affiliation", async () => {
+    const { userId, profileId } = await createProfileFixture({
+      withVerifiedAffiliation: false,
+    });
+    const own = await service.getOwn(userId.toString());
+    expect(own.publishReadiness).toEqual({ ready: true, issues: [] });
+    expect(own.affiliations).toEqual([]);
+
+    const published = await service.publishOwn({
+      expectedRevision: 0,
+      consentVersion: ALUMNI_PROFILE_PUBLICATION_CONSENT.version,
+      consentAccepted: true,
+      actor: actor(userId),
+      idempotencyKey: "20000000-0000-4000-8000-000000000099",
+    });
+    expect(published).toMatchObject({
+      profileId: profileId.toString(),
+      publishStatus: "published",
+    });
+    expect(await ConsentRecord.countDocuments({ alumniProfileId: profileId })).toBe(1);
+    const before = await AlumniProfile.collection.findOne({ _id: profileId });
+    await service.ensureOwnDraft(userId.toString());
+    const after = await AlumniProfile.collection.findOne({ _id: profileId });
+    expect(after).toEqual(before);
+  });
+
   it("updates with CAS, rebuilds search projection, audits, and replays once", async () => {
     const { userId, profileId } = await createProfileFixture();
     const input = {

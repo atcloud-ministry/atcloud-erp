@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
+import AlumniProfile from "../../../src/models/AlumniProfile";
 import User from "../../../src/models/User";
 import { TEST_REGISTRATION_PROFILE } from "../../test-utils/registrationProfileFixture";
 import { REGISTRATION_PRIVACY_NOTICE } from "../../../src/config/registrationPrivacyNotice";
@@ -20,11 +21,13 @@ describe("Authentication API Integration Tests", () => {
   beforeEach(async () => {
     // Clear users collection before each test
     await User.deleteMany({});
+    await AlumniProfile.deleteMany({});
   });
 
   afterEach(async () => {
     // Clean up after each test
     await User.deleteMany({});
+    await AlumniProfile.deleteMany({});
   });
 
   describe("POST /api/auth/register", () => {
@@ -88,6 +91,15 @@ describe("Authentication API Integration Tests", () => {
         registrationPrivacyNoticeDocumentHash:
           REGISTRATION_PRIVACY_NOTICE.documentHash,
         registrationPrivacyNoticeAcceptedAt: expect.any(Date),
+      });
+      const draft = await AlumniProfile.findOne({ userId: createdUser!._id });
+      expect(draft).toMatchObject({
+        publishStatus: "draft",
+        helpOfferings: {
+          careerAdvice: false,
+          warmIntroduction: false,
+          formalEmployeeReferral: false,
+        },
       });
     });
 

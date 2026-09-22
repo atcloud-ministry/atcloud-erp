@@ -88,6 +88,7 @@ interface PublishedFixtureOptions {
   readonly consentVersion?: string;
   readonly consentDocumentHash?: string;
   readonly affiliationStatus?: AlumniAffiliationVerificationStatus;
+  readonly omitAffiliation?: boolean;
   readonly offerings?: {
     readonly careerAdvice: boolean;
     readonly warmIntroduction: boolean;
@@ -219,7 +220,7 @@ async function createPublishedFixture(options: PublishedFixtureOptions) {
     createdAt: NOW,
     updatedAt: NOW,
   });
-  await AlumniAffiliation.collection.insertOne({
+  if (!options.omitAffiliation) await AlumniAffiliation.collection.insertOne({
     _id: affiliationId,
     alumniProfileId: profileId,
     programName,
@@ -556,6 +557,14 @@ describe("M2-06 Alumni Directory Mongo qualification", () => {
       label: "eligible",
       extraPendingAffiliation: true,
     });
+    const noAffiliation = await createPublishedFixture({
+      label: "no-affiliation",
+      omitAffiliation: true,
+    });
+    const pendingAffiliation = await createPublishedFixture({
+      label: "pending-affiliation",
+      affiliationStatus: "pending_review",
+    });
     const ineligible = await Promise.all([
       createPublishedFixture({ label: "draft", publishStatus: "draft" }),
       createPublishedFixture({
@@ -574,10 +583,6 @@ describe("M2-06 Alumni Directory Mongo qualification", () => {
         label: "stale-consent-hash",
         consentDocumentHash: "a".repeat(64),
       }),
-      createPublishedFixture({
-        label: "pending-affiliation",
-        affiliationStatus: "pending_review",
-      }),
       createPublishedFixture({ label: "inactive-user", userActive: false }),
       createPublishedFixture({
         label: "unverified-user",
@@ -586,11 +591,16 @@ describe("M2-06 Alumni Directory Mongo qualification", () => {
     ]);
 
     const listed = await directory.list(baseQuery());
-    expect(listed.profiles.map((profile) => profile.id)).toEqual([
+    expect(listed.profiles.map((profile) => profile.id).sort()).toEqual([
       eligible.profileId.toString(),
-    ]);
-    expect(listed.profiles[0]!.affiliations).toHaveLength(1);
+      noAffiliation.profileId.toString(),
+      pendingAffiliation.profileId.toString(),
+    ].sort());
+    expect(listed.profiles.find((profile) => profile.id === eligible.profileId.toString())?.affiliations).toHaveLength(1);
+    expect(listed.profiles.find((profile) => profile.id === noAffiliation.profileId.toString())?.affiliations).toEqual([]);
+    expect(listed.profiles.find((profile) => profile.id === pendingAffiliation.profileId.toString())?.affiliations).toEqual([]);
     expect(JSON.stringify(listed)).not.toContain("Private Pending Program");
+    expect((await directory.get(noAffiliation.profileId.toString())).affiliations).toEqual([]);
 
     for (const fixture of ineligible) {
       await expect(
