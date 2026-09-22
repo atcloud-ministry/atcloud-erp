@@ -2,11 +2,11 @@
 
 ## 文档状态
 
-- 版本：4.4
-- 更新时间：2026-09-21
+- 版本：4.5
+- 更新时间：2026-09-22
 - 状态：Approved
-- 实施进度：M0–M6、G1-01–G1-03、ADD-004 已完成
-- 下一任务：G1-04 staging release-candidate qualification
+- 实施进度：M0–M6、G1-01–G1-06、ADD-004 已完成
+- 下一任务：M7-01 上线后监测与反馈修复
 - Executive Director：Sam Ma
 - 技术与实施联系人：Travis Fan，Assistant Director of IT and Website
 - 既定目标内的必要修复直接实施并登记；新增功能或扩大范围由 Travis 确认。
@@ -360,7 +360,7 @@ Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实�
   - 验证：recovery unit 92、backend lint/type-check/build、frontend PWA tests 22/22、frontend lint/type-check/build、diff check 与独立审查通过。
 - [x] ADD-004 注册与账号补全时幂等建立私密 Alumni Profile 草稿，加入页面引导，允许本人同意发布后进入 Directory／提供帮助，并改进电话自动格式化与提示。
   - 验证：backend unit 7,166、HTTP 460、MongoDB integration 全量 1,996，以及新增注册 23、老账号补全 53；frontend 2,335、PWA 16/16；lint、type-check、production/PWA build、migration checksum 和独立审查通过。
-- [ ] G1-04 完成隔离本机容量回归、Atlas Free staging 运行验证、full regression 和 real-device qualification。
+- [x] G1-04 完成隔离本机容量回归、Atlas Free staging 运行验证、full regression 和 real-device qualification。
   - [x] FIX-001 修复 root `package-lock.json` 的跨平台 optional package records，并验证 Linux staging build/runtime。
     - 验证：Linux amd64 `npm ci`、sharp/Rollup runtime smoke、frontend/backend build 通过；staging frontend/backend `520648e2` Live，`/api/readiness` 为 200。
   - [x] FIX-002 在 System Monitor 提供受保护的 Alumni Network mode control，按 revision 确认切换并刷新 runtime config。
@@ -369,10 +369,11 @@ Android 的本次发布验收经 Travis 批准使用浏览器自动化替代实�
     - 验证：frontend 2,297 tests、lint、type-check、PWA build 通过；staging frontend `1a7831e1` Live，公开 HTML 指向 `Cloud-browsertag.png`。
   - [x] FIX-004 修复 Help workflow 通知写入冲突，补齐全流程实时更新、侧边栏 Alumni Community 数字、Updates 列表和按已显示版本确认已读。
     - 验证：frontend 2,313 tests、backend unit/HTTP 全量、27 项真实 MongoDB targeted integration、双账号 production full-stack E2E 2/2、lint、type-check 与 PWA build 通过。
-  - 2026-09-21 进度：staging 前后端 `e358b16a`、Atlas Free 迁移 11/11、readiness 正常；本机容量回归、backend unit/HTTP/integration、frontend、PWA 16/16 和 full-stack E2E 2/2 通过。等待 iPad 与 desktop 实机结果。
-- [ ] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
-  - 2026-09-21 进度：Atlas Free 已配置 256 MB 容量及 250 连接邮件预警，运行说明已加入用户问题排查步骤。
-- [ ] G1-06 在一次 production release 中执行 production migration、现有账号草稿补建与验证、开启 M0–M6，并执行 smoke verification。
+  - 验证：staging `afb0ddba` Live；本机容量回归、全量测试、PWA 16/16、full-stack E2E 2/2 通过；iPhone、iPad、desktop 实机结果经 Travis 确认，Android 使用已批准的浏览器自动化替代验收。
+- [x] G1-05 完成 monitoring、alerts、runbook、support preparation 和 release defect correction。
+  - 验证：Atlas Free 256 MB 容量及 250 连接邮件预警、运行与支持说明已就绪；生产 iPhone Push 送达经 Travis 确认；Mac PWA 白底图标及账号补全引导修复已上线并验证。
+- [x] G1-06 执行 production migration、现有账号草稿补建与验证、开启 M0–M6，并执行 smoke verification。
+  - 验证：production migration 12/12、0 pending/issues；161 个活跃旧账号中 0 个符合草稿补建所需完整字段，0 个漏建；`ALUMNI_NETWORK_RELEASE_AVAILABLE=true`、mode `on` revision 4、readiness 200；Directory、Help Requests、Chat Rooms 和账号补全引导加载通过，`/uploads` 部署前后均为 135 个文件；前端 `e67f45f9` Live。
 
 ### M7 — 上线后改进
 
