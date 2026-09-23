@@ -66,6 +66,10 @@ describe("DashboardLayout layout regression", () => {
       __esModule: true,
       default: () => <aside data-testid="sidebar" />,
     }));
+    vi.doMock("../../layouts/dashboard/MobileBottomNavigation", async () => ({
+      __esModule: true,
+      default: () => <nav data-testid="mobile-bottom-navigation" />,
+    }));
     vi.doMock("../../components/common/Footer", async () => ({
       __esModule: true,
       default: () => <footer data-testid="footer" />,
@@ -87,6 +91,15 @@ describe("DashboardLayout layout regression", () => {
               element={
                 <>
                   <div>Programs</div>
+                  <Link to="/dashboard/chat-rooms">Open Chat Rooms</Link>
+                </>
+              }
+            />
+            <Route
+              path="chat-rooms"
+              element={
+                <>
+                  <div>Chat Rooms list</div>
                   <Link to="/dashboard/chat-rooms/room-1">Open Chat Room</Link>
                 </>
               }
@@ -107,8 +120,12 @@ describe("DashboardLayout layout regression", () => {
     expect(main).toBeTruthy();
     if (main) {
       expect((main as HTMLElement).className).toContain("pt-16");
+      expect((main as HTMLElement).className).toContain(
+        "pb-[calc(4rem_+_env(safe-area-inset-bottom))]",
+      );
       expect(main).toHaveAttribute("id", "dashboard-main-content");
     }
+    expect(screen.getByTestId("mobile-bottom-navigation")).toBeInTheDocument();
 
     expect(
       screen.getByRole("link", { name: "Skip to main content" }),
@@ -121,6 +138,13 @@ describe("DashboardLayout layout regression", () => {
     // footer exists
     expect(screen.getByTestId("footer")).toBeInTheDocument();
 
+    await user.click(screen.getByRole("link", { name: "Open Chat Rooms" }));
+    expect(await screen.findByText("Chat Rooms list")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-bottom-navigation")).toBeInTheDocument();
+    expect(screen.getByRole("main", { hidden: true })).toHaveClass(
+      "pb-[calc(4rem_+_env(safe-area-inset-bottom))]",
+    );
+
     await user.click(screen.getByRole("link", { name: "Open Chat Room" }));
     const chatRoomMain = screen.getByRole("main", { hidden: true });
     expect(chatRoomMain).toHaveClass(
@@ -129,6 +153,12 @@ describe("DashboardLayout layout regression", () => {
       "lg:h-auto",
       "lg:overflow-y-auto",
     );
+    expect(chatRoomMain).not.toHaveClass(
+      "pb-[calc(4rem_+_env(safe-area-inset-bottom))]",
+    );
+    expect(
+      screen.queryByTestId("mobile-bottom-navigation"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("dashboard-footer")).toHaveClass(
       "hidden",
       "lg:block",

@@ -122,8 +122,8 @@ describe("Dashboard Header", () => {
     });
   });
 
-  describe("Mobile Menu Button", () => {
-    it("renders mobile menu button", () => {
+  describe("Tablet Menu Button", () => {
+    it("stays hidden on phones, appears on tablets, and has its own id", () => {
       const setSidebarOpen = vi.fn();
       const { container } = render(
         <BrowserRouter>
@@ -135,8 +135,14 @@ describe("Dashboard Header", () => {
         </BrowserRouter>
       );
 
-      const button = container.querySelector("button");
-      expect(button).toBeDefined();
+      const button = container.querySelector(
+        "#dashboard-tablet-menu-button",
+      );
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveClass("hidden", "md:inline-flex", "lg:hidden");
+      expect(
+        container.querySelector("#dashboard-mobile-menu-button"),
+      ).not.toBeInTheDocument();
     });
 
     it("displays Bars3Icon when sidebar is closed", () => {
