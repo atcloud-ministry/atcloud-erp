@@ -30,6 +30,7 @@ import {
   buildLoginRedirectUrl,
   getPathWithSearch,
 } from "../../utils/loginRedirect";
+import { isMobileBottomNavigationHref } from "./MobileBottomNavigation";
 
 interface NavigationItem {
   name: string;
@@ -87,6 +88,7 @@ export default function Sidebar({
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const navigationRef = useRef<HTMLElement>(null);
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
   const [isDesktopNavigation, setIsDesktopNavigation] = useState(() =>
     typeof window === "undefined" || typeof window.matchMedia !== "function"
       ? true
@@ -109,12 +111,22 @@ export default function Sidebar({
 
   useEffect(() => {
     if (!sidebarOpen || isDesktopNavigation) return;
-    const menuButton = document.getElementById(
-      "dashboard-mobile-menu-button",
-    );
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      activeElement.getAttribute("aria-controls") ===
+        "dashboard-primary-navigation"
+    ) {
+      menuTriggerRef.current = activeElement;
+    }
+    const menuButton =
+      menuTriggerRef.current ??
+      document.getElementById("dashboard-mobile-menu-button") ??
+      document.getElementById("dashboard-tablet-menu-button");
     const backgroundElements = [
-      menuButton?.closest<HTMLElement>("header") ?? null,
+      document.querySelector<HTMLElement>("header"),
       document.getElementById("dashboard-main-content"),
+      document.getElementById("dashboard-mobile-bottom-navigation"),
     ].filter((element): element is HTMLElement => element !== null);
     const previousInertValues = backgroundElements.map((element) => ({
       attribute: element.hasAttribute("inert"),
@@ -141,7 +153,6 @@ export default function Sidebar({
       if (event.key === "Escape") {
         event.preventDefault();
         setSidebarOpen(false);
-        window.requestAnimationFrame(() => menuButton?.focus());
         return;
       }
 
@@ -183,6 +194,7 @@ export default function Sidebar({
         }
       });
       if (menuButton?.isConnected) menuButton.focus();
+      menuTriggerRef.current = null;
     };
   }, [isDesktopNavigation, setSidebarOpen, sidebarOpen]);
 
@@ -459,7 +471,7 @@ export default function Sidebar({
       {sidebarOpen && (
         <div
           aria-hidden="true"
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
+          className="fixed inset-0 z-50 bg-black bg-opacity-50 md:z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -469,16 +481,26 @@ export default function Sidebar({
         aria-hidden={!navigationVisible}
         aria-label="Primary navigation"
         className={`
-          fixed inset-y-0 left-0 z-[60] w-64 bg-white shadow-sm border-r lg:z-40
-          transform transition-transform duration-300 ease-in-out lg:translate-x-0
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          fixed inset-x-0 bottom-0 z-[60] max-h-[85dvh]
+          rounded-t-2xl border-t bg-white shadow-xl
+          transform transition-transform duration-300 ease-in-out
+          md:inset-y-0 md:left-0 md:right-auto md:bottom-auto md:h-full md:max-h-none md:w-64
+          md:rounded-none md:border-r md:border-t-0 md:shadow-sm lg:z-40 lg:translate-x-0
+          ${
+            sidebarOpen
+              ? "translate-y-0 md:translate-x-0"
+              : "translate-y-full md:translate-y-0 md:-translate-x-full"
+          }
         `}
         id="dashboard-primary-navigation"
         inert={!navigationVisible ? true : undefined}
         ref={navigationRef}
         tabIndex={-1}
       >
-        <div className="p-4 pt-20 h-full overflow-y-auto">
+        <div className="max-h-[inherit] overflow-y-auto p-4 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] pt-12 md:h-full md:max-h-none md:pb-4 md:pt-20">
+          <p className="absolute left-4 top-4 text-base font-semibold text-gray-900 md:hidden">
+            Menu
+          </p>
           <ul className="space-y-2">
             {navigationItems.map((item) => {
               const Icon = item.icon;
@@ -495,7 +517,14 @@ export default function Sidebar({
               );
 
               return (
-                <li key={item.name}>
+                <li
+                  className={
+                    isMobileBottomNavigationHref(item.href)
+                      ? "hidden md:list-item"
+                      : undefined
+                  }
+                  key={item.name}
+                >
                     {item.href ? (
                       <Link
                         aria-current={isActive ? "page" : undefined}
