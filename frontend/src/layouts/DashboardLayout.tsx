@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, Outlet, Navigate } from "react-router-dom";
-import { Header, Sidebar } from "./dashboard";
+import { Header, MobileBottomNavigation, Sidebar } from "./dashboard";
 import { Footer } from "../components/common";
 import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
 import AlumniProfileOnboardingNotice from "../components/profile/AlumniProfileOnboardingNotice";
@@ -52,6 +52,7 @@ export default function DashboardLayout() {
       previousPathRef.current !== null &&
       previousPathRef.current !== location.pathname
     ) {
+      setSidebarOpen(false);
       mainRef.current?.focus();
     }
     previousPathRef.current = location.pathname;
@@ -127,7 +128,7 @@ export default function DashboardLayout() {
           className={`flex flex-1 flex-col pt-16 lg:ml-64 ${
             isChatRoomRoute
               ? "h-[100dvh] overflow-hidden lg:h-auto lg:overflow-y-auto"
-              : "overflow-y-auto"
+              : "overflow-y-auto pb-[calc(4rem_+_env(safe-area-inset-bottom))] md:pb-0"
           }`}
           id="dashboard-main-content"
           key={`main-${location.pathname}`}
@@ -169,6 +170,13 @@ export default function DashboardLayout() {
           </div>
         </main>
       </div>
+      {!isChatRoomRoute && (
+        <MobileBottomNavigation
+          chatUnreadTotal={chatUnreadTotal}
+          menuOpen={sidebarOpen}
+          setMenuOpen={setSidebarOpen}
+        />
+      )}
     </div>
   );
 }

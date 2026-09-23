@@ -337,6 +337,36 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(link).toHaveTextContent("99+");
     });
 
+    it("keeps the four bottom-bar shortcuts out of the phone menu but visible from tablet width", () => {
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter>
+          <Sidebar
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      for (const name of [
+        "Event Calendar",
+        "Chat Rooms",
+        "Donate",
+        "Feedback",
+      ]) {
+        expect(screen.getByRole("link", { name }).closest("li")).toHaveClass(
+          "hidden",
+          "md:list-item",
+        );
+      }
+    });
+
     it("shows the authoritative System Messages unread badge", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
@@ -480,17 +510,31 @@ describe("Sidebar Component - Income History Link Visibility", () => {
             <button
               aria-controls="dashboard-primary-navigation"
               aria-expanded={open}
-              id="dashboard-mobile-menu-button"
+              id="dashboard-tablet-menu-button"
               onClick={() => setOpen((current) => !current)}
               type="button"
             >
-              Menu
+              Tablet menu
             </button>
             <button type="button">Header action</button>
           </header>
           <main id="dashboard-main-content">
             <button type="button">Main action</button>
           </main>
+          <nav
+            aria-label="Mobile primary navigation"
+            id="dashboard-mobile-bottom-navigation"
+          >
+            <button
+              aria-controls="dashboard-primary-navigation"
+              aria-expanded={open}
+              id="dashboard-mobile-menu-button"
+              onClick={() => setOpen((current) => !current)}
+              type="button"
+            >
+              Menu
+            </button>
+          </nav>
           <Sidebar
             userRole="Participant"
             sidebarOpen={open}
@@ -538,6 +582,12 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(screen.getByRole("main", { hidden: true })).toHaveAttribute(
         "inert",
       );
+      expect(
+        screen.getByRole("navigation", {
+          hidden: true,
+          name: "Mobile primary navigation",
+        }),
+      ).toHaveAttribute("inert");
 
       restoreViewport();
     });
@@ -598,6 +648,11 @@ describe("Sidebar Component - Income History Link Visibility", () => {
 
       await waitFor(() => expect(menuButton).toHaveFocus());
       expect(menuButton).toHaveAttribute("aria-expanded", "false");
+      expect(
+        screen.getByRole("navigation", {
+          name: "Mobile primary navigation",
+        }),
+      ).not.toHaveAttribute("inert");
 
       restoreViewport();
     });
@@ -626,9 +681,14 @@ describe("Sidebar Component - Income History Link Visibility", () => {
 
       await waitFor(() => expect(menuButton).toHaveFocus());
       expect(menuButton).toHaveAttribute("aria-expanded", "false");
-      expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute(
-        "inert",
-      );
+      expect(
+        document.getElementById("dashboard-primary-navigation"),
+      ).toHaveAttribute("inert");
+      expect(
+        screen.getByRole("navigation", {
+          name: "Mobile primary navigation",
+        }),
+      ).not.toHaveAttribute("inert");
 
       restoreViewport();
     });
