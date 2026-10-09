@@ -48,6 +48,13 @@ describe("PasswordResetController", () => {
   });
 
   describe("forgotPassword", () => {
+    const resetTokenHash = "a".repeat(64);
+    const resetTokenExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    beforeEach(() => {
+      vi.mocked(User.updateOne).mockResolvedValue({ matchedCount: 1 } as any);
+    });
+
     describe("validation", () => {
       it("should return 400 if email is missing", async () => {
         mockReq.body = {};
@@ -96,6 +103,8 @@ describe("PasswordResetController", () => {
           firstName: "John",
           username: "testuser",
           isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
           generatePasswordResetToken: vi.fn().mockReturnValue(mockResetToken),
           save: vi.fn().mockResolvedValue(undefined),
         };
@@ -118,7 +127,17 @@ describe("PasswordResetController", () => {
           isActive: true,
         });
         expect(mockUser.generatePasswordResetToken).toHaveBeenCalled();
-        expect(mockUser.save).toHaveBeenCalled();
+        expect(User.updateOne).toHaveBeenCalledWith(
+          { _id: "user-id", isActive: true },
+          {
+            $set: {
+              passwordResetToken: resetTokenHash,
+              passwordResetExpires: resetTokenExpiry,
+            },
+          },
+          { runValidators: false }
+        );
+        expect(mockUser.save).not.toHaveBeenCalled();
         expect(EmailService.sendPasswordResetEmail).toHaveBeenCalledWith(
           "test@example.com",
           "John",
@@ -141,6 +160,8 @@ describe("PasswordResetController", () => {
           firstName: "John",
           username: "testuser",
           isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
           generatePasswordResetToken: vi.fn().mockReturnValue("token-123"),
           save: vi.fn().mockResolvedValue(undefined),
         };
@@ -171,6 +192,8 @@ describe("PasswordResetController", () => {
           firstName: "John",
           username: "testuser",
           isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
           generatePasswordResetToken: vi.fn().mockReturnValue("token-123"),
           save: vi.fn().mockResolvedValue(undefined),
         };
@@ -211,6 +234,8 @@ describe("PasswordResetController", () => {
           firstName: "John",
           username: "testuser",
           isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
           generatePasswordResetToken: vi.fn().mockReturnValue("token-123"),
           save: vi.fn().mockResolvedValue(undefined),
         };
@@ -243,6 +268,8 @@ describe("PasswordResetController", () => {
           firstName: "John",
           username: "testuser",
           isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
           generatePasswordResetToken: vi.fn().mockReturnValue("token-123"),
           save: vi.fn().mockResolvedValue(undefined),
         };
@@ -264,6 +291,89 @@ describe("PasswordResetController", () => {
         expect(jsonMock).toHaveBeenCalledWith(
           expect.objectContaining({
             success: true,
+          })
+        );
+      });
+
+      it("should issue a reset link without validating an incomplete legacy profile", async () => {
+        const rawToken = "legacy-reset-token";
+        const legacyValidationError = new Error("Legacy profile is incomplete");
+        legacyValidationError.name = "ValidationError";
+        const mockUser = {
+          _id: "legacy-user-id",
+          email: "legacy@example.com",
+          firstName: "Legacy",
+          username: "legacyuser",
+          isActive: true,
+          employmentStatus: "employed",
+          phone: undefined,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
+          generatePasswordResetToken: vi.fn().mockReturnValue(rawToken),
+          save: vi.fn().mockRejectedValue(legacyValidationError),
+        };
+
+        mockReq.body = { email: "legacy@example.com" };
+        vi.mocked(User.findOne).mockResolvedValue(mockUser as any);
+        vi.mocked(EmailService.sendPasswordResetEmail).mockResolvedValue(true);
+        vi.mocked(
+          UnifiedMessageController.createTargetedSystemMessage
+        ).mockResolvedValue({} as any);
+
+        await PasswordResetController.forgotPassword(
+          mockReq as Request,
+          mockRes as Response
+        );
+
+        expect(mockUser.generatePasswordResetToken).toHaveBeenCalledOnce();
+        expect(mockUser.save).not.toHaveBeenCalled();
+        expect(User.updateOne).toHaveBeenCalledWith(
+          { _id: "legacy-user-id", isActive: true },
+          {
+            $set: {
+              passwordResetToken: resetTokenHash,
+              passwordResetExpires: resetTokenExpiry,
+            },
+          },
+          { runValidators: false }
+        );
+        expect(EmailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+          "legacy@example.com",
+          "Legacy",
+          rawToken
+        );
+        expect(statusMock).toHaveBeenCalledWith(200);
+      });
+
+      it("should not email a reset link when the account is no longer active", async () => {
+        const mockUser = {
+          _id: "inactive-user-id",
+          email: "inactive@example.com",
+          firstName: "Inactive",
+          isActive: true,
+          passwordResetToken: resetTokenHash,
+          passwordResetExpires: resetTokenExpiry,
+          generatePasswordResetToken: vi.fn().mockReturnValue("unused-token"),
+          save: vi.fn(),
+        };
+
+        mockReq.body = { email: "inactive@example.com" };
+        vi.mocked(User.findOne).mockResolvedValue(mockUser as any);
+        vi.mocked(User.updateOne).mockResolvedValue({ matchedCount: 0 } as any);
+
+        await PasswordResetController.forgotPassword(
+          mockReq as Request,
+          mockRes as Response
+        );
+
+        expect(mockUser.save).not.toHaveBeenCalled();
+        expect(EmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+        expect(statusMock).toHaveBeenCalledWith(200);
+        expect(jsonMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            success: true,
+            message:
+              "If that email address is in our system, you will receive a password reset email shortly.",
           })
         );
       });
@@ -404,7 +514,9 @@ describe("PasswordResetController", () => {
         expect(mockUser.passwordResetToken).toBeUndefined();
         expect(mockUser.passwordResetExpires).toBeUndefined();
         expect(mockUser.passwordChangedAt).toBeInstanceOf(Date);
-        expect(mockUser.save).toHaveBeenCalled();
+        expect(mockUser.save).toHaveBeenCalledWith({
+          validateBeforeSave: false,
+        });
         expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
           "user-id",
           "password_reset",
@@ -419,6 +531,59 @@ describe("PasswordResetController", () => {
             message: "Password reset successfully!",
           })
         );
+      });
+
+      it("should complete reset despite unrelated legacy profile validation errors", async () => {
+        const legacyValidationError = new Error("Legacy profile is incomplete");
+        legacyValidationError.name = "ValidationError";
+        const mockUser = {
+          _id: "legacy-user-id",
+          email: "legacy@example.com",
+          firstName: "Legacy",
+          username: "legacyuser",
+          employmentStatus: "employed",
+          phone: undefined,
+          password: "oldpassword",
+          passwordResetToken: "reset-token",
+          passwordResetExpires: new Date(Date.now() + 60_000),
+          save: vi.fn().mockImplementation(async (options?: {
+            validateBeforeSave?: boolean;
+          }) => {
+            if (options?.validateBeforeSave !== false) {
+              throw legacyValidationError;
+            }
+          }),
+        };
+
+        mockReq.body = {
+          newPassword: "NewLegacyPass123!",
+          confirmPassword: "NewLegacyPass123!",
+        };
+        mockReq.user = mockUser;
+        vi.mocked(
+          UnifiedMessageController.createTargetedSystemMessage
+        ).mockResolvedValue({} as any);
+        vi.mocked(EmailService.sendPasswordResetSuccessEmail).mockResolvedValue(
+          true
+        );
+
+        await PasswordResetController.resetPassword(
+          mockReq as Request,
+          mockRes as Response
+        );
+
+        expect(mockUser.save).toHaveBeenCalledWith({
+          validateBeforeSave: false,
+        });
+        expect(mockUser.password).toBe("NewLegacyPass123!");
+        expect(mockUser.passwordResetToken).toBeUndefined();
+        expect(mockUser.passwordResetExpires).toBeUndefined();
+        expect(mockUser.passwordChangedAt).toBeInstanceOf(Date);
+        expect(RefreshSessionService.revokeAllForUser).toHaveBeenCalledWith(
+          "legacy-user-id",
+          "password_reset"
+        );
+        expect(statusMock).toHaveBeenCalledWith(200);
       });
 
       it("should send success notifications after password reset", async () => {
