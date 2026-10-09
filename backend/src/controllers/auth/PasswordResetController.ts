@@ -53,7 +53,29 @@ export default class PasswordResetController {
       const resetToken = (
         user as unknown as { generatePasswordResetToken: () => string }
       ).generatePasswordResetToken();
-      await user.save();
+      if (!user.passwordResetToken || !user.passwordResetExpires) {
+        throw new Error("Password reset token was not generated.");
+      }
+
+      // Only persist the reset fields. Saving the whole document can reject
+      // legacy accounts whose unrelated profile fields fail current validators.
+      const updateResult = await User.updateOne(
+        { _id: user._id, isActive: true },
+        {
+          $set: {
+            passwordResetToken: user.passwordResetToken,
+            passwordResetExpires: user.passwordResetExpires,
+          },
+        },
+        { runValidators: false }
+      );
+      if (updateResult.matchedCount !== 1) {
+        res.status(200).json({
+          success: true,
+          message: successMessage,
+        });
+        return;
+      }
 
       // Send password reset email
       const emailSent = await EmailService.sendPasswordResetEmail(
@@ -153,7 +175,10 @@ export default class PasswordResetController {
       user.passwordResetExpires = undefined;
       user.passwordChangedAt = new Date();
 
-      await user.save();
+      // Password rules are checked by validateResetPassword; avoid rejecting
+      // the reset because unrelated legacy profile fields fail validation.
+      // The save hook still hashes the new password before persistence.
+      await user.save({ validateBeforeSave: false });
       try {
         await RefreshSessionService.revokeAllForUser(
           toIdString(user._id),
