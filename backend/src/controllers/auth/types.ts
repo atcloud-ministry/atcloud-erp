@@ -53,7 +53,7 @@ export type UserDocLike = {
   incrementLoginAttempts?: () => Promise<void>;
   resetLoginAttempts?: () => Promise<void>;
   updateLastLogin?: () => Promise<void>;
-  save: () => Promise<void>;
+  save: (options?: { validateBeforeSave?: boolean }) => Promise<void>;
 };
 
 // Re-export from shared utility for backwards compatibility

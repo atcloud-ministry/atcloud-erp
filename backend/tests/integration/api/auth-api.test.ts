@@ -566,6 +566,87 @@ describe("Authentication API Integration Tests", () => {
       });
     });
 
+    it("should save a reset token for an active legacy user with invalid profile fields", async () => {
+      // Historical records can be incomplete even though the account is active.
+      await User.updateOne(
+        { email: "forgot@example.com" },
+        { $unset: { phone: 1 } }
+      );
+      const legacyUser = await User.findOne({ email: "forgot@example.com" });
+      expect(legacyUser).toBeTruthy();
+      await expect(legacyUser!.validate()).rejects.toHaveProperty(
+        "name",
+        "ValidationError"
+      );
+
+      const response = await request(app)
+        .post("/api/auth/forgot-password")
+        .send({ email: "forgot@example.com" })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      const updatedUser = await User.findOne({ email: "forgot@example.com" })
+        .select("+passwordResetToken +passwordResetExpires");
+      expect(updatedUser?.passwordResetToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(updatedUser?.passwordResetExpires?.getTime()).toBeGreaterThan(
+        Date.now()
+      );
+    });
+
+    it("should complete a reset for an active legacy user without revalidating profile fields", async () => {
+      await User.updateOne(
+        { email: "forgot@example.com" },
+        { $unset: { phone: 1 } }
+      );
+      const legacyUser = await User.findOne({ email: "forgot@example.com" });
+      expect(legacyUser).toBeTruthy();
+      await expect(legacyUser!.validate()).rejects.toHaveProperty(
+        "name",
+        "ValidationError"
+      );
+
+      const rawToken = legacyUser!.generatePasswordResetToken();
+      await User.updateOne(
+        { _id: legacyUser!._id },
+        {
+          $set: {
+            passwordResetToken: legacyUser!.passwordResetToken,
+            passwordResetExpires: legacyUser!.passwordResetExpires,
+          },
+        }
+      );
+
+      const response = await request(app)
+        .post("/api/auth/reset-password")
+        .send({
+          token: rawToken,
+          newPassword: "NewLegacyPass123!",
+          confirmPassword: "NewLegacyPass123!",
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      const updatedUser = await User.findOne({ email: "forgot@example.com" })
+        .select(
+          "+password +passwordResetToken +passwordResetExpires +passwordChangedAt"
+        );
+      expect(updatedUser).toBeTruthy();
+      expect(await updatedUser!.comparePassword("NewLegacyPass123!")).toBe(true);
+      expect(await updatedUser!.comparePassword("ForgotPass123!")).toBe(false);
+      expect(updatedUser!.passwordResetToken).toBeUndefined();
+      expect(updatedUser!.passwordResetExpires).toBeUndefined();
+      expect(updatedUser!.passwordChangedAt).toBeInstanceOf(Date);
+
+      await request(app)
+        .post("/api/auth/reset-password")
+        .send({
+          token: rawToken,
+          newPassword: "AnotherLegacyPass123!",
+          confirmPassword: "AnotherLegacyPass123!",
+        })
+        .expect(400);
+    });
+
     it("should handle non-existent email gracefully", async () => {
       const response = await request(app)
         .post("/api/auth/forgot-password")
