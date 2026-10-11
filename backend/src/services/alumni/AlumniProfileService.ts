@@ -44,6 +44,7 @@ import {
   buildAlumniProfileSearchProjection,
 } from "./AlumniProfileProjectionService";
 import { ensurePrivateAlumniDraft } from "./AlumniDraftProfileService";
+import { terminateActiveHelpRequestsInTransaction } from "./AlumniHelpTermination";
 
 const OWNER_USER_PROJECTION = [
   REGISTRATION_PROFILE_READ_PROJECTION,
@@ -607,6 +608,17 @@ export class AlumniProfileService {
         ).select("+searchProjection");
         if (!updated) throw profileRevisionConflict();
 
+        // Leaving the Alumni Network ends contact: open requests made to this
+        // member are declined or closed and their Chat Rooms become read-only.
+        const help = await terminateActiveHelpRequestsInTransaction({
+          targetUserId: actorId,
+          scope: "provider",
+          now,
+          session,
+          notify: { correlationId: input.correlationId },
+          conflictMessage: "Help Request changed during profile withdrawal.",
+        });
+
         await AuditLogService.recordRequiredInTransaction(
           {
             action: "alumni_profile.withdrawn",
@@ -617,6 +629,8 @@ export class AlumniProfileService {
             correlationId: input.correlationId,
             details: {
               consentTerminated: Boolean(aggregate.consent),
+              helpRequestsEnded: help.requests,
+              helpRoomsArchived: help.rooms,
               fromRevision: input.expectedRevision,
               toRevision: updated.revision,
             },

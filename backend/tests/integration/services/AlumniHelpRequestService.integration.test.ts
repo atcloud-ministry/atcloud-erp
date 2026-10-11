@@ -43,6 +43,7 @@ import { ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC } from "../../../src/services/a
 import { AlumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
 import { ALUMNI_HELP_WORKFLOW_TOPIC } from "../../../src/services/alumni/AlumniHelpWorkflowDeliveryHandler";
 import { AlumniOutcomeDeadlineService } from "../../../src/services/alumni/AlumniOutcomeDeadlineService";
+import { AlumniProfileService } from "../../../src/services/alumni/AlumniProfileService";
 import {
   WORKER_RUN_TRIGGERS,
   WORKER_SERVICE_KEYS,
@@ -910,6 +911,61 @@ describe("M3 Alumni Help service integration", () => {
       status: "current",
       writeAccessEndsAt: graceEndsAt,
     });
+  });
+
+  it("ends contact with a member who leaves the Alumni Network", async () => {
+    const acceptedRequesterId = await insertUser("Accepted");
+    const pendingRequesterId = await insertUser("Pending");
+    const accepted = await acceptRequest(
+      (await createRequest(acceptedRequesterId, "career_advice")).request.id,
+    );
+    const pending = await createRequest(pendingRequesterId, "warm_introduction");
+
+    // The leaving member's own request to another alumni member stays open.
+    const otherProvider = await insertPublishedProvider();
+    const ownRequest = await service.create({
+      alumniProfileId: otherProvider.profileId.toString(),
+      requestedHelpType: "career_advice",
+      openingNote: null,
+      consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
+      disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
+      actor: actor(providerId),
+      idempotencyKey: randomUUID(),
+    });
+
+    const profiles = new AlumniProfileService({ now: () => new Date(nowValue) });
+    await profiles.withdrawOwn({
+      expectedRevision: 1,
+      actor: actor(providerId),
+      idempotencyKey: randomUUID(),
+    });
+
+    const closed = await AlumniHelpRequest.findById(accepted.request.id).lean();
+    expect(closed).toMatchObject({
+      status: "closed",
+      activeUniqueness: false,
+      closedAt: nowValue,
+    });
+    expect(
+      await Conversation.findById(accepted.request.conversationId).lean(),
+    ).toMatchObject({ status: "archived", archivedAt: nowValue });
+    expect(
+      await AlumniHelpRequest.findById(pending.request.id).lean(),
+    ).toMatchObject({ status: "declined", declinedAt: nowValue });
+    expect(
+      await AlumniHelpRequest.findById(ownRequest.request.id).lean(),
+    ).toMatchObject({ status: "requested", activeUniqueness: true });
+
+    const notified = await NotificationOutbox.find({
+      topic: ALUMNI_HELP_WORKFLOW_TOPIC,
+      "payload.requestId": {
+        $in: [accepted.request.id, pending.request.id],
+      },
+      "payload.eventType": { $in: ["close", "decline"] },
+    }).lean();
+    expect(notified.length).toBeGreaterThanOrEqual(2);
   });
 
   it("gives the exact deadline to the worker and resolves provider/worker races exactly once", async () => {

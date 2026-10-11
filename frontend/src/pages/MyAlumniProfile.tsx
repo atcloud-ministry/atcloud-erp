@@ -880,8 +880,10 @@ export default function MyAlumniProfile() {
             ) : confirmWithdraw ? (
               <div className="rounded-md border border-red-200 bg-red-50 p-4">
                 <p className="text-sm text-red-900">
-                  Withdraw this profile from the Directory now? You can edit and
-                  publish it again later with new consent.
+                  Withdraw this profile from the Directory now? Open help
+                  requests sent to you will be closed, and their chats will
+                  become read-only. You can edit and publish it again later
+                  with new consent.
                 </p>
                 <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row">
                   <Button
