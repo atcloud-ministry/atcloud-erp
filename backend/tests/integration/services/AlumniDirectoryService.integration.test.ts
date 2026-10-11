@@ -686,6 +686,72 @@ describe("M2-06 Alumni Directory Mongo qualification", () => {
     ).toEqual([]);
   });
 
+  it("matches partial and qualified inputs word by word", async () => {
+    const target = await createPublishedFixture({
+      label: "flexible-target",
+      firstName: "Grace",
+      lastName: "Hopper",
+      company: "Cornell University",
+      city: "San Diego",
+      region: "US-CA",
+      industry: "Higher Education",
+      skills: ["Product Strategy"],
+      programName: "Executive MBA",
+      cohortLabel: "Spring 2030",
+    });
+    await createPublishedFixture({
+      label: "flexible-distractor",
+      firstName: "Plain",
+      lastName: "Member",
+      company: "Cornerstone Partners",
+      city: "San Jose",
+      region: "US-CA",
+      industry: "Finance",
+      skills: ["Accounting"],
+      programName: "General Program",
+      cohortLabel: "2020",
+    });
+
+    const cases: readonly Partial<AlumniDirectoryQuery>[] = [
+      { q: "Cornell" },
+      { q: "cornell san diego" },
+      { q: "San Diego, CA" },
+      { q: "San Diego, California, USA" },
+      { q: "hopper grace" },
+      { company: "Cornell" },
+      { company: "university cornell" },
+      { industry: "education" },
+      { skill: "strategy" },
+      { location: "San Diego, CA" },
+      { location: "san diego ca" },
+      { location: "Diego" },
+      { cohort: "MBA 2030" },
+    ];
+    for (const query of cases) {
+      const result = await directory.list(baseQuery(query));
+      expect(result.profiles.map((profile) => profile.id)).toEqual([
+        target.profileId.toString(),
+      ]);
+    }
+
+    const unmatched: readonly Partial<AlumniDirectoryQuery>[] = [
+      { q: "Cornell Harvard" },
+      { company: "Cornell Partners" },
+      { location: "California" },
+    ];
+    for (const query of unmatched) {
+      expect((await directory.list(baseQuery(query))).profiles).toEqual([]);
+    }
+
+    // State qualifiers are ignored rather than matched against the private
+    // residence region, which the Directory does not search.
+    expect(
+      (await directory.list(baseQuery({ location: "San Diego, TX" }))).profiles.map(
+        (profile) => profile.id,
+      ),
+    ).toEqual([target.profileId.toString()]);
+  });
+
   it("returns and cohort-filters the 51st verified affiliation", async () => {
     const target = await createPublishedFixture({ label: "many-affiliations" });
     const additional = Array.from({ length: 50 }, (_, offset) => {
