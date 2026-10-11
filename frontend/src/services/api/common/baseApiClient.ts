@@ -284,8 +284,16 @@ export class BaseApiClient {
 
         const err = new Error(
           data?.message || `HTTP ${response.status}`,
-        ) as Error & { status?: number };
+        ) as Error & {
+          status?: number;
+          code?: string;
+          details?: Record<string, string>;
+        };
         err.status = response.status;
+        if (typeof data?.code === "string") err.code = data.code;
+        if (data?.details && typeof data.details === "object") {
+          err.details = data.details;
+        }
         if (err.status === 401) {
           // Fallback path if we landed here without triggering above branch
           if (hadTokenBeforeRequest) {

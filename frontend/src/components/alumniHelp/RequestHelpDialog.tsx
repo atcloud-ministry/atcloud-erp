@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { useAlumniHelp } from "../../contexts/AlumniHelpContext";
 import {
@@ -45,6 +46,9 @@ export default function RequestHelpDialog({
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [existingRequestId, setExistingRequestId] = useState<string | null>(
+    null,
+  );
   const availableTypes = useMemo(() => enabledHelpTypes(profile), [profile]);
   const noteLength = Array.from(openingNote).length;
   const noteTooLong = noteLength > NOTE_MAX_CODE_POINTS;
@@ -155,14 +159,28 @@ export default function RequestHelpDialog({
     const idempotencyKey = retryRef.current.key;
     setSubmitting(true);
     setSubmitError(null);
+    setExistingRequestId(null);
     try {
       const result = await alumniHelpService.create(input, idempotencyKey);
       retryRef.current = null;
       setHelpNotificationCounts(result);
       onCreated(result);
     } catch (reason) {
-      const status = (reason as { status?: unknown } | null)?.status;
+      const failure = reason as {
+        status?: unknown;
+        code?: unknown;
+        details?: { existingRequestId?: unknown };
+      } | null;
+      const status = failure?.status;
       if (typeof status === "number" && status < 500) retryRef.current = null;
+      const existingId = failure?.details?.existingRequestId;
+      setExistingRequestId(
+        failure?.code === "ALUMNI_HELP_REQUEST_DUPLICATE" &&
+          typeof existingId === "string" &&
+          /^[a-f\d]{24}$/i.test(existingId)
+          ? existingId
+          : null,
+      );
       setSubmitError(
         reason instanceof Error
           ? reason.message
@@ -337,6 +355,17 @@ export default function RequestHelpDialog({
             {submitError && (
               <p className="rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert">
                 {submitError}
+                {existingRequestId && (
+                  <>
+                    {" "}
+                    <Link
+                      className="font-semibold underline"
+                      to={`/dashboard/community/help-requests/${existingRequestId}`}
+                    >
+                      Open your existing request
+                    </Link>
+                  </>
+                )}
               </p>
             )}
 

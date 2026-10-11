@@ -156,11 +156,12 @@ function requestStateConflict(): AlumniFlowError {
   );
 }
 
-function duplicateRequest(): AlumniFlowError {
+function duplicateRequest(existingRequestId?: string): AlumniFlowError {
   return new AlumniFlowError(
     "ALUMNI_HELP_REQUEST_DUPLICATE",
     409,
-    "An active request for this help offering already exists.",
+    "You already have an open request with this alumni member.",
+    existingRequestId ? Object.freeze({ existingRequestId }) : undefined,
   );
 }
 
@@ -634,6 +635,17 @@ export class AlumniHelpRequestService {
             .select("_id username firstName lastName avatar")
             .session(session);
           if (!requester) throw alumniInputError();
+          // One open request (and so one Chat Room) per requester and alumni
+          // member, whatever help type is asked for. The unique index covers
+          // only the same help type, so check across types here.
+          const existing = await AlumniHelpRequest.findOne({
+            requesterId,
+            alumniProfileId: provider.profile._id,
+            activeUniqueness: true,
+          })
+            .select("_id")
+            .session(session);
+          if (existing) throw duplicateRequest(existing._id.toString());
           const requestId = new mongoose.Types.ObjectId();
           const timelineEventId = new mongoose.Types.ObjectId();
           const request = new AlumniHelpRequest({
