@@ -1,10 +1,36 @@
 import type { ChatMessageDTO } from "../../services/api";
+import {
+  chatLinkDestinationHost,
+  splitChatTextLinks,
+} from "../../utils/chatLinks";
 import ChatAvatar from "./ChatAvatar";
 
 export type ChatDeliveryState = "sending" | "sent" | "failed";
 
 export interface ChatDisplayMessage extends ChatMessageDTO {
   deliveryState?: ChatDeliveryState;
+}
+
+function MessageText({ text, own }: { text: string; own: boolean }) {
+  return (
+    <>
+      {splitChatTextLinks(text).map((segment, index) =>
+        segment.href ? (
+          <a
+            className={`break-all underline ${own ? "text-white" : "text-blue-700"}`}
+            href={segment.href}
+            key={index}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {segment.text}
+          </a>
+        ) : (
+          segment.text
+        ),
+      )}
+    </>
+  );
 }
 
 function formatMessageTime(value: string): string {
@@ -27,6 +53,9 @@ export default function ChatMessageItem({
 }) {
   const own = message.sender.id === currentUserId;
   const announcement = message.kind === "announcement";
+  const destinationHost = message.safeLink
+    ? chatLinkDestinationHost(message.safeLink.url)
+    : null;
 
   if (announcement) {
     return (
@@ -36,7 +65,7 @@ export default function ChatMessageItem({
             Announcement
           </p>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-blue-950">
-            {message.content}
+            {message.content && <MessageText own={false} text={message.content} />}
           </p>
           <p className="mt-2 text-xs text-blue-700">
             {message.sender.displayName} ·{" "}
@@ -85,7 +114,7 @@ export default function ChatMessageItem({
         >
           {message.content && (
             <p className="whitespace-pre-wrap break-words text-sm">
-              {message.content}
+              <MessageText own={own} text={message.content} />
             </p>
           )}
           {message.safeLink && (
@@ -100,6 +129,16 @@ export default function ChatMessageItem({
               target="_blank"
             >
               {message.safeLink.label}
+              {destinationHost &&
+                message.safeLink.label !== message.safeLink.url && (
+                <span
+                  className={`mt-0.5 block text-xs font-normal no-underline ${
+                    own ? "text-blue-100" : "text-gray-600"
+                  }`}
+                >
+                  Goes to {destinationHost}
+                </span>
+              )}
               <span className="sr-only"> (opens in a new tab)</span>
             </a>
           )}
