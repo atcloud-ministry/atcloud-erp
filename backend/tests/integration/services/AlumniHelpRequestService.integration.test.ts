@@ -429,6 +429,16 @@ describe("M3 Alumni Help service integration", () => {
     ).rejects.toMatchObject({
       code: "ALUMNI_HELP_REQUEST_DUPLICATE",
       httpStatus: 409,
+      details: { existingRequestId: requestId },
+    });
+    // A different help type to the same alumni member would open a second
+    // Chat Room, so it is rejected too.
+    await expect(
+      createRequest(requesterId, "warm_introduction"),
+    ).rejects.toMatchObject({
+      code: "ALUMNI_HELP_REQUEST_DUPLICATE",
+      httpStatus: 409,
+      details: { existingRequestId: requestId },
     });
 
     const idempotencyKey = randomUUID();

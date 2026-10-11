@@ -42,6 +42,8 @@ export class AlumniFlowError extends Error {
     public readonly code: AlumniFlowErrorCode,
     public readonly httpStatus: number,
     message: string,
+    /** Public, non-sensitive identifiers the client can act on. */
+    public readonly details?: Readonly<Record<string, string>>,
   ) {
     super(message);
   }

@@ -655,7 +655,7 @@ describe("alumni help request HTTP contracts", () => {
       [
         "ALUMNI_HELP_REQUEST_DUPLICATE",
         409,
-        "An active request for this help offering already exists.",
+        "You already have an open request with this alumni member.",
       ],
       [
         "ALUMNI_HELP_REQUEST_REVISION_CONFLICT",

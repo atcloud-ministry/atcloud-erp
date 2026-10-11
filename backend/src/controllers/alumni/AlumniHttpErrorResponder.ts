@@ -33,6 +33,7 @@ interface PublicFailure {
   readonly message: string;
   readonly context?: CsvStructuralContext;
   readonly issues?: readonly AlumniProfileReadinessIssue[];
+  readonly details?: Readonly<Record<string, string>>;
 }
 
 const ALUMNI_FLOW_PUBLIC_FAILURES: Readonly<
@@ -104,7 +105,7 @@ const ALUMNI_FLOW_PUBLIC_FAILURES: Readonly<
   },
   ALUMNI_HELP_REQUEST_DUPLICATE: {
     code: "ALUMNI_HELP_REQUEST_DUPLICATE",
-    message: "An active request for this help offering already exists.",
+    message: "You already have an open request with this alumni member.",
   },
   ALUMNI_HELP_REQUEST_REVISION_CONFLICT: {
     code: "ALUMNI_HELP_REQUEST_REVISION_CONFLICT",
@@ -156,6 +157,7 @@ function respond(res: Response, failure: PublicFailure): void {
     code: failure.code,
     ...(failure.context ? { context: failure.context } : {}),
     ...(failure.issues ? { issues: failure.issues } : {}),
+    ...(failure.details ? { details: failure.details } : {}),
   });
 }
 
@@ -237,6 +239,7 @@ export function sendAlumniHttpError(res: Response, error: unknown): void {
       ...(error instanceof AlumniProfileNotPublishableError
         ? { issues: error.issues }
         : {}),
+      ...(publicFailure && error.details ? { details: error.details } : {}),
     });
     return;
   }
