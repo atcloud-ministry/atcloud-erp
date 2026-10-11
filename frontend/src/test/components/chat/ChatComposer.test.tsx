@@ -34,6 +34,36 @@ describe("ChatComposer", () => {
     });
   });
 
+  it("accepts addresses typed without https://", async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatComposer onSend={onSend} />);
+
+    await user.click(screen.getByRole("button", { name: "Add a safe link" }));
+    await user.type(screen.getByLabelText("URL"), "www.example.com/jobs");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: null,
+      safeLink: { url: "https://www.example.com/jobs" },
+    });
+  });
+
+  it("blocks labels that name a different web address", async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatComposer onSend={onSend} />);
+
+    await user.click(screen.getByRole("button", { name: "Add a safe link" }));
+    await user.type(screen.getByLabelText("URL"), "https://evil.example.net");
+    await user.type(screen.getByLabelText("Link label (optional)"), "google.com");
+
+    expect(
+      screen.getByText(/cannot name a different web address/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
   it("rejects unsafe links and more than 4,000 Unicode code points", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();
@@ -42,7 +72,7 @@ describe("ChatComposer", () => {
     fireEvent.change(screen.getByLabelText("URL"), {
       target: { value: "javascript:alert(1)" },
     });
-    expect(screen.getByText(/must use a valid http/)).toBeInTheDocument();
+    expect(screen.getByText(/must be a valid web address/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Message"), {

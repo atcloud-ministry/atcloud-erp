@@ -98,6 +98,40 @@ describe("chat room HTTP contract parsing", () => {
     }
   });
 
+  it("rejects link labels that name a different web address", () => {
+    for (const label of [
+      "google.com",
+      "Log in at www.paypal.com",
+      "https://bank.example.org",
+      "example.org.evil.co",
+    ]) {
+      expect(() =>
+        parseSendChatMessageBody({
+          clientMessageId: randomUUID(),
+          safeLink: { url: "https://evil.example.net/login", label },
+        }),
+      ).toThrow(ChatRoomFlowValidationError);
+    }
+  });
+
+  it("accepts labels that match the destination or name no address", () => {
+    for (const [url, label] of [
+      ["https://docs.google.com/d/1", "google.com"],
+      ["https://www.example.org/jobs", "example.org jobs"],
+      ["https://example.org/a?next=evil.com", "https://example.org/a?next=evil.com"],
+      ["https://example.org/cv", "My resume.pdf"],
+      ["https://nodejs.org", "Node.js docs"],
+      ["https://example.org", "Click here"],
+    ]) {
+      expect(
+        parseSendChatMessageBody({
+          clientMessageId: randomUUID(),
+          safeLink: { url, label },
+        }).safeLink?.label,
+      ).toBe(label);
+    }
+  });
+
   it("enforces the complete UTF-8 HTTP payload at 16 KiB", () => {
     expect(() =>
       parseSendChatMessageBody({
