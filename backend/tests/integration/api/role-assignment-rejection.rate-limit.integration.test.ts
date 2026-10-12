@@ -1,7 +1,6 @@
 import request from "supertest";
 import app from "../../../src/app";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import mongoose from "mongoose";
+import { describe, it, expect, beforeAll } from "vitest";
 import { createRoleAssignmentRejectionToken } from "../../../src/utils/roleAssignmentRejectionToken";
 import Registration from "../../../src/models/Registration";
 import Event from "../../../src/models/Event";
@@ -70,12 +69,6 @@ describe("Role assignment rejection rate limiting", () => {
     } as any);
     assignmentId = String(reg._id);
   }, 30000);
-
-  afterAll(async () => {
-    if (mongoose.connection?.db) {
-      await mongoose.connection.db.dropDatabase();
-    }
-  });
 
   it("enforces rate limit after threshold", async () => {
     const token = createRoleAssignmentRejectionToken({
