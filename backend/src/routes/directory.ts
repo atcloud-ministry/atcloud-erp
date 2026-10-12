@@ -68,5 +68,11 @@ router.get(
   requireAlumniNetworkReadable,
   alumniDirectoryController.get,
 );
+router.get(
+  "/:profileId/connection",
+  authorizePermission(PERMISSIONS.VIEW_USER_PROFILES),
+  requireAlumniNetworkReadable,
+  alumniDirectoryController.connection,
+);
 
 export default router;

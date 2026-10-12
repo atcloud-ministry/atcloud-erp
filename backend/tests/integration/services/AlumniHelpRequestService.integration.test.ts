@@ -40,6 +40,7 @@ import IdempotencyRecord from "../../../src/models/IdempotencyRecord";
 import NotificationOutbox from "../../../src/models/NotificationOutbox";
 import User from "../../../src/models/User";
 import { ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC } from "../../../src/services/alumni/AlumniHelpExternalNotification";
+import { AlumniDirectoryService } from "../../../src/services/alumni/AlumniDirectoryService";
 import { AlumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
 import { ALUMNI_HELP_WORKFLOW_TOPIC } from "../../../src/services/alumni/AlumniHelpWorkflowDeliveryHandler";
 import { AlumniOutcomeDeadlineService } from "../../../src/services/alumni/AlumniOutcomeDeadlineService";
@@ -900,6 +901,35 @@ describe("M3 Alumni Help service integration", () => {
       status: "current",
       writeAccessEndsAt: graceEndsAt,
     });
+  });
+
+  it("reports only the viewer's own open request and Room for a profile", async () => {
+    const requesterId = await insertUser("Viewer");
+    const outsiderId = await insertUser("Bystander");
+    const directory = new AlumniDirectoryService();
+    const profile = profileId.toString();
+
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toBeNull();
+    const created = await createRequest(requesterId, "career_advice");
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toEqual({ helpRequestId: created.request.id, conversationId: null });
+
+    const accepted = await acceptRequest(created.request.id);
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toEqual({
+      helpRequestId: created.request.id,
+      conversationId: accepted.request.conversationId,
+    });
+    expect(
+      await directory.viewerConnection(outsiderId.toString(), profile),
+    ).toBeNull();
+    expect(
+      await directory.viewerConnection(providerId.toString(), profile),
+    ).toBeNull();
   });
 
   it("gives the exact deadline to the worker and resolves provider/worker races exactly once", async () => {

@@ -319,6 +319,36 @@ export function decodeDirectoryPage(value: unknown): DirectoryPageDTO {
   };
 }
 
+/** The viewer's own open Help Request with an alumni member. */
+export interface DirectoryViewerConnectionDTO {
+  helpRequestId: string;
+  conversationId: string | null;
+}
+
+export function decodeDirectoryConnectionResponse(
+  value: unknown,
+): DirectoryViewerConnectionDTO | null {
+  const data = exactObjectAt(value, "data", ["connection"]);
+  if (data.connection === null) return null;
+  const connection = exactObjectAt(data.connection, "data.connection", [
+    "helpRequestId",
+    "conversationId",
+  ]);
+  return {
+    helpRequestId: objectIdAt(
+      connection.helpRequestId,
+      "data.connection.helpRequestId",
+    ),
+    conversationId:
+      connection.conversationId === null
+        ? null
+        : objectIdAt(
+            connection.conversationId,
+            "data.connection.conversationId",
+          ),
+  };
+}
+
 export function decodeDirectoryDetailResponse(
   value: unknown,
 ): DirectoryDetailDTO {

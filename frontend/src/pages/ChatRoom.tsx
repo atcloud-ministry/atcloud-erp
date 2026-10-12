@@ -17,6 +17,7 @@ import ChatComposer, {
   type ChatComposerValue,
 } from "../components/chat/ChatComposer";
 import ChatMessageList from "../components/chat/ChatMessageList";
+import ChatRoomProfileLinks from "../components/chat/ChatRoomProfileLinks";
 import type { ChatDisplayMessage } from "../components/chat/ChatMessageItem";
 import ConnectionStatus from "../components/chat/ConnectionStatus";
 import { Button, ErrorState, LoadingState } from "../components/ui";
@@ -1345,7 +1346,7 @@ export default function ChatRoom() {
         to="/dashboard/chat-rooms"
       >
         <ArrowLeftIcon aria-hidden="true" className="h-4 w-4" />
-        Chat Rooms
+        Chats
       </Link>
       <section
         className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-gray-200 bg-white lg:h-[calc(100dvh-10rem)] lg:min-h-[32rem] lg:max-h-[58rem] lg:flex-none lg:rounded-xl lg:border lg:shadow-sm"
@@ -1379,6 +1380,7 @@ export default function ChatRoom() {
                   {formatGraceDeadline(conversation.writeAccessEndsAt)}.
                 </p>
               )}
+            <ChatRoomProfileLinks conversation={conversation} />
           </div>
           <button
             aria-label={

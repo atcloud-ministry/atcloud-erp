@@ -12,6 +12,7 @@ import type {
   DirectoryDetailDTO,
 } from "../../contracts/userReadContracts";
 import { ALUMNI_AFFILIATION_COLLECTION } from "../../models/AlumniAffiliation";
+import AlumniHelpRequest from "../../models/AlumniHelpRequest";
 import AlumniProfile from "../../models/AlumniProfile";
 import { CONSENT_RECORD_COLLECTION } from "../../models/ConsentRecord";
 import User from "../../models/User";
@@ -49,6 +50,12 @@ interface DirectoryAggregateRow {
     readonly programName?: string | null;
     readonly cohortLabel?: string | null;
   }[];
+}
+
+/** The viewer's own open Help Request with an alumni member, if any. */
+export interface DirectoryViewerConnectionDTO {
+  readonly helpRequestId: string;
+  readonly conversationId: string | null;
 }
 
 interface DirectoryFacetResult {
@@ -499,6 +506,30 @@ export class AlumniDirectoryService {
     ]);
     if (!row) throw profileNotFound();
     return detailFrom(row);
+  }
+
+  /**
+   * Lets a profile page offer "Open chat" instead of a second request. Only
+   * the viewer's own request is read, so nothing about other members leaks.
+   */
+  async viewerConnection(
+    viewerId: string,
+    profileId: string,
+  ): Promise<DirectoryViewerConnectionDTO | null> {
+    const request = await AlumniHelpRequest.findOne({
+      requesterId: objectId(viewerId),
+      alumniProfileId: objectId(profileId),
+      activeUniqueness: true,
+    })
+      .select("_id conversationId")
+      .lean();
+    if (!request) return null;
+    return Object.freeze({
+      helpRequestId: String(request._id),
+      conversationId: request.conversationId
+        ? String(request.conversationId)
+        : null,
+    });
   }
 }
 

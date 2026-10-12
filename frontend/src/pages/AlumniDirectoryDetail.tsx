@@ -11,6 +11,7 @@ import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
 import {
   alumniDirectoryService,
   type DirectoryDetailDTO,
+  type DirectoryViewerConnectionDTO,
 } from "../services/api";
 
 const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
@@ -31,6 +32,34 @@ export default function AlumniDirectoryDetail() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadSequence, setReloadSequence] = useState(0);
+  const [connection, setConnection] = useState<{
+    profileId: string;
+    value: DirectoryViewerConnectionDTO | null;
+  } | null>(null);
+
+  // An existing open request turns "Request Help" into "Open chat". This is
+  // a convenience only: if it fails, the request flow still prevents duplicates.
+  useEffect(() => {
+    if (
+      runtimeStatus !== "ready" ||
+      !config.alumniNetwork.readable ||
+      !OBJECT_ID_PATTERN.test(profileId)
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    void alumniDirectoryService
+      .getConnection(profileId, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) setConnection({ profileId, value });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setConnection({ profileId, value: null });
+        }
+      });
+    return () => controller.abort();
+  }, [config.alumniNetwork.readable, profileId, runtimeStatus]);
 
   useEffect(() => {
     if (
@@ -127,10 +156,17 @@ export default function AlumniDirectoryDetail() {
   }
 
   const roleAndCompany = professionalLine(profile);
+  const connectionLoaded = connection?.profileId === profileId;
+  const viewerConnection = connectionLoaded ? connection.value : null;
   const canRequestHelp =
     config.alumniNetwork.writable && hasEnabledHelpOffering(profile);
+  // Wait for the connection check so a search-result "Request Help" link
+  // shows "Open chat" instead of a second request when one is already open.
   const requestDialogOpen =
-    canRequestHelp && searchParams.get("requestHelp") === "1";
+    canRequestHelp &&
+    connectionLoaded &&
+    !viewerConnection &&
+    searchParams.get("requestHelp") === "1";
 
   const closeRequestDialog = () => {
     const next = new URLSearchParams(searchParams);
@@ -243,23 +279,52 @@ export default function AlumniDirectoryDetail() {
 
             <aside className="min-w-0 rounded-lg bg-gray-50 p-4">
               <DirectoryHelpOfferings offerings={profile.helpOfferings} />
-              <span className="mt-5 block">
-                <Button
-                  aria-describedby={
-                    canRequestHelp ? undefined : `request-help-note-${profile.id}`
-                  }
-                  className="min-h-11 w-full"
-                  disabled={!canRequestHelp}
-                  onClick={() => {
-                    const next = new URLSearchParams(searchParams);
-                    next.set("requestHelp", "1");
-                    setSearchParams(next);
-                  }}
-                  type="button"
-                >
-                  Request Help
-                </Button>
-              </span>
+              {viewerConnection ? (
+                <div className="mt-5 space-y-2">
+                  {viewerConnection.conversationId ? (
+                    <Link
+                      className="flex min-h-11 w-full items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      to={`/dashboard/chat-rooms/${encodeURIComponent(viewerConnection.conversationId)}`}
+                    >
+                      Open chat
+                    </Link>
+                  ) : (
+                    <p className="text-sm text-gray-600">
+                      Your request is waiting for a reply. The chat opens once
+                      it is accepted.
+                    </p>
+                  )}
+                  <Link
+                    className="flex min-h-11 w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                    to={`/dashboard/community/help-requests/${encodeURIComponent(viewerConnection.helpRequestId)}`}
+                  >
+                    View your request
+                  </Link>
+                </div>
+              ) : (
+                <span className="mt-5 block">
+                  <Button
+                    aria-describedby={
+                      canRequestHelp ? undefined : `request-help-note-${profile.id}`
+                    }
+                    className="min-h-11 w-full"
+                    disabled={!canRequestHelp}
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.set("requestHelp", "1");
+                      setSearchParams(next);
+                    }}
+                    type="button"
+                  >
+                    Request Help
+                  </Button>
+                  {canRequestHelp && (
+                    <span className="mt-2 block text-xs text-gray-600">
+                      Once your request is accepted, you can chat directly.
+                    </span>
+                  )}
+                </span>
+              )}
               {!canRequestHelp && (
                 <span className="sr-only" id={`request-help-note-${profile.id}`}>
                   {config.alumniNetwork.writable
