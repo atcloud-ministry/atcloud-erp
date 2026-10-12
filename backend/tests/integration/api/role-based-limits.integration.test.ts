@@ -387,8 +387,24 @@ describe("Role-based registration limits per event", () => {
         const res = await request(app)
           .post(`/api/events/${eventId}/register`)
           .set("Authorization", `Bearer ${token}`)
-          .send({ roleId: roleIds[i] })
-          .expect(200);
+          .send({ roleId: roleIds[i] });
+        if (res.status !== 200) {
+          const admin = await User.findOne({
+            email: "administrator_limit@example.com",
+          }).select("isActive isVerified role +passwordChangedAt");
+          throw new Error(
+            `Administrator role ${i + 1}: HTTP ${res.status}; ${JSON.stringify({
+              message: res.body?.message,
+              tokenPresent: typeof token === "string" && token.length > 0,
+              userExists: Boolean(admin),
+              isActive: admin?.isActive,
+              isVerified: admin?.isVerified,
+              role: admin?.role,
+              passwordChangedAt: admin?.passwordChangedAt?.toISOString(),
+              database: mongoose.connection.db?.databaseName,
+            })}`,
+          );
+        }
         expect(res.body.success).toBe(true);
       }
     });
