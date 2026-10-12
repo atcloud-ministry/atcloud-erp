@@ -82,7 +82,8 @@ For more details, see `docs/PRE_DEPLOYMENT_CHECKLIST.md`
 
 - Run the full test suite from the repo root: `npm test`
 - Backend and frontend tests will run sequentially
-- Test database: MongoDB on localhost using `atcloud-signup-test` (ensure MongoDB is running locally)
+- Database tests automatically start the loopback-only Docker MongoDB replica set on port 27018. Start Docker Desktop first; the container remains running for later test runs.
+- To use an existing test replica set instead, set `MONGODB_TEST_URI` explicitly. The database name must contain `test`.
 
 ## Terminology (important)
 
