@@ -4,9 +4,7 @@
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../../../src/app";
-import ShortLinkService, {
-  __TEST__ as ShortLinkTestHooks,
-} from "../../../src/services/ShortLinkService";
+import { __TEST__ as ShortLinkTestHooks } from "../../../src/services/ShortLinkService";
 import Event from "../../../src/models/Event";
 import ShortLink from "../../../src/models/ShortLink";
 import User from "../../../src/models/User";
@@ -15,18 +13,12 @@ import {
   buildValidEventPayload,
   ensureCreatorUser,
 } from "../../test-utils/eventTestHelpers";
-import { describe, it, beforeAll, afterAll, beforeEach, expect } from "vitest";
+import { describe, it, beforeAll, beforeEach, expect } from "vitest";
 import { ensureIntegrationDB } from "../setup/connect";
 
 // Helper to ensure DB connection when running file in isolation
-let openedLocalConnection = false;
 beforeAll(async () => {
   await ensureIntegrationDB();
-  openedLocalConnection = true;
-});
-
-afterAll(async () => {
-  // Connection is shared, don't close it here
 });
 
 async function createTestUser() {
@@ -47,6 +39,22 @@ async function createTestUser() {
 async function authHeaders() {
   const user = await createTestUser();
   return { user, headers: { Authorization: `Bearer test-${user._id}` } };
+}
+
+async function createDbExpiredLink(key: string) {
+  const user = await createTestUser();
+  const event = await createPublishedEvent();
+  await ShortLink.create({
+    key,
+    eventId: event._id,
+    targetSlug: event.publicSlug,
+    createdBy: user._id,
+    expiresAt: new Date(Date.now() - 1000),
+    isExpired: true,
+  });
+  ShortLinkTestHooks.clearCache();
+  expect(await ShortLink.exists({ key })).toBeTruthy();
+  return event;
 }
 
 describe("Short Links API", () => {
@@ -131,21 +139,8 @@ describe("Short Links API", () => {
   });
 
   it("GET status returns 200 (active) even for DB-expired key (no expiration)", async () => {
-    const { headers } = await authHeaders();
-    const event = await createPublishedEvent();
-    const createRes = await request(app)
-      .post(`/api/public/short-links`)
-      .set(headers)
-      .send({ eventId: event._id.toString() })
-      .expect(201);
-    const key = createRes.body.data.key;
-
-    // Mark as expired in DB — should have no effect since expiration is removed
-    await ShortLink.updateMany(
-      { key },
-      { $set: { isExpired: true, expiresAt: new Date(Date.now() - 1000) } },
-    );
-    ShortLinkTestHooks.clearCache();
+    const key = "expired-status";
+    await createDbExpiredLink(key);
 
     const res = await request(app)
       .get(`/api/public/short-links/${key}`)
@@ -180,19 +175,8 @@ describe("Short Links Redirect /s/:key", () => {
   });
 
   it("redirects (302) even for DB-expired key (no expiration)", async () => {
-    const { headers } = await authHeaders();
-    const event = await createPublishedEvent();
-    const createRes = await request(app)
-      .post(`/api/public/short-links`)
-      .set(headers)
-      .send({ eventId: event._id.toString() })
-      .expect(201);
-    const key = createRes.body.data.key;
-    await ShortLink.updateMany(
-      { key },
-      { $set: { isExpired: true, expiresAt: new Date(Date.now() - 1000) } },
-    );
-    ShortLinkTestHooks.clearCache();
+    const key = "expired-redirect";
+    const event = await createDbExpiredLink(key);
 
     const res = await request(app).get(`/s/${key}`).expect(302);
     expect(res.headers.location).toContain(`/#/p/${event.publicSlug}`);
