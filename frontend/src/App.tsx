@@ -364,16 +364,20 @@ function App() {
                 path="help-requests/:requestId"
                 element={<LegacyHelpRequestRedirect />}
               />
+              {/* The Chat Room list is the "Chats" tab of Alumni Community.
+                  Its URL is kept so existing notification and app links work. */}
               <Route
                 path="chat-rooms"
                 element={
                   <ProtectedRoute>
                     <AlumniNetworkReadableRoute>
-                      <ChatRooms />
+                      <CommunityLayout />
                     </AlumniNetworkReadableRoute>
                   </ProtectedRoute>
                 }
-              />
+              >
+                <Route index element={<ChatRooms />} />
+              </Route>
               <Route
                 path="chat-rooms/:conversationId"
                 element={

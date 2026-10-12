@@ -3,10 +3,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CommunityLayout from "../../layouts/CommunityLayout";
 
-const mocks = vi.hoisted(() => ({ count: 0 }));
+const mocks = vi.hoisted(() => ({ count: 0, chatUnread: 0 }));
 
 vi.mock("../../contexts/AlumniHelpContext", () => ({
   useAlumniHelp: () => ({ helpNotificationCount: mocks.count }),
+}));
+
+vi.mock("../../contexts/ChatRoomsContext", () => ({
+  useOptionalChatRooms: () => ({ chatUnreadTotal: mocks.chatUnread }),
 }));
 
 function renderCommunity(path: string) {
@@ -18,6 +22,9 @@ function renderCommunity(path: string) {
           <Route path="help-requests/*" element={<div>Help content</div>} />
           <Route path="members" element={<div>Members content</div>} />
         </Route>
+        <Route path="/dashboard/chat-rooms" element={<CommunityLayout />}>
+          <Route index element={<div>Chats content</div>} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   );
@@ -26,6 +33,20 @@ function renderCommunity(path: string) {
 describe("CommunityLayout", () => {
   beforeEach(() => {
     mocks.count = 0;
+    mocks.chatUnread = 0;
+  });
+
+  it("shows Chats as a community tab with its unread count", () => {
+    mocks.chatUnread = 4;
+    renderCommunity("/dashboard/chat-rooms");
+
+    const chats = screen.getByRole("link", {
+      name: "Chats, 4 unread messages",
+    });
+    expect(chats).toHaveAttribute("href", "/dashboard/chat-rooms");
+    expect(chats).toHaveAttribute("aria-current", "page");
+    expect(chats).toHaveTextContent("4");
+    expect(screen.getByText("Chats content")).toBeInTheDocument();
   });
   it("provides canonical Directory and Members navigation", () => {
     renderCommunity("/dashboard/community/members");

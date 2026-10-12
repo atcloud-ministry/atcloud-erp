@@ -271,10 +271,10 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(communityLink).toHaveAttribute("href", "/dashboard/community");
       expect(communityLink).toHaveClass("text-blue-700");
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Chat Rooms" })).toHaveAttribute(
-        "href",
-        "/dashboard/chat-rooms",
-      );
+      // Chats is a tab inside Alumni Community, not a second entry.
+      expect(
+        screen.queryByRole("link", { name: /^Chat Rooms/ }),
+      ).not.toBeInTheDocument();
     });
 
     it("updates the Alumni Community badge while viewing another page", () => {
@@ -299,12 +299,12 @@ describe("Sidebar Component - Income History Link Visibility", () => {
 
       rerender(sidebar(3));
       expect(screen.getByRole("link", {
-        name: "Alumni Community, 3 help requests with updates or actions needed",
+        name: "Alumni Community, 3 help request updates and unread chat messages",
       })).toHaveTextContent("3");
 
       rerender(sidebar(123));
       expect(screen.getByRole("link", {
-        name: "Alumni Community, 123 help requests with updates or actions needed",
+        name: "Alumni Community, 123 help request updates and unread chat messages",
       })).toHaveTextContent("99+");
 
       rerender(sidebar(0));
@@ -312,7 +312,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         .toHaveTextContent(/^Alumni Community$/);
     });
 
-    it("shows the accessible Chat Rooms unread badge capped at 99+", () => {
+    it("highlights Alumni Community in a Chat Room and counts unread chats", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
         canManageUsers: false,
@@ -322,7 +322,8 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       render(
         <MemoryRouter initialEntries={["/dashboard/chat-rooms/room-id"]}>
           <Sidebar
-            chatUnreadTotal={143}
+            chatUnreadTotal={140}
+            helpNotificationCount={3}
             userRole="Participant"
             sidebarOpen={true}
             setSidebarOpen={mockSetSidebarOpen}
@@ -331,7 +332,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       );
 
       const link = screen.getByRole("link", {
-        name: "Chat Rooms, 143 unread messages",
+        name: "Alumni Community, 143 help request updates and unread chat messages",
       });
       expect(link).toHaveClass("text-blue-700");
       expect(link).toHaveTextContent("99+");
@@ -354,17 +355,17 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      for (const name of [
-        "Event Calendar",
-        "Chat Rooms",
-        "Donate",
-        "Feedback",
-      ]) {
+      for (const name of ["Event Calendar", "Donate", "Feedback"]) {
         expect(screen.getByRole("link", { name }).closest("li")).toHaveClass(
           "hidden",
           "md:list-item",
         );
       }
+      // The bottom bar keeps its Chat Rooms shortcut; the menu shows the
+      // combined Alumni Community entry at every width.
+      expect(
+        screen.getByRole("link", { name: "Alumni Community" }).closest("li"),
+      ).not.toHaveClass("hidden");
     });
 
     it("shows the authoritative System Messages unread badge", () => {
@@ -420,7 +421,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
     });
 
-    it("places Alumni Community and Chat Rooms between Role Templates and Promo Codes", () => {
+    it("places Alumni Community between Role Templates and Promo Codes", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Administrator"),
         canManageUsers: true,
@@ -444,11 +445,9 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         names.indexOf("Alumni Community"),
       );
       expect(names.indexOf("Alumni Community")).toBeLessThan(
-        names.indexOf("Chat Rooms"),
-      );
-      expect(names.indexOf("Chat Rooms")).toBeLessThan(
         names.indexOf("Promo Codes"),
       );
+      expect(names).not.toContain("Chat Rooms");
     });
 
     it("does not expose User Management without its permission", () => {
