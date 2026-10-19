@@ -5,7 +5,10 @@ import {
   type AlumniDirectoryService,
 } from "../../services/alumni/AlumniDirectoryService";
 import { sendAlumniHttpError } from "./AlumniHttpErrorResponder";
-import { setAlumniNoStore } from "./AlumniHttpRequestContext";
+import {
+  getAlumniRequestActor,
+  setAlumniNoStore,
+} from "./AlumniHttpRequestContext";
 
 export class AlumniDirectoryController {
   constructor(
@@ -27,6 +30,20 @@ export class AlumniDirectoryController {
     try {
       const profile = await this.service.get(req.params.profileId);
       res.status(200).json({ success: true, data: { profile } });
+    } catch (error) {
+      sendAlumniHttpError(res, error);
+    }
+  };
+
+  connection = async (req: Request, res: Response): Promise<void> => {
+    setAlumniNoStore(res);
+    try {
+      const actor = getAlumniRequestActor(req, "help");
+      const connection = await this.service.viewerConnection(
+        actor.id,
+        req.params.profileId,
+      );
+      res.status(200).json({ success: true, data: { connection } });
     } catch (error) {
       sendAlumniHttpError(res, error);
     }

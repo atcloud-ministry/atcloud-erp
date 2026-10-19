@@ -422,6 +422,14 @@ export default function HelpRequestDetail() {
               <p className="mt-2 text-sm text-gray-600">
                 Created <time dateTime={request.createdAt}>{formatHelpDate(request.createdAt)}</time>
               </p>
+              {request.viewerRole === "requester" && (
+                <Link
+                  className="mt-2 inline-flex min-h-8 items-center text-sm font-medium text-blue-700 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  to={`/dashboard/community/alumni/${encodeURIComponent(request.alumniProfileId)}`}
+                >
+                  View alumni profile
+                </Link>
+              )}
             </div>
             <HelpStatusBadge status={request.status} />
           </header>

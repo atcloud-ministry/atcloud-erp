@@ -1,5 +1,6 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAlumniHelp } from "../contexts/AlumniHelpContext";
+import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
 
 const communityLinks = [
   {
@@ -18,6 +19,11 @@ const communityLinks = [
     to: "/dashboard/community/help-requests",
   },
   {
+    id: "chats",
+    label: "Chats",
+    to: "/dashboard/chat-rooms",
+  },
+  {
     id: "members",
     label: "Members",
     to: "/dashboard/community/members",
@@ -27,6 +33,7 @@ const communityLinks = [
 export default function CommunityLayout() {
   const { pathname } = useLocation();
   const { helpNotificationCount } = useAlumniHelp();
+  const chatUnreadTotal = useOptionalChatRooms()?.chatUnreadTotal ?? 0;
   const directoryBase = "/dashboard/community/alumni";
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
 
@@ -39,6 +46,9 @@ export default function CommunityLayout() {
         normalizedPathname === "/dashboard/community/help-requests" ||
         normalizedPathname.startsWith("/dashboard/community/help-requests/")
       );
+    }
+    if (id === "chats") {
+      return normalizedPathname === "/dashboard/chat-rooms";
     }
     if (id === "members") {
       return normalizedPathname === "/dashboard/community/members";
@@ -59,13 +69,28 @@ export default function CommunityLayout() {
         <div className="flex min-w-max border-b border-gray-200 px-4 pt-4">
           {communityLinks.map((link) => {
             const active = isActive(link.id);
+            const badge =
+              link.id === "help-requests"
+                ? {
+                    count: helpNotificationCount,
+                    description: "requests with updates or actions needed",
+                  }
+                : link.id === "chats"
+                  ? {
+                      count: chatUnreadTotal,
+                      description:
+                        chatUnreadTotal === 1
+                          ? "unread message"
+                          : "unread messages",
+                    }
+                  : null;
             return (
               <Link
                 key={link.to}
                 to={link.to}
                 aria-label={
-                  link.id === "help-requests" && helpNotificationCount > 0
-                    ? `${link.label}, ${helpNotificationCount} requests with updates or actions needed`
+                  badge && badge.count > 0
+                    ? `${link.label}, ${badge.count} ${badge.description}`
                     : undefined
                 }
                 aria-current={active ? "page" : undefined}
@@ -76,17 +101,14 @@ export default function CommunityLayout() {
                 }`}
               >
                 <span>{link.label}</span>
-                {link.id === "help-requests" &&
-                  helpNotificationCount > 0 && (
-                    <span
-                      aria-hidden="true"
-                      className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
-                    >
-                      {helpNotificationCount > 99
-                        ? "99+"
-                        : helpNotificationCount}
-                    </span>
-                  )}
+                {badge && badge.count > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
+                  >
+                    {badge.count > 99 ? "99+" : badge.count}
+                  </span>
+                )}
               </Link>
             );
           })}

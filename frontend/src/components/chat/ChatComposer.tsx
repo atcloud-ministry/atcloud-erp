@@ -12,6 +12,10 @@ import {
   CHAT_SAFE_LINK_MAX_URL_LENGTH,
   isValidChatSafeLinkUrl,
 } from "../../services/api";
+import {
+  isDeceptiveChatLinkLabel,
+  normalizeChatLinkInput,
+} from "../../utils/chatLinks";
 
 export interface ChatComposerValue {
   content: string | null;
@@ -39,7 +43,7 @@ export default function ChatComposer({
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const contentLength = Array.from(content).length;
   const normalizedContent = content.normalize("NFC").trim();
-  const normalizedUrl = linkUrl.trim();
+  const normalizedUrl = normalizeChatLinkInput(linkUrl);
   const normalizedLabel = linkLabel.normalize("NFC").trim();
 
   const error = useMemo(() => {
@@ -51,7 +55,13 @@ export default function ChatComposer({
         return "The link cannot exceed 2,048 characters.";
       }
       if (!isValidChatSafeLinkUrl(normalizedUrl)) {
-        return "Links must use a valid http:// or https:// address.";
+        return "Links must be a valid web address, such as www.example.com.";
+      }
+      if (
+        normalizedLabel &&
+        isDeceptiveChatLinkLabel(normalizedLabel, normalizedUrl)
+      ) {
+        return "The link label cannot name a different web address than the link.";
       }
     }
     const payload = {
@@ -180,9 +190,9 @@ export default function ChatComposer({
                 id="chat-link-url"
                 inputMode="url"
                 onChange={(event) => setLinkUrl(event.target.value)}
-                placeholder="https://example.com"
+                placeholder="www.example.com"
                 ref={linkUrlRef}
-                type="url"
+                type="text"
                 value={linkUrl}
               />
             </div>

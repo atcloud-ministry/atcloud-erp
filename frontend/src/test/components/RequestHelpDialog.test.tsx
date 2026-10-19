@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RequestHelpDialog from "../../components/alumniHelp/RequestHelpDialog";
 
@@ -135,6 +136,47 @@ describe("RequestHelpDialog", () => {
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
     expect(mocks.create.mock.calls[1][1]).toBe(mocks.create.mock.calls[0][1]);
+  });
+
+  it("links to the existing request when one is already open", async () => {
+    const user = userEvent.setup();
+    mocks.create.mockRejectedValueOnce(
+      Object.assign(
+        new Error("You already have an open request with this alumni member."),
+        {
+          status: 409,
+          code: "ALUMNI_HELP_REQUEST_DUPLICATE",
+          details: { existingRequestId: "64b000000000000000000009" },
+        },
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <RequestHelpDialog
+          onClose={vi.fn()}
+          onCreated={vi.fn()}
+          open
+          profile={profile}
+          writable
+        />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Voluntary help consent.");
+    await user.click(screen.getByLabelText("Warm Introduction"));
+    await user.click(screen.getByLabelText(/agree to the Alumni Help consent/i));
+    await user.click(screen.getByLabelText(/acknowledge the Alumni Help disclaimer/i));
+    await user.click(screen.getByRole("button", { name: "Send Request" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You already have an open request with this alumni member.",
+    );
+    expect(
+      screen.getByRole("link", { name: "Open your existing request" }),
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/community/help-requests/64b000000000000000000009",
+    );
   });
 
   it("does not fetch terms or expose a write form in read-only mode", () => {

@@ -40,9 +40,11 @@ import IdempotencyRecord from "../../../src/models/IdempotencyRecord";
 import NotificationOutbox from "../../../src/models/NotificationOutbox";
 import User from "../../../src/models/User";
 import { ALUMNI_HELP_EXTERNAL_NOTIFICATION_TOPIC } from "../../../src/services/alumni/AlumniHelpExternalNotification";
+import { AlumniDirectoryService } from "../../../src/services/alumni/AlumniDirectoryService";
 import { AlumniHelpRequestService } from "../../../src/services/alumni/AlumniHelpRequestService";
 import { ALUMNI_HELP_WORKFLOW_TOPIC } from "../../../src/services/alumni/AlumniHelpWorkflowDeliveryHandler";
 import { AlumniOutcomeDeadlineService } from "../../../src/services/alumni/AlumniOutcomeDeadlineService";
+import { AlumniProfileService } from "../../../src/services/alumni/AlumniProfileService";
 import {
   WORKER_RUN_TRIGGERS,
   WORKER_SERVICE_KEYS,
@@ -429,6 +431,16 @@ describe("M3 Alumni Help service integration", () => {
     ).rejects.toMatchObject({
       code: "ALUMNI_HELP_REQUEST_DUPLICATE",
       httpStatus: 409,
+      details: { existingRequestId: requestId },
+    });
+    // A different help type to the same alumni member would open a second
+    // Chat Room, so it is rejected too.
+    await expect(
+      createRequest(requesterId, "warm_introduction"),
+    ).rejects.toMatchObject({
+      code: "ALUMNI_HELP_REQUEST_DUPLICATE",
+      httpStatus: 409,
+      details: { existingRequestId: requestId },
     });
 
     const idempotencyKey = randomUUID();
@@ -900,6 +912,90 @@ describe("M3 Alumni Help service integration", () => {
       status: "current",
       writeAccessEndsAt: graceEndsAt,
     });
+  });
+
+  it("ends contact with a member who leaves the Alumni Network", async () => {
+    const acceptedRequesterId = await insertUser("Accepted");
+    const pendingRequesterId = await insertUser("Pending");
+    const accepted = await acceptRequest(
+      (await createRequest(acceptedRequesterId, "career_advice")).request.id,
+    );
+    const pending = await createRequest(pendingRequesterId, "warm_introduction");
+
+    // The leaving member's own request to another alumni member stays open.
+    const otherProvider = await insertPublishedProvider();
+    const ownRequest = await service.create({
+      alumniProfileId: otherProvider.profileId.toString(),
+      requestedHelpType: "career_advice",
+      openingNote: null,
+      consentVersion: ALUMNI_HELP_TERMS.consent.version,
+      consentAccepted: true,
+      disclaimerVersion: ALUMNI_HELP_TERMS.disclaimer.version,
+      disclaimerAccepted: true,
+      actor: actor(providerId),
+      idempotencyKey: randomUUID(),
+    });
+
+    const profiles = new AlumniProfileService({ now: () => new Date(nowValue) });
+    await profiles.withdrawOwn({
+      expectedRevision: 1,
+      actor: actor(providerId),
+      idempotencyKey: randomUUID(),
+    });
+
+    const closed = await AlumniHelpRequest.findById(accepted.request.id).lean();
+    expect(closed).toMatchObject({
+      status: "closed",
+      activeUniqueness: false,
+      closedAt: nowValue,
+    });
+    expect(
+      await Conversation.findById(accepted.request.conversationId).lean(),
+    ).toMatchObject({ status: "archived", archivedAt: nowValue });
+    expect(
+      await AlumniHelpRequest.findById(pending.request.id).lean(),
+    ).toMatchObject({ status: "declined", declinedAt: nowValue });
+    expect(
+      await AlumniHelpRequest.findById(ownRequest.request.id).lean(),
+    ).toMatchObject({ status: "requested", activeUniqueness: true });
+
+    const notified = await NotificationOutbox.find({
+      topic: ALUMNI_HELP_WORKFLOW_TOPIC,
+      "payload.requestId": {
+        $in: [accepted.request.id, pending.request.id],
+      },
+      "payload.eventType": { $in: ["close", "decline"] },
+    }).lean();
+    expect(notified.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reports only the viewer's own open request and Room for a profile", async () => {
+    const requesterId = await insertUser("Viewer");
+    const outsiderId = await insertUser("Bystander");
+    const directory = new AlumniDirectoryService();
+    const profile = profileId.toString();
+
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toBeNull();
+    const created = await createRequest(requesterId, "career_advice");
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toEqual({ helpRequestId: created.request.id, conversationId: null });
+
+    const accepted = await acceptRequest(created.request.id);
+    expect(
+      await directory.viewerConnection(requesterId.toString(), profile),
+    ).toEqual({
+      helpRequestId: created.request.id,
+      conversationId: accepted.request.conversationId,
+    });
+    expect(
+      await directory.viewerConnection(outsiderId.toString(), profile),
+    ).toBeNull();
+    expect(
+      await directory.viewerConnection(providerId.toString(), profile),
+    ).toBeNull();
   });
 
   it("gives the exact deadline to the worker and resolves provider/worker races exactly once", async () => {
