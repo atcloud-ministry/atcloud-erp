@@ -13,7 +13,6 @@ import {
   ClipboardDocumentListIcon,
   ComputerDesktopIcon,
   ChatBubbleLeftRightIcon,
-  ChatBubbleOvalLeftEllipsisIcon,
   RectangleStackIcon,
   AcademicCapIcon,
   GlobeAltIcon,
@@ -37,7 +36,7 @@ interface NavigationItem {
   href?: string;
   icon: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
-  activePathPrefix?: string;
+  activePathPrefixes?: readonly string[];
   badgeCount?: number;
   badgeDescription?: string;
 }
@@ -283,21 +282,16 @@ export default function Sidebar({
       },
     ];
 
+    // Alumni Community and Chat Rooms are one destination; Chats is a tab
+    // inside it, so a single entry covers both sets of routes.
     const addAlumniCommunityNavigation = () => {
       baseItems.push({
         name: "Alumni Community",
         href: "/dashboard/community",
-        activePathPrefix: "/dashboard/community",
+        activePathPrefixes: ["/dashboard/community", "/dashboard/chat-rooms"],
         icon: UsersIcon,
-        badgeCount: helpNotificationCount,
-        badgeDescription: "help requests with updates or actions needed",
-      });
-      baseItems.push({
-        name: "Chat Rooms",
-        href: "/dashboard/chat-rooms",
-        activePathPrefix: "/dashboard/chat-rooms",
-        icon: ChatBubbleOvalLeftEllipsisIcon,
-        badgeCount: chatUnreadTotal,
+        badgeCount: helpNotificationCount + chatUnreadTotal,
+        badgeDescription: "help request updates and unread chat messages",
       });
     };
 
@@ -348,7 +342,7 @@ export default function Sidebar({
           baseItems.push({
             name: "User Management",
             href: "/dashboard/admin/users",
-            activePathPrefix: "/dashboard/admin/users",
+            activePathPrefixes: ["/dashboard/admin/users"],
             icon: UsersIcon,
           });
         }
@@ -508,10 +502,11 @@ export default function Sidebar({
               const isActive = !!(
                 item.href &&
                 (location.pathname === item.href ||
-                  (item.activePathPrefix &&
-                    location.pathname.startsWith(
-                      `${item.activePathPrefix}/`,
-                    )) ||
+                  item.activePathPrefixes?.some(
+                    (prefix) =>
+                      location.pathname === prefix ||
+                      location.pathname.startsWith(`${prefix}/`),
+                  ) ||
                   (item.href === "/dashboard/emba-program" &&
                     location.pathname === "/dashboard"))
               );

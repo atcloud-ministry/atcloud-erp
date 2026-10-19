@@ -5,20 +5,7 @@ import {
   addFixedDays,
   addUtcCalendarMonths,
 } from "../../contracts/alumniDirectoryData";
-import {
-  ALUMNI_HELP_ACTIVE_REQUEST_STATUSES,
-  acceptedHelpRequestPurgeAt,
-  neverAcceptedHelpRequestPurgeAt,
-  type AlumniHelpLifecycleAction,
-  type AlumniHelpParticipantRole,
-  type AlumniHelpRequestStatus,
-} from "../../contracts/alumniHelpFlow";
 import AlumniAffiliation from "../../models/AlumniAffiliation";
-import AlumniHelpOutcomeSubmission from "../../models/AlumniHelpOutcomeSubmission";
-import AlumniHelpRequest, {
-  type AlumniHelpLifecycleEvent,
-  type IAlumniHelpRequest,
-} from "../../models/AlumniHelpRequest";
 import AlumniProfile from "../../models/AlumniProfile";
 import Conversation from "../../models/Conversation";
 import ConversationMember from "../../models/ConversationMember";
@@ -28,7 +15,7 @@ import PushSubscription from "../../models/PushSubscription";
 import RefreshSession from "../../models/RefreshSession";
 import User from "../../models/User";
 import { AuditLogService } from "../AuditLogService";
-import { alumniHelpRoomProvisioner } from "./AlumniHelpRoomProvisioner";
+import { terminateActiveHelpRequestsInTransaction } from "./AlumniHelpTermination";
 import {
   MongoTransactionService,
   mongoTransactionService,
@@ -180,115 +167,6 @@ export class AlumniAccountDeletionService {
     });
   }
 
-  private participant(
-    request: IAlumniHelpRequest,
-    targetUserId: mongoose.Types.ObjectId,
-  ): AlumniHelpParticipantRole {
-    if (request.requesterId.equals(targetUserId)) return "requester";
-    if (request.providerId.equals(targetUserId)) return "provider";
-    throw new Error("Account owner is not a Help Request participant.");
-  }
-
-  private async terminateHelpRequests(
-    targetUserId: mongoose.Types.ObjectId,
-    now: Date,
-    session: ClientSession,
-  ): Promise<{ requests: number; rooms: number }> {
-    const requests = await AlumniHelpRequest.find({
-      $or: [{ requesterId: targetUserId }, { providerId: targetUserId }],
-      status: { $in: ALUMNI_HELP_ACTIVE_REQUEST_STATUSES },
-    })
-      .sort({ _id: 1 })
-      .session(session)
-      .exec();
-    let rooms = 0;
-
-    for (const request of requests) {
-      const expectedRevision = request.revision;
-      const fromStatus = request.status;
-      const actorRole = this.participant(request, targetUserId);
-      let action: AlumniHelpLifecycleAction;
-      let toStatus: AlumniHelpRequestStatus;
-
-      if (request.hasBeenAccepted) {
-        action = "close";
-        toStatus = "closed";
-        request.closedAt = now;
-        request.purgeAt = acceptedHelpRequestPurgeAt(
-          now,
-          request.latestOutcomeDueAt,
-        );
-      } else if (actorRole === "requester") {
-        action = "withdraw";
-        toStatus = "withdrawn";
-        request.withdrawnAt = now;
-        request.purgeAt = neverAcceptedHelpRequestPurgeAt(now);
-      } else {
-        action = "decline";
-        toStatus = "declined";
-        request.declinedAt = now;
-        request.purgeAt = neverAcceptedHelpRequestPurgeAt(now);
-      }
-
-      const event: AlumniHelpLifecycleEvent = {
-        _id: new mongoose.Types.ObjectId(),
-        sequence: request.lifecycleTimeline.length + 1,
-        action,
-        fromStatus,
-        toStatus,
-        actorRole,
-        actorId: targetUserId,
-        note: null,
-        helpType: null,
-        occurredAt: now,
-      };
-      request.status = toStatus;
-      request.activeUniqueness = false;
-      request.lifecycleTimeline.push(event);
-      request.revision = expectedRevision + 1;
-      await request.validate();
-
-      const updated = await AlumniHelpRequest.updateOne(
-        { _id: request._id, status: fromStatus, revision: expectedRevision },
-        {
-          $set: {
-            status: request.status,
-            activeUniqueness: false,
-            declinedAt: request.declinedAt ?? null,
-            withdrawnAt: request.withdrawnAt ?? null,
-            closedAt: request.closedAt ?? null,
-            purgeAt: request.purgeAt,
-            revision: request.revision,
-          },
-          $push: { lifecycleTimeline: event },
-        },
-        { session, runValidators: false },
-      );
-      if (updated.modifiedCount !== 1) {
-        throw new Error("Help Request changed during account deletion.");
-      }
-
-      if (request.hasBeenAccepted) {
-        if (!request.conversationId || !request.purgeAt) {
-          throw new Error("Accepted Help Request is missing its Room.");
-        }
-        await AlumniHelpOutcomeSubmission.updateMany(
-          { helpRequestId: request._id },
-          { $set: { purgeAt: request.purgeAt } },
-          { session, runValidators: false },
-        );
-        await alumniHelpRoomProvisioner.archiveInTransaction({
-          conversationId: request.conversationId,
-          helpRequestId: request._id,
-          archivedAt: now,
-          session,
-        });
-        rooms += 1;
-      }
-    }
-    return { requests: requests.length, rooms };
-  }
-
   private async closeRemainingAccessWindows(
     targetUserId: mongoose.Types.ObjectId,
     now: Date,
@@ -369,7 +247,13 @@ export class AlumniAccountDeletionService {
       now,
       CONSENT_RECORD_RETENTION_MONTHS,
     );
-    const help = await this.terminateHelpRequests(targetUserId, now, session);
+    const help = await terminateActiveHelpRequestsInTransaction({
+      targetUserId,
+      scope: "any",
+      now,
+      session,
+      conflictMessage: "Help Request changed during account deletion.",
+    });
     const accessWindowsClosed = await this.closeRemainingAccessWindows(
       targetUserId,
       now,

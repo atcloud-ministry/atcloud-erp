@@ -13,6 +13,7 @@ import AlumniDirectoryDetail from "../../pages/AlumniDirectoryDetail";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
+  getConnection: vi.fn(),
   readable: true,
   status: "ready" as "loading" | "ready" | "error",
 }));
@@ -22,6 +23,7 @@ vi.mock("../../services/api", async (importOriginal) => ({
   alumniDirectoryService: {
     list: mocks.list,
     get: mocks.get,
+    getConnection: mocks.getConnection,
   },
 }));
 
@@ -81,6 +83,8 @@ function directoryPage(
 
 describe("AlumniDirectory page", () => {
   beforeEach(() => {
+    mocks.getConnection.mockReset();
+    mocks.getConnection.mockResolvedValue(null);
     mocks.list.mockReset();
     mocks.get.mockReset();
     mocks.readable = true;
@@ -229,6 +233,8 @@ describe("AlumniDirectory page", () => {
 
 describe("AlumniDirectoryDetail page", () => {
   beforeEach(() => {
+    mocks.getConnection.mockReset();
+    mocks.getConnection.mockResolvedValue(null);
     mocks.list.mockReset();
     mocks.get.mockReset();
     mocks.readable = true;
@@ -239,6 +245,41 @@ describe("AlumniDirectoryDetail page", () => {
       skills: ["Product strategy", "Mentoring"],
       bio: "Happy to help fellow alumni.",
     });
+  });
+
+  it("offers Open chat instead of a second request when one is open", async () => {
+    mocks.getConnection.mockResolvedValue({
+      helpRequestId: "64b000000000000000000002",
+      conversationId: "64b000000000000000000003",
+    });
+    render(
+      <MemoryRouter
+        initialEntries={[
+          "/dashboard/community/alumni/64b000000000000000000001?requestHelp=1",
+        ]}
+      >
+        <Routes>
+          <Route
+            element={<AlumniDirectoryDetail />}
+            path="/dashboard/community/alumni/:profileId"
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "Open chat" }),
+    ).toHaveAttribute("href", "/dashboard/chat-rooms/64b000000000000000000003");
+    expect(
+      screen.getByRole("link", { name: "View your request" }),
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/community/help-requests/64b000000000000000000002",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Request Help" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("renders published detail fields and keeps writes disabled in read-only mode", async () => {

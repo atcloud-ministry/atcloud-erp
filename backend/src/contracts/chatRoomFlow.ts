@@ -1,6 +1,7 @@
 import {
   CHAT_MESSAGE_FIELD_LIMITS,
   UUID_PATTERN,
+  isDeceptiveSafeLinkLabel,
   isValidChatMessagePayload,
   isValidChatSafeLinkUrl,
   isValidChatText,
@@ -320,6 +321,12 @@ function normalizeSafeLink(value: unknown): ChatSafeLink | null {
   const url = new URL(rawUrl).toString();
   if (!isValidChatSafeLinkUrl(url)) {
     return fail("body.safeLink.url", "A safe HTTP or HTTPS URL is required");
+  }
+  if (isDeceptiveSafeLinkLabel(label, url)) {
+    return fail(
+      "body.safeLink.label",
+      "Link label cannot name a different web address than the link",
+    );
   }
   return Object.freeze({ url, label });
 }

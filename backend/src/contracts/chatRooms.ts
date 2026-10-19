@@ -1,4 +1,5 @@
 import { codePointLength } from "@atcloud/shared-time/registration-profile";
+import { ISO_COUNTRY_OPTIONS } from "@atcloud/shared-time/registration-profile-options";
 import {
   addFixedDays,
   addUtcCalendarMonths,
@@ -131,6 +132,65 @@ export function isValidChatSafeLinkUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+// Matches web-address-like text such as "google.com" or "www.bank.co.uk/login".
+const LABEL_HOST_PATTERN =
+  /([a-z][a-z0-9+.-]*:\/\/)?((?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+(\p{L}{2,}))/giu;
+
+// Generic endings people recognize as web addresses. Country endings (".uk",
+// ".ca") are added from the ISO country list so labels such as "resume.pdf"
+// or "Node.js" are not mistaken for addresses.
+const ADDRESS_LIKE_ENDINGS: ReadonlySet<string> = new Set([
+  ...ISO_COUNTRY_OPTIONS.map((country) => country.code.toLowerCase()),
+  "uk",
+  "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz", "io",
+  "app", "dev", "ai", "co", "me", "xyz", "site", "online", "link", "click",
+  "shop", "store", "top", "live", "page", "tech", "cloud", "church",
+]);
+
+function withoutWww(hostname: string): string {
+  return hostname.toLowerCase().replace(/^www\./u, "");
+}
+
+/**
+ * A label is deceptive when it names a web address other than the link's
+ * real destination, such as "google.com" pointing at another site. Labels
+ * naming the destination or a parent domain of it ("google.com" for
+ * docs.google.com) are allowed, as are labels without any address.
+ */
+export function isDeceptiveSafeLinkLabel(label: string, url: string): boolean {
+  let destination: URL;
+  try {
+    destination = new URL(url);
+  } catch {
+    return true;
+  }
+  // A label that is the destination URL itself (the default) is never deceptive.
+  try {
+    if (new URL(label.trim()).href === destination.href) return false;
+  } catch {
+    // Not a full URL; inspect it for embedded addresses below.
+  }
+  const destinationHost = withoutWww(destination.hostname);
+  for (const match of label.matchAll(LABEL_HOST_PATTERN)) {
+    const [, scheme, host, ending] = match;
+    const addressLike =
+      Boolean(scheme) ||
+      /^www\./iu.test(host) ||
+      ADDRESS_LIKE_ENDINGS.has(ending.toLowerCase());
+    if (!addressLike) continue;
+    let named: string;
+    try {
+      named = withoutWww(new URL(`https://${host}`).hostname);
+    } catch {
+      return true;
+    }
+    if (destinationHost !== named && !destinationHost.endsWith(`.${named}`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function chatPayloadUtf8Bytes(

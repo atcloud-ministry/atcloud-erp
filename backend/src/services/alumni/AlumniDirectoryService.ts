@@ -12,10 +12,17 @@ import type {
   DirectoryDetailDTO,
 } from "../../contracts/userReadContracts";
 import { ALUMNI_AFFILIATION_COLLECTION } from "../../models/AlumniAffiliation";
+import AlumniHelpRequest from "../../models/AlumniHelpRequest";
 import AlumniProfile from "../../models/AlumniProfile";
 import { CONSENT_RECORD_COLLECTION } from "../../models/ConsentRecord";
 import User from "../../models/User";
 import { escapeRegex } from "../../utils/search";
+import {
+  everyTokenMatch,
+  filterSearchTokens,
+  freeTextSearchTokens,
+  locationSearchTokens,
+} from "./AlumniDirectorySearchTerms";
 import { AlumniFlowError } from "./AlumniFlowErrors";
 import {
   alumniDisplayName,
@@ -49,6 +56,12 @@ interface DirectoryAggregateRow {
     readonly programName?: string | null;
     readonly cohortLabel?: string | null;
   }[];
+}
+
+/** The viewer's own open Help Request with an alumni member, if any. */
+export interface DirectoryViewerConnectionDTO {
+  readonly helpRequestId: string;
+  readonly conversationId: string | null;
 }
 
 interface DirectoryFacetResult {
@@ -371,6 +384,27 @@ function normalizedFreeTextMatches(
   ];
 }
 
+const FREE_TEXT_PROJECTION_FIELDS = [
+  "searchProjection.displayNameKey",
+  "searchProjection.companyKey",
+  "searchProjection.industryKey",
+  "searchProjection.skillKeys",
+  "searchProjection.generalLocationKey",
+  "searchProjection.cohortKeys",
+] as const;
+
+/**
+ * Combine the original phrase match with word-by-word matching, so inputs
+ * such as "Cornell" or "San Diego, CA" find "Cornell University" and
+ * "San Diego" while every previously matching input still matches.
+ */
+function phraseOrWords(
+  phrase: Record<string, unknown>,
+  words: Record<string, unknown> | null,
+): Record<string, unknown> {
+  return words ? { $or: [phrase, words] } : phrase;
+}
+
 function filterMatch(query: AlumniDirectoryQuery): Record<string, unknown> {
   const clauses: Record<string, unknown>[] = [];
   if (query.q) {
@@ -385,61 +419,94 @@ function filterMatch(query: AlumniDirectoryQuery): Record<string, unknown> {
       { "affiliations.cohortLabel": raw },
       ...normalizedFreeTextMatches(query.q),
     ];
+    const words = everyTokenMatch(
+      freeTextSearchTokens(query.q),
+      FREE_TEXT_PROJECTION_FIELDS,
+    );
+    if (words) searchableFields.push(words);
     clauses.push({
       $or: searchableFields,
     });
   }
   if (query.company) {
     clauses.push(
-      hasSearchSymbols(query.company)
-        ? { "user.company": exactRegex(query.company) }
-        : normalizedProjectionMatch(
-            "searchProjection.companyKey",
-            query.company,
-          ),
+      phraseOrWords(
+        hasSearchSymbols(query.company)
+          ? { "user.company": exactRegex(query.company) }
+          : normalizedProjectionMatch(
+              "searchProjection.companyKey",
+              query.company,
+            ),
+        everyTokenMatch(filterSearchTokens(query.company), [
+          "searchProjection.companyKey",
+        ]),
+      ),
     );
   }
   if (query.industry) {
     clauses.push(
-      hasSearchSymbols(query.industry)
-        ? { industry: exactRegex(query.industry) }
-        : normalizedProjectionMatch(
-            "searchProjection.industryKey",
-            query.industry,
-          ),
+      phraseOrWords(
+        hasSearchSymbols(query.industry)
+          ? { industry: exactRegex(query.industry) }
+          : normalizedProjectionMatch(
+              "searchProjection.industryKey",
+              query.industry,
+            ),
+        everyTokenMatch(filterSearchTokens(query.industry), [
+          "searchProjection.industryKey",
+        ]),
+      ),
     );
   }
   if (query.skill) {
     clauses.push(
-      hasSearchSymbols(query.skill)
-        ? { skills: exactRegex(query.skill) }
-        : normalizedProjectionMatch("searchProjection.skillKeys", query.skill),
+      phraseOrWords(
+        hasSearchSymbols(query.skill)
+          ? { skills: exactRegex(query.skill) }
+          : normalizedProjectionMatch(
+              "searchProjection.skillKeys",
+              query.skill,
+            ),
+        everyTokenMatch(filterSearchTokens(query.skill), [
+          "searchProjection.skillKeys",
+        ]),
+      ),
     );
   }
   if (query.location) {
     clauses.push(
-      hasSearchSymbols(query.location)
-        ? expressionRegexMatch(
-            publicGeneralLocationExpression(),
-            query.location,
-            true,
-          )
-        : normalizedProjectionMatch(
-            "searchProjection.generalLocationKey",
-            query.location,
-            "contains",
-          ),
+      phraseOrWords(
+        hasSearchSymbols(query.location)
+          ? expressionRegexMatch(
+              publicGeneralLocationExpression(),
+              query.location,
+              true,
+            )
+          : normalizedProjectionMatch(
+              "searchProjection.generalLocationKey",
+              query.location,
+              "contains",
+            ),
+        everyTokenMatch(locationSearchTokens(query.location), [
+          "searchProjection.generalLocationKey",
+        ]),
+      ),
     );
   }
   if (query.cohort) {
     clauses.push(
-      hasSearchSymbols(query.cohort)
-        ? rawCohortMatch(query.cohort)
-        : normalizedProjectionMatch(
-            "searchProjection.cohortKeys",
-            query.cohort,
-            "contains",
-          ),
+      phraseOrWords(
+        hasSearchSymbols(query.cohort)
+          ? rawCohortMatch(query.cohort)
+          : normalizedProjectionMatch(
+              "searchProjection.cohortKeys",
+              query.cohort,
+              "contains",
+            ),
+        everyTokenMatch(filterSearchTokens(query.cohort), [
+          "searchProjection.cohortKeys",
+        ]),
+      ),
     );
   }
   if (query.offering) {
@@ -499,6 +566,30 @@ export class AlumniDirectoryService {
     ]);
     if (!row) throw profileNotFound();
     return detailFrom(row);
+  }
+
+  /**
+   * Lets a profile page offer "Open chat" instead of a second request. Only
+   * the viewer's own request is read, so nothing about other members leaks.
+   */
+  async viewerConnection(
+    viewerId: string,
+    profileId: string,
+  ): Promise<DirectoryViewerConnectionDTO | null> {
+    const request = await AlumniHelpRequest.findOne({
+      requesterId: objectId(viewerId),
+      alumniProfileId: objectId(profileId),
+      activeUniqueness: true,
+    })
+      .select("_id conversationId")
+      .lean();
+    if (!request) return null;
+    return Object.freeze({
+      helpRequestId: String(request._id),
+      conversationId: request.conversationId
+        ? String(request.conversationId)
+        : null,
+    });
   }
 }
 

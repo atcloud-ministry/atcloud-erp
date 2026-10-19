@@ -230,4 +230,42 @@ describe("alumni Directory HTTP contract", () => {
     });
     expect(missing.text).not.toContain("internal profile diagnostic");
   });
+
+  it("returns only the signed-in viewer's own connection to a profile", async () => {
+    const connection = vi
+      .spyOn(alumniDirectoryService, "viewerConnection")
+      .mockResolvedValueOnce({
+        helpRequestId: "507f191e810c19729de860ec",
+        conversationId: "507f191e810c19729de860ed",
+      })
+      .mockResolvedValueOnce(null);
+    const app = buildApp();
+
+    await request(app).get(`/api/directory/${PROFILE_ID}/connection`).expect(401);
+    await member(request(app).get(`/api/directory/${PROFILE_ID}/connection`))
+      .set("x-deny-permission", "true")
+      .expect(403);
+    const open = await member(
+      request(app).get(`/api/directory/${PROFILE_ID}/connection`),
+    ).expect(200);
+    const none = await member(
+      request(app).get(`/api/directory/${PROFILE_ID}/connection`),
+    ).expect(200);
+
+    expect(connection).toHaveBeenNthCalledWith(
+      1,
+      "507f1f77bcf86cd799439011",
+      PROFILE_ID,
+    );
+    expect(open.body).toEqual({
+      success: true,
+      data: {
+        connection: {
+          helpRequestId: "507f191e810c19729de860ec",
+          conversationId: "507f191e810c19729de860ed",
+        },
+      },
+    });
+    expect(none.body).toEqual({ success: true, data: { connection: null } });
+  });
 });

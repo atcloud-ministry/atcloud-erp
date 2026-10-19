@@ -9,6 +9,8 @@ export interface ApiResponse<T = unknown> {
   message: string;
   data?: T;
   errors?: string[];
+  code?: string;
+  details?: Record<string, string>;
 }
 
 export interface AuthTokens {

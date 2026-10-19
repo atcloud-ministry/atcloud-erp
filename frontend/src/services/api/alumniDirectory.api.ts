@@ -1,6 +1,7 @@
 import { BaseApiClient } from "./common";
 import {
   DIRECTORY_OFFERINGS,
+  decodeDirectoryConnectionResponse,
   decodeDirectoryDetailResponse,
   decodeDirectoryPage,
   decodeOwnAlumniProfileResponse,
@@ -8,6 +9,7 @@ import {
   type DirectoryHelpOfferingsDTO,
   type DirectoryOffering,
   type DirectoryPageDTO,
+  type DirectoryViewerConnectionDTO,
   type OwnAlumniProfileDTO,
 } from "./alumniDirectory.contracts";
 
@@ -112,6 +114,20 @@ class AlumniDirectoryApiClient extends BaseApiClient {
     return decodeDirectoryDetailResponse(response.data);
   }
 
+  async getConnection(
+    profileId: string,
+    signal?: AbortSignal,
+  ): Promise<DirectoryViewerConnectionDTO | null> {
+    const response = await this.request<unknown>(
+      `/directory/${encodeURIComponent(profileId)}/connection`,
+      { signal },
+    );
+    if (response.data === undefined) {
+      throw new Error(response.message || "Failed to load your connection");
+    }
+    return decodeDirectoryConnectionResponse(response.data);
+  }
+
   async getOwn(signal?: AbortSignal): Promise<OwnAlumniProfileDTO> {
     const response = await this.request<unknown>("/directory/me", { signal });
     if (response.data === undefined) {
@@ -194,6 +210,8 @@ export const alumniDirectoryService = {
     alumniDirectoryApiClient.list(params, signal),
   get: (profileId: string, signal?: AbortSignal) =>
     alumniDirectoryApiClient.get(profileId, signal),
+  getConnection: (profileId: string, signal?: AbortSignal) =>
+    alumniDirectoryApiClient.getConnection(profileId, signal),
   getOwn: (signal?: AbortSignal) => alumniDirectoryApiClient.getOwn(signal),
   ensureOwnDraft: (signal?: AbortSignal) =>
     alumniDirectoryApiClient.ensureOwnDraft(signal),
@@ -214,5 +232,6 @@ export type {
   DirectoryHelpOfferingsDTO,
   DirectoryOffering,
   DirectoryPageDTO,
+  DirectoryViewerConnectionDTO,
   OwnAlumniProfileDTO,
 } from "./alumniDirectory.contracts";
