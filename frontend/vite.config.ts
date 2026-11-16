@@ -207,6 +207,17 @@ export default defineConfig(({ mode }) => {
               if (id.includes("@heroicons/react")) {
                 return "icons-vendor";
               }
+              // motion imports React, so it must not land in the catch-all
+              // "vendor" chunk: react-vendor already imports vendor, and the
+              // resulting cycle runs motion before React exists (blank page).
+              if (
+                id.includes("/motion/") ||
+                id.includes("/framer-motion/") ||
+                id.includes("/motion-dom/") ||
+                id.includes("/motion-utils/")
+              ) {
+                return "motion-vendor";
+              }
               if (id.includes("recharts") || id.includes("d3-")) {
                 return "charts-vendor";
               }
