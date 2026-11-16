@@ -1,4 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { motion } from "motion/react";
 import { useAlumniHelp } from "../contexts/AlumniHelpContext";
 import { useOptionalChatRooms } from "../contexts/ChatRoomsContext";
 
@@ -62,11 +63,13 @@ export default function CommunityLayout() {
 
   return (
     <div className="space-y-6">
+      {/* The sidebar lists these sections on large screens; this row only
+          stands in for it where the sidebar is collapsed. */}
       <nav
         aria-label="Community sections"
-        className="overflow-x-auto rounded-lg bg-white shadow-sm"
+        className="overflow-x-auto [scrollbar-width:none] lg:hidden"
       >
-        <div className="flex min-w-max border-b border-gray-200 px-4 pt-4">
+        <div className="flex min-w-max gap-1 border-b border-gray-200">
           {communityLinks.map((link) => {
             const active = isActive(link.id);
             const badge =
@@ -94,17 +97,25 @@ export default function CommunityLayout() {
                     : undefined
                 }
                 aria-current={active ? "page" : undefined}
-                className={`-mb-px rounded-t-lg border px-6 py-3 text-base font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                className={`relative -mb-px inline-flex items-center rounded-t-lg px-4 pb-3 pt-2 text-[0.9375rem] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
                   active
-                    ? "relative z-10 border-gray-200 border-b-white bg-white text-blue-700"
-                    : "border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900"
+                    ? "text-gray-900"
+                    : "text-gray-500 hover:text-gray-900"
                 }`}
               >
+                {active && (
+                  <motion.span
+                    aria-hidden="true"
+                    className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand-600"
+                    layoutId="community-tab-indicator"
+                    transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  />
+                )}
                 <span>{link.label}</span>
                 {badge && badge.count > 0 && (
                   <span
                     aria-hidden="true"
-                    className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
+                    className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-px text-[11px] font-semibold leading-4 text-white tabular-nums"
                   >
                     {badge.count > 99 ? "99+" : badge.count}
                   </span>

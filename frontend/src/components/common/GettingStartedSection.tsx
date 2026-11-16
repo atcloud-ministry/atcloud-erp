@@ -45,11 +45,11 @@ export default function GettingStartedSection() {
     : gettingStartedSteps;
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">
+    <div className="rounded-2xl border border-gray-200/80 bg-white p-6 shadow-sm">
+      <h3 className="mb-5 text-base font-semibold text-gray-900">
         Getting Started with @Cloud
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
         {visibleSteps.map((step, index) => (
           <GettingStartedStep
             key={step.stepNumber}

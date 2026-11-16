@@ -65,7 +65,13 @@ export default function Management({ scope }: ManagementProps = {}) {
     pagination.totalUsers > 0;
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-6 px-0 sm:px-4 lg:px-6 xl:max-w-[1360px] 2xl:max-w-[1440px]">
+    <div
+      className={
+        scope === "community"
+          ? "mx-auto max-w-5xl space-y-6"
+          : "mx-auto max-w-[1280px] space-y-6 px-0 sm:px-4 lg:px-6 xl:max-w-[1360px] 2xl:max-w-[1440px]"
+      }
+    >
       {/* Header Section with Statistics */}
       <ManagementHeader
         currentUserRole={currentUserRole}

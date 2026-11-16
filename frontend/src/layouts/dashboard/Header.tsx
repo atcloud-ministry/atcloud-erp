@@ -1,4 +1,5 @@
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Link } from "react-router-dom";
 import UserDropdown from "./UserDropdown";
 import { NotificationDropdown } from "../../components/common";
 
@@ -25,11 +26,11 @@ export default function Header({
   setSidebarOpen,
 }: HeaderProps) {
   return (
-    <header className="bg-white shadow-sm border-b fixed top-0 left-0 right-0 z-50">
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 min-w-0">
+    <header className="fixed left-0 right-0 top-0 z-50 border-b border-gray-200/80 bg-white/85 backdrop-blur-md backdrop-saturate-150">
+      <div className="w-full max-w-none px-4 sm:px-6 lg:px-5">
+        <div className="flex h-16 min-w-0 items-center justify-between">
           {/* Left section: Mobile menu button + Logo */}
-          <div className="flex items-center space-x-2 sm:space-x-4 min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             {/* Mobile menu button */}
             <button
               aria-controls="dashboard-primary-navigation"
@@ -38,7 +39,7 @@ export default function Header({
                 sidebarOpen ? "Close navigation menu" : "Open navigation menu"
               }
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="hidden rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 md:inline-flex lg:hidden flex-shrink-0"
+              className="hidden flex-shrink-0 rounded-full border-0 bg-transparent p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 md:inline-flex lg:hidden"
               id="dashboard-tablet-menu-button"
               type="button"
             >
@@ -50,23 +51,31 @@ export default function Header({
             </button>
 
             {/* Logo and Organization */}
-            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+            <Link
+              className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-gray-900 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
+              to="/dashboard/welcome"
+            >
               <img
                 src="/@Cloud.jpg"
                 alt="@Cloud Logo"
-                className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain flex-shrink-0"
+                className="h-8 w-8 flex-shrink-0 object-contain transition-transform duration-500 ease-out-expo group-hover:-translate-y-0.5 sm:h-9 sm:w-9"
               />
-              <div className="text-sm sm:text-lg md:text-xl font-bold text-gray-900 truncate min-w-0">
-                <span className="hidden sm:inline">
-                  @Cloud Marketplace Ministry
+              <div className="min-w-0 truncate leading-tight">
+                <span className="hidden font-display text-[1.0625rem] font-semibold tracking-tight sm:inline">
+                  @Cloud{" "}
+                  <span className="font-normal text-gray-500">
+                    Marketplace Ministry
+                  </span>
                 </span>
-                <span className="sm:hidden">@Cloud</span>
+                <span className="font-display text-base font-semibold sm:hidden">
+                  @Cloud
+                </span>
               </div>
-            </div>
+            </Link>
           </div>
 
           {/* Right section: Notifications + User Avatar and Dropdown */}
-          <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0 ml-2">
+          <div className="ml-2 flex flex-shrink-0 items-center gap-1.5 sm:gap-3">
             {!isGuest && <NotificationDropdown />}
             <UserDropdown user={user} isGuest={isGuest} />
           </div>

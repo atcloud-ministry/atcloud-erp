@@ -14,13 +14,19 @@ export default function PageHeader({
   breadcrumb,
 }: PageHeaderProps) {
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6">
-      {breadcrumb && <div className="mb-4">{breadcrumb}</div>}
+    <div className="pb-1 pt-1">
+      {breadcrumb && <div className="mb-3">{breadcrumb}</div>}
 
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-[1.75rem] font-semibold leading-tight tracking-tight text-gray-900">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="mt-1.5 max-w-2xl text-[0.9375rem] text-gray-500">
+              {subtitle}
+            </p>
+          )}
         </div>
 
         {action && <div className="flex-shrink-0">{action}</div>}

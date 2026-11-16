@@ -108,7 +108,7 @@ export default function AlumniDirectory() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
         subtitle="Find alumni by experience, location, cohort, and the help they offer."
         title="Alumni Directory"
@@ -133,11 +133,11 @@ export default function AlumniDirectory() {
         </div>
 
         {loading ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <LoadingState message="Loading alumni..." />
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <ErrorState
               action={
                 <button
@@ -153,7 +153,7 @@ export default function AlumniDirectory() {
             />
           </div>
         ) : profiles.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <EmptyState
               message="Try changing or resetting your search filters."
               title="No alumni found"

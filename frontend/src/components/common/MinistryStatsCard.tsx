@@ -69,17 +69,17 @@ export default function MinistryStatsCard() {
         {
           label: "Upcoming Events",
           value: upcomingEvents.length,
-          colorClass: "text-blue-600",
+          colorClass: "text-gray-900",
         },
         {
           label: "Total Signups",
           value: totalSignups,
-          colorClass: "text-green-600",
+          colorClass: "text-gray-900",
         },
         {
           label: "Available Spots",
           value: Math.max(0, totalSlots - totalSignups),
-          colorClass: "text-orange-600",
+          colorClass: "text-gray-900",
         },
       ];
     } catch (error) {
@@ -87,9 +87,9 @@ export default function MinistryStatsCard() {
       // Return default stats on error
       return [
         { label: "Total Events", value: 0, colorClass: "text-gray-900" },
-        { label: "Upcoming Events", value: 0, colorClass: "text-blue-600" },
-        { label: "Total Signups", value: 0, colorClass: "text-green-600" },
-        { label: "Available Spots", value: 0, colorClass: "text-orange-600" },
+        { label: "Upcoming Events", value: 0, colorClass: "text-gray-900" },
+        { label: "Total Signups", value: 0, colorClass: "text-gray-900" },
+        { label: "Available Spots", value: 0, colorClass: "text-gray-900" },
       ];
     }
   };
@@ -115,11 +115,11 @@ export default function MinistryStatsCard() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-3">
       {ministryStats.map((stat) => (
-        <div key={stat.label} className="flex justify-between items-center">
-          <span className="text-sm text-gray-600">{stat.label}</span>
-          <span className={`text-lg font-semibold ${stat.colorClass}`}>
+        <div key={stat.label} className="flex flex-col-reverse rounded-xl bg-gray-50 px-3.5 py-3 ring-1 ring-inset ring-gray-200/70">
+          <span className="mt-1 text-xs font-medium text-gray-500">{stat.label}</span>
+          <span className={`font-display text-2xl font-semibold tabular-nums ${stat.colorClass}`}>
             {stat.value}
           </span>
         </div>

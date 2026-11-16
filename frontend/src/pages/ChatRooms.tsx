@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ChatRoomRow from "../components/chat/ChatRoomRow";
 import Pagination from "../components/common/Pagination";
-import { EmptyState, ErrorState, LoadingState, PageHeader } from "../components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  SegmentedNav,
+} from "../components/ui";
 import { useChatRooms } from "../contexts/ChatRoomsContext";
 import { isAlumniHelpUpdatePayload } from "../contexts/AlumniHelpContext";
 import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
@@ -206,53 +212,37 @@ export default function ChatRooms() {
         subtitle="Continue Alumni Help and Program conversations in one place."
         title="Chat Rooms"
       />
-      <nav
-        aria-label="Chat Room views"
-        className="overflow-x-auto rounded-lg bg-white shadow-sm"
-      >
-        <div className="flex min-w-max border-b border-gray-200 px-3 pt-3">
-          {TABS.map((tab) => {
-            const active = tab.id === view;
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                className={`-mb-px min-h-11 rounded-t-lg border px-4 py-3 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  active
-                    ? "border-gray-200 border-b-white bg-white text-blue-700"
-                    : "border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-                key={tab.id}
-                to={
-                  tab.id === "current"
-                    ? "/dashboard/chat-rooms"
-                    : "/dashboard/chat-rooms?view=past"
-                }
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedNav
+          activeId={view}
+          items={TABS.map((tab) => ({
+            ...tab,
+            to:
+              tab.id === "current"
+                ? "/dashboard/chat-rooms"
+                : "/dashboard/chat-rooms?view=past",
+          }))}
+          label="Chat Room views"
+          layoutId="chat-rooms-view"
+        />
+        {!resultsBusy && !error && (
+          <p aria-live="polite" className="text-sm text-gray-500">
+            {pagination.totalCount} {pagination.totalCount === 1 ? "Room" : "Rooms"}
+          </p>
+        )}
+      </div>
 
       <section aria-busy={resultsBusy} aria-labelledby="chat-room-results-heading">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold text-gray-900" id="chat-room-results-heading">
-            {heading}
-          </h2>
-          {!resultsBusy && !error && (
-            <p aria-live="polite" className="text-sm text-gray-600">
-              {pagination.totalCount} {pagination.totalCount === 1 ? "Room" : "Rooms"}
-            </p>
-          )}
-        </div>
+        <h2 className="sr-only" id="chat-room-results-heading">
+          {heading}
+        </h2>
 
         {!result && !error ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <LoadingState message="Loading Chat Rooms..." />
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <ErrorState
               action={
                 <button
@@ -268,7 +258,7 @@ export default function ChatRooms() {
             />
           </div>
         ) : rooms.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <EmptyState
               action={
                 view === "current" ? (
@@ -295,7 +285,10 @@ export default function ChatRooms() {
             />
           </div>
         ) : (
-          <ul className="grid gap-3 sm:gap-4" aria-label={`${heading} Chat Rooms`}>
+          <ul
+            aria-label={`${heading} Chat Rooms`}
+            className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm"
+          >
             {rooms.map((room) => (
               <ChatRoomRow
                 key={room.id}

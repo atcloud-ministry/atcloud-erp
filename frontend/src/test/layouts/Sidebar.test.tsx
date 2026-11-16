@@ -10,8 +10,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
+import { MotionGlobalConfig } from "motion/react";
 import Sidebar from "../../layouts/dashboard/Sidebar";
 import type { AuthUser } from "../../types";
+
+// jsdom cannot measure height: "auto", so let section panels open/close instantly.
+MotionGlobalConfig.skipAnimations = true;
 
 // Mock useAuth hook
 const mockUseAuth = vi.fn();
@@ -46,8 +50,21 @@ describe("Sidebar Component - Income History Link Visibility", () => {
     register: vi.fn(),
   };
 
+  const expandAllGroups = () =>
+    window.localStorage.setItem(
+      "atcloud.sidebar.groups",
+      JSON.stringify({
+        programs: true,
+        events: true,
+        community: true,
+        admin: true,
+      }),
+    );
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Most cases assert on links inside sections, so start with all open.
+    expandAllGroups();
     mockUseRuntimeConfig.mockReturnValue({
       status: "ready",
       config: {
@@ -248,7 +265,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       });
     });
 
-    it("shows the canonical Alumni Community entry to a member", () => {
+    it("expands Alumni Community into its sections and marks the current one", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
         canManageUsers: false,
@@ -265,19 +282,98 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      const communityLink = screen.getByRole("link", {
-        name: "Alumni Community",
-      });
-      expect(communityLink).toHaveAttribute("href", "/dashboard/community");
-      expect(communityLink).toHaveClass("text-blue-700");
+      expect(
+        screen.getByRole("button", { name: "Alumni Community" }),
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      for (const [name, href] of [
+        ["Alumni Directory", "/dashboard/community/alumni"],
+        ["My Alumni Profile", "/dashboard/community/alumni/me"],
+        ["Help Requests", "/dashboard/community/help-requests"],
+        ["Chats", "/dashboard/chat-rooms"],
+      ]) {
+        expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+      }
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
-      // Chats is a tab inside Alumni Community, not a second entry.
       expect(
         screen.queryByRole("link", { name: /^Chat Rooms/ }),
       ).not.toBeInTheDocument();
     });
 
-    it("updates the Alumni Community badge while viewing another page", () => {
+    it("opens the section for the current page even if it was collapsed", () => {
+      window.localStorage.removeItem("atcloud.sidebar.groups");
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+
+      render(
+        <MemoryRouter initialEntries={["/dashboard/community/alumni/profile-1"]}>
+          <Sidebar
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(
+        screen.getByRole("link", { name: "Alumni Directory" }),
+      ).toHaveAttribute("aria-current", "page");
+      expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(
+        screen.queryByRole("link", { name: "My Events" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("toggles a section and remembers the choice", async () => {
+      window.localStorage.removeItem("atcloud.sidebar.groups");
+      mockUseAuth.mockReturnValue({
+        currentUser: createMockUser("Participant"),
+        canManageUsers: false,
+        ...mockAuthContextBase,
+      });
+      const user = userEvent.setup();
+
+      render(
+        <MemoryRouter initialEntries={["/dashboard/welcome"]}>
+          <Sidebar
+            userRole="Participant"
+            sidebarOpen={true}
+            setSidebarOpen={mockSetSidebarOpen}
+          />
+        </MemoryRouter>,
+      );
+
+      const events = screen.getByRole("button", { name: "Events" });
+      await user.click(events);
+      expect(events).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("link", { name: "My Events" })).toHaveAttribute(
+        "href",
+        "/dashboard/my-events",
+      );
+      expect(
+        JSON.parse(window.localStorage.getItem("atcloud.sidebar.groups") ?? "{}"),
+      ).toMatchObject({ events: true });
+
+      await user.click(events);
+      expect(events).toHaveAttribute("aria-expanded", "false");
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("link", { name: "My Events" }),
+        ).not.toBeInTheDocument(),
+      );
+    });
+
+    it("shows the combined community badge on the collapsed section", () => {
+      window.localStorage.removeItem("atcloud.sidebar.groups");
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
         canManageUsers: false,
@@ -286,7 +382,8 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       const sidebar = (count: number) => (
         <MemoryRouter initialEntries={["/dashboard/my-events"]}>
           <Sidebar
-            helpNotificationCount={count}
+            chatUnreadTotal={count === 0 ? 0 : 1}
+            helpNotificationCount={count === 0 ? 0 : count - 1}
             userRole="Participant"
             sidebarOpen={true}
             setSidebarOpen={mockSetSidebarOpen}
@@ -294,25 +391,25 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>
       );
       const { rerender } = render(sidebar(0));
-      expect(screen.getByRole("link", { name: "Alumni Community" }))
-        .not.toHaveAttribute("aria-current");
+      expect(screen.getByRole("button", { name: "Alumni Community" }))
+        .toHaveAttribute("aria-expanded", "false");
 
       rerender(sidebar(3));
-      expect(screen.getByRole("link", {
+      expect(screen.getByRole("button", {
         name: "Alumni Community, 3 help request updates and unread chat messages",
       })).toHaveTextContent("3");
 
       rerender(sidebar(123));
-      expect(screen.getByRole("link", {
+      expect(screen.getByRole("button", {
         name: "Alumni Community, 123 help request updates and unread chat messages",
       })).toHaveTextContent("99+");
 
       rerender(sidebar(0));
-      expect(screen.getByRole("link", { name: "Alumni Community" }))
+      expect(screen.getByRole("button", { name: "Alumni Community" }))
         .toHaveTextContent(/^Alumni Community$/);
     });
 
-    it("highlights Alumni Community in a Chat Room and counts unread chats", () => {
+    it("highlights Chats in a Chat Room and badges each community section", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Participant"),
         canManageUsers: false,
@@ -331,11 +428,16 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      const link = screen.getByRole("link", {
-        name: "Alumni Community, 143 help request updates and unread chat messages",
+      const chats = screen.getByRole("link", {
+        name: "Chats, 140 unread messages",
       });
-      expect(link).toHaveClass("text-blue-700");
-      expect(link).toHaveTextContent("99+");
+      expect(chats).toHaveAttribute("aria-current", "page");
+      expect(chats).toHaveTextContent("99+");
+      expect(
+        screen.getByRole("link", {
+          name: "Help Requests, 3 requests with updates or actions needed",
+        }),
+      ).toHaveTextContent("3");
     });
 
     it("keeps the four bottom-bar shortcuts out of the phone menu but visible from tablet width", () => {
@@ -355,16 +457,15 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      for (const name of ["Event Calendar", "Donate", "Feedback"]) {
+      for (const name of ["Event Calendar", "Donate", "Feedback", "Chats"]) {
         expect(screen.getByRole("link", { name }).closest("li")).toHaveClass(
           "hidden",
           "md:list-item",
         );
       }
-      // The bottom bar keeps its Chat Rooms shortcut; the menu shows the
-      // combined Alumni Community entry at every width.
+      // The rest of Alumni Community stays reachable from the phone menu.
       expect(
-        screen.getByRole("link", { name: "Alumni Community" }).closest("li"),
+        screen.getByRole("link", { name: "Alumni Directory" }).closest("li"),
       ).not.toHaveClass("hidden");
     });
 
@@ -393,7 +494,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
       ).toHaveTextContent("6");
     });
 
-    it("adds User Management without a separate navigation section", () => {
+    it("puts User Management in the Administration section", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Administrator"),
         canManageUsers: true,
@@ -410,18 +511,23 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+      const administration = screen.getByRole("button", {
+        name: "Administration",
+      });
+      expect(
+        document.getElementById(administration.getAttribute("aria-controls") ?? ""),
+      ).toContainElement(screen.getByRole("link", { name: "User Management" }));
       expect(screen.getByRole("link", { name: "User Management" })).toHaveAttribute(
         "href",
         "/dashboard/admin/users",
       );
       expect(
-        screen.getByRole("link", { name: "Alumni Community" }),
-      ).toHaveAttribute("href", "/dashboard/community");
+        screen.getByRole("button", { name: "Alumni Community" }),
+      ).toBeInTheDocument();
       expect(screen.queryByText("Management")).not.toBeInTheDocument();
     });
 
-    it("places Alumni Community between Role Templates and Promo Codes", () => {
+    it("groups admin navigation into ordered sections", () => {
       mockUseAuth.mockReturnValue({
         currentUser: createMockUser("Administrator"),
         canManageUsers: true,
@@ -438,15 +544,31 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
+      const sections = screen
+        .getAllByRole("button", { expanded: true })
+        .map((button) => button.textContent ?? "");
+      expect(sections).toEqual([
+        "Programs",
+        "Events",
+        "Alumni Community",
+        "Administration",
+      ]);
+
+      const panelOf = (section: string) =>
+        document.getElementById(
+          screen
+            .getByRole("button", { name: section })
+            .getAttribute("aria-controls") ?? "",
+        );
+      expect(panelOf("Events")).toContainElement(
+        screen.getByRole("link", { name: "Role Templates" }),
+      );
+      expect(panelOf("Administration")).toContainElement(
+        screen.getByRole("link", { name: "Promo Codes" }),
+      );
       const names = screen
         .getAllByRole("link")
         .map((link) => link.textContent ?? "");
-      expect(names.indexOf("Role Templates")).toBeLessThan(
-        names.indexOf("Alumni Community"),
-      );
-      expect(names.indexOf("Alumni Community")).toBeLessThan(
-        names.indexOf("Promo Codes"),
-      );
       expect(names).not.toContain("Chat Rooms");
     });
 
@@ -467,7 +589,7 @@ describe("Sidebar Component - Income History Link Visibility", () => {
         </MemoryRouter>,
       );
 
-      expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Promo Codes" })).toBeInTheDocument();
       expect(screen.queryByText("User Management")).not.toBeInTheDocument();
     });
   });

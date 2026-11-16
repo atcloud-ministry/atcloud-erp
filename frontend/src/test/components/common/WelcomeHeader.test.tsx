@@ -41,11 +41,20 @@ describe("WelcomeHeader", () => {
     ).toBeDefined();
   });
 
-  it("applies gradient background styling", () => {
+  it("renders the greeting as the page heading", () => {
+    render(<WelcomeHeader />);
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Good Morning, Welcome to @Cloud Events!",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the decorative clouds out of the accessibility tree", () => {
     const { container } = render(<WelcomeHeader />);
-    const headerDiv = container.querySelector(".bg-gradient-to-r");
-    expect(headerDiv).toBeDefined();
-    expect(headerDiv?.classList.contains("from-blue-500")).toBe(true);
-    expect(headerDiv?.classList.contains("to-purple-600")).toBe(true);
+    const decorations = container.querySelectorAll("section > [aria-hidden='true']");
+    expect(decorations.length).toBeGreaterThan(0);
+    decorations.forEach((node) => expect(node.textContent).not.toMatch(/Welcome/));
   });
 });

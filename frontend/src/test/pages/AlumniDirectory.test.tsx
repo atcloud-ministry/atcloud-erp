@@ -127,6 +127,12 @@ describe("AlumniDirectory page", () => {
       "min-h-11",
       "w-full",
     );
+    // Detailed filters stay folded away until requested.
+    expect(screen.queryByLabelText("Company")).not.toBeInTheDocument();
+    const filtersToggle = screen.getByRole("button", { name: "Filters" });
+    expect(filtersToggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(filtersToggle);
+    expect(filtersToggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Company").parentElement?.parentElement).toHaveClass(
       "grid-cols-1",
       "sm:grid-cols-2",
@@ -137,10 +143,7 @@ describe("AlumniDirectory page", () => {
       "w-full",
       "sm:w-auto",
     );
-    expect(filters.lastElementChild).toHaveClass(
-      "flex-col-reverse",
-      "sm:flex-row",
-    );
+    expect(filters.firstElementChild).toHaveClass("flex-col", "sm:flex-row");
 
     await user.type(screen.getByLabelText("Search alumni"), "  Amy  ");
     await user.type(screen.getByLabelText("Company"), " Microsoft ");
