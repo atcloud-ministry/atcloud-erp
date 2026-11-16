@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, Outlet, Navigate } from "react-router-dom";
+import { MotionConfig, motion } from "motion/react";
 import { Header, MobileBottomNavigation, Sidebar } from "./dashboard";
 import { Footer } from "../components/common";
 import ProfileCompletionNotice from "../components/profile/ProfileCompletionNotice";
@@ -86,7 +87,8 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <MotionConfig reducedMotion="user">
+    <div className="min-h-screen bg-canvas flex flex-col">
       <a
         className="sr-only fixed left-4 top-2 z-[100] rounded-md bg-white px-4 py-2 font-semibold text-blue-800 shadow focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-blue-600"
         href="#dashboard-main-content"
@@ -160,7 +162,15 @@ export default function DashboardLayout() {
                 pathname={location.pathname}
               />
             )}
-            <Outlet key={location.pathname} />
+            <motion.div
+              animate={{ opacity: 1, y: 0 }}
+              className={isChatRoomRoute ? "flex min-h-0 flex-1 flex-col" : undefined}
+              initial={{ opacity: 0, y: 8 }}
+              key={location.pathname}
+              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <Outlet key={location.pathname} />
+            </motion.div>
           </div>
           <div
             className={isChatRoomRoute ? "mt-8 hidden lg:block" : "mt-8"}
@@ -178,5 +188,6 @@ export default function DashboardLayout() {
         />
       )}
     </div>
+    </MotionConfig>
   );
 }

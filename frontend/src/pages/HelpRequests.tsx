@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import HelpRequestCard from "../components/alumniHelp/HelpRequestCard";
 import Pagination from "../components/common/Pagination";
-import { EmptyState, ErrorState, LoadingState, PageHeader } from "../components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  SegmentedNav,
+} from "../components/ui";
 import { useAlumniHelp } from "../contexts/AlumniHelpContext";
 import { useRuntimeConfig } from "../contexts/RuntimeConfigContext";
 import {
@@ -144,54 +150,38 @@ export default function HelpRequests() {
         title="Help Requests"
       />
 
-      <nav
-        aria-label="Help Request views"
-        className="overflow-x-auto rounded-lg bg-white shadow-sm"
-      >
-        <div className="flex min-w-max border-b border-gray-200 px-3 pt-3">
-          {TABS.map((tab) => {
-            const active = tab.id === view;
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                className={`-mb-px rounded-t-lg border px-4 py-3 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  active
-                    ? "border-gray-200 border-b-white bg-white text-blue-700"
-                    : "border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-                key={tab.id}
-                to={
-                  tab.id === "updates"
-                    ? "/dashboard/community/help-requests"
-                    : `/dashboard/community/help-requests?view=${tab.id}`
-                }
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedNav
+          activeId={view}
+          items={TABS.map((tab) => ({
+            ...tab,
+            to:
+              tab.id === "updates"
+                ? "/dashboard/community/help-requests"
+                : `/dashboard/community/help-requests?view=${tab.id}`,
+          }))}
+          label="Help Request views"
+          layoutId="help-requests-view"
+        />
+        {!loading && !error && (
+          <p aria-live="polite" className="text-sm text-gray-500">
+            {pagination.totalCount}{" "}
+            {pagination.totalCount === 1 ? "request" : "requests"}
+          </p>
+        )}
+      </div>
 
       <section aria-busy={loading} aria-labelledby="help-request-results-heading">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold text-gray-900" id="help-request-results-heading">
-            {activeTabLabel}
-          </h2>
-          {!loading && !error && (
-            <p aria-live="polite" className="text-sm text-gray-600">
-              {pagination.totalCount}{" "}
-              {pagination.totalCount === 1 ? "request" : "requests"}
-            </p>
-          )}
-        </div>
+        <h2 className="sr-only" id="help-request-results-heading">
+          {activeTabLabel}
+        </h2>
 
         {loading && !result ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <LoadingState message="Loading help requests..." />
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <ErrorState
               action={
                 <button
@@ -207,7 +197,7 @@ export default function HelpRequests() {
             />
           </div>
         ) : requests.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             <EmptyState
               action={
                 <Link className="font-medium text-blue-700 hover:text-blue-800" to="/dashboard/community/alumni">
@@ -225,14 +215,14 @@ export default function HelpRequests() {
             />
           </div>
         ) : (
-          <div className="space-y-4">
+          <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm">
             {requests.map((request) => (
               <HelpRequestCard
                 key={request.id}
                 request={request}
               />
             ))}
-          </div>
+          </ul>
         )}
 
         {!loading && !error && requests.length > 0 && (

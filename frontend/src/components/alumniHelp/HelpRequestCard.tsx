@@ -1,6 +1,7 @@
+import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link } from "react-router-dom";
 import type { AlumniHelpRequestSummaryDTO } from "../../services/api";
-import { Card } from "../ui";
+import ChatAvatar from "../chat/ChatAvatar";
 import HelpStatusBadge from "./HelpStatusBadge";
 import {
   HELP_TYPE_LABELS,
@@ -8,6 +9,7 @@ import {
   outcomeLabel,
 } from "./presentation";
 
+/** One row in the Help Requests list; render inside a `<ul>`. */
 export default function HelpRequestCard({
   request,
 }: {
@@ -16,86 +18,102 @@ export default function HelpRequestCard({
   const counterpart =
     request.viewerRole === "requester" ? request.provider : request.requester;
   const detailPath = `/dashboard/community/help-requests/${request.id}`;
+  const helpTypes = [
+    ["Requested", request.requestedHelpType],
+    ["Proposed", request.proposedHelpType],
+    ["Agreed", request.agreedHelpType],
+  ] as const;
 
   return (
-    <Card padding="md">
-      <article className="min-w-0">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              {request.viewerRole === "requester" ? "Sent to" : "Received from"}
-            </p>
-            <h2 className="mt-1 break-words text-lg font-semibold text-gray-900">
+    <li className="relative transition-colors hover:bg-gray-50">
+      <article className="flex min-w-0 gap-3.5 px-4 py-4 sm:px-5">
+        <span className="relative mt-0.5">
+          <ChatAvatar
+            avatar={counterpart.avatar}
+            displayName={counterpart.displayName}
+          />
+          {request.hasUnreadUpdate && (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-brand-600 ring-2 ring-white"
+            />
+          )}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h2 className="min-w-0 break-words text-[0.9375rem] font-semibold text-gray-900">
               <Link
-                className="rounded-sm hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="rounded-sm text-gray-900 after:absolute after:inset-0 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 to={detailPath}
               >
                 {counterpart.displayName}
               </Link>
             </h2>
+            <HelpStatusBadge status={request.status} />
           </div>
-          <HelpStatusBadge status={request.status} />
-        </div>
 
-        <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="font-medium text-gray-500">Requested</dt>
-            <dd className="mt-1 text-gray-900">
-              {HELP_TYPE_LABELS[request.requestedHelpType]}
-            </dd>
-          </div>
-          {request.proposedHelpType && (
-            <div>
-              <dt className="font-medium text-gray-500">Proposed</dt>
-              <dd className="mt-1 text-gray-900">
-                {HELP_TYPE_LABELS[request.proposedHelpType]}
-              </dd>
-            </div>
-          )}
-          {request.agreedHelpType && (
-            <div>
-              <dt className="font-medium text-gray-500">Agreed</dt>
-              <dd className="mt-1 text-gray-900">
-                {HELP_TYPE_LABELS[request.agreedHelpType]}
-              </dd>
-            </div>
-          )}
-        </dl>
-
-        {request.latestOutcome && (
-          <p className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700">
-            Latest reported result: {outcomeLabel(
-              request.latestOutcome.agreedHelpType,
-              request.latestOutcome.outcomeCode,
-            )}{" "}
-            <span className="font-medium">({request.latestOutcome.status})</span>
+          <p className="mt-1 text-sm text-gray-500">
+            <span>
+              {request.viewerRole === "requester" ? "Sent to" : "Received from"}
+            </span>
+            {helpTypes.map(([label, type]) =>
+              type ? (
+                <span key={label}>
+                  <span aria-hidden="true" className="px-1.5 text-gray-300">
+                    ·
+                  </span>
+                  {label}:{" "}
+                  <span className="text-gray-700">{HELP_TYPE_LABELS[type]}</span>
+                </span>
+              ) : null,
+            )}
           </p>
-        )}
 
-        <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-400 sm:hidden">
             Updated <time dateTime={request.updatedAt}>{formatHelpDate(request.updatedAt)}</time>
           </p>
-          <div className="flex items-center gap-3">
-            {request.hasUnreadUpdate && (
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                New update
-              </span>
-            )}
-            {request.actionRequiredForViewer && (
-              <span className="rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-                Action required
-              </span>
-            )}
-            <Link
-              className="inline-flex min-h-11 items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              to={detailPath}
-            >
-              View Request
-            </Link>
-          </div>
+
+          {request.latestOutcome && (
+            <p className="mt-1 text-sm text-gray-600">
+              Latest reported result: {outcomeLabel(
+                request.latestOutcome.agreedHelpType,
+                request.latestOutcome.outcomeCode,
+              )}{" "}
+              <span className="font-medium">({request.latestOutcome.status})</span>
+            </p>
+          )}
+
+          {(request.hasUnreadUpdate || request.actionRequiredForViewer) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {request.hasUnreadUpdate && (
+                <span className="whitespace-nowrap rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">
+                  New update
+                </span>
+              )}
+              {request.actionRequiredForViewer && (
+                <span className="whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                  Action required
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden shrink-0 flex-col items-end justify-between gap-2 sm:flex">
+          <p className="text-xs text-gray-400">
+            Updated <time dateTime={request.updatedAt}>{formatHelpDate(request.updatedAt)}</time>
+          </p>
+          {/* Sits above the row-wide link so it stays individually clickable. */}
+          <Link
+            className="relative z-10 inline-flex items-center gap-0.5 rounded-sm text-sm font-medium text-brand-700 hover:text-brand-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            to={detailPath}
+          >
+            View Request
+            <ChevronRightIcon aria-hidden="true" className="h-4 w-4" />
+          </Link>
         </div>
       </article>
-    </Card>
+    </li>
   );
 }

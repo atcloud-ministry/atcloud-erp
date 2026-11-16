@@ -96,21 +96,18 @@ export function AnalyticsOverviewLoadingState() {
 // New: Management Statistics Cards skeleton (7 cards in responsive grid)
 export function ManagementStatsLoadingState() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-gray-200/80 bg-gray-200/70 shadow-sm sm:grid-cols-4">
       {Array.from({ length: 7 }).map((_, i) => (
         <div
           key={i}
-          className="bg-white border rounded-lg p-4 animate-pulse shadow-sm"
+          className={`animate-pulse bg-white px-5 py-4 ${
+            i === 0 ? "col-span-2 sm:col-span-1 sm:row-span-2" : ""
+          }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <div
-              className={`${getLoadingSkeletonClass("text")} w-6 h-6 rounded`}
-            ></div>
-          </div>
           <div
-            className={`${getLoadingSkeletonClass("text")} w-20 h-4 mb-2`}
+            className={`${getLoadingSkeletonClass("text")} mb-2 h-4 w-20`}
           ></div>
-          <div className={`${getLoadingSkeletonClass("text")} w-8 h-7`}></div>
+          <div className={`${getLoadingSkeletonClass("text")} h-7 w-8`}></div>
         </div>
       ))}
     </div>

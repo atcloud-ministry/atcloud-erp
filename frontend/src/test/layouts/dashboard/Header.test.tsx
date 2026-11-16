@@ -39,8 +39,8 @@ describe("Dashboard Header", () => {
 
       const header = container.querySelector("header");
       expect(header).toBeDefined();
-      expect(header?.classList.contains("bg-white")).toBe(true);
-      expect(header?.classList.contains("shadow-sm")).toBe(true);
+      expect(header?.classList.contains("bg-white/85")).toBe(true);
+      expect(header?.classList.contains("backdrop-blur-md")).toBe(true);
       expect(header?.classList.contains("fixed")).toBe(true);
     });
 
@@ -73,7 +73,18 @@ describe("Dashboard Header", () => {
         </BrowserRouter>
       );
 
-      expect(screen.getByText("@Cloud Marketplace Ministry")).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "SPAN" &&
+            element.classList.contains("sm:inline") &&
+            element.textContent === "@Cloud Marketplace Ministry",
+        ),
+      ).toBeDefined();
+      expect(screen.getByRole("link", { name: /@Cloud Logo/ })).toHaveAttribute(
+        "href",
+        "/dashboard/welcome",
+      );
     });
 
     it("renders short organization name for mobile", () => {
@@ -88,7 +99,7 @@ describe("Dashboard Header", () => {
         </BrowserRouter>
       );
 
-      expect(screen.getByText("@Cloud")).toBeDefined();
+      expect(screen.getByText("@Cloud", { selector: "span.sm\\:hidden" })).toBeDefined();
     });
 
     it("renders notification dropdown", () => {

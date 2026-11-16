@@ -3,13 +3,13 @@
 @import "tailwindcss/utilities";
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: theme("fontFamily.sans");
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: light;
-  color: #213547;
-  background-color: #ffffff;
+  color: theme("colors.gray.800");
+  background-color: theme("colors.canvas");
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -19,11 +19,12 @@
 
 a {
   font-weight: 500;
-  color: #1d4ed8;
+  color: theme("colors.brand.700");
   text-decoration: inherit;
+  transition: color 150ms ease;
 }
 a:hover {
-  color: #1e3a8a;
+  color: theme("colors.brand.900");
 }
 
 body {
@@ -36,6 +37,14 @@ h1 {
   line-height: 1.1;
 }
 
+/* Page titles use the display serif; size/weight still come from utilities. */
+main h1 {
+  font-family: theme("fontFamily.display");
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variation-settings: "opsz" 48;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
@@ -45,14 +54,20 @@ button {
   font-family: inherit;
   background-color: #f9f9f9;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
 }
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: 2px solid theme("colors.brand.500");
+  outline-offset: 2px;
+}
+
+::selection {
+  background: theme("colors.brand.100");
+  color: theme("colors.brand.950");
 }
 
 /* Custom Notification Modal Animations */

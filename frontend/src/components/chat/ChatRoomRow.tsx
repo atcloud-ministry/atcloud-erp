@@ -51,7 +51,7 @@ export default function ChatRoomRow({
       <Link
         aria-describedby={descriptionId}
         aria-label={accessibleName}
-        className="group flex min-h-[76px] items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:p-4"
+        className="group flex min-h-[76px] items-center gap-3.5 px-4 py-3.5 transition-colors hover:bg-gray-50 focus:outline-none focus-visible:bg-gray-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 sm:px-5"
         to={`/dashboard/chat-rooms/${encodeURIComponent(room.id)}`}
       >
         {room.counterpart ? (
@@ -60,7 +60,7 @@ export default function ChatRoomRow({
             displayName={room.counterpart.displayName}
           />
         ) : (
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700">
             <ChatBubbleOvalLeftEllipsisIcon
               aria-hidden="true"
               className="h-6 w-6"
@@ -68,37 +68,47 @@ export default function ChatRoomRow({
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="flex items-start justify-between gap-3">
-            <span className="truncate font-semibold text-gray-900 group-hover:text-blue-800">
+          <span className="flex items-baseline justify-between gap-3">
+            <span
+              className={`truncate text-[0.9375rem] text-gray-900 ${
+                unreadCount > 0 ? "font-semibold" : "font-medium"
+              }`}
+            >
               {room.title}
             </span>
             <time
-              className="shrink-0 text-xs text-gray-500"
+              className={`shrink-0 text-xs ${
+                unreadCount > 0 ? "font-medium text-brand-700" : "text-gray-400"
+              }`}
               dateTime={room.lastMessage?.createdAt ?? room.updatedAt}
             >
               {formatRoomTime(room.lastMessage?.createdAt ?? room.updatedAt)}
             </time>
           </span>
-          <span className="mt-1 flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
+          <span className="mt-0.5 flex items-center gap-2">
+            <span
+              className={`min-w-0 flex-1 truncate text-sm ${
+                unreadCount > 0 ? "text-gray-800" : "text-gray-500"
+              }`}
+            >
               {messagePreview(room)}
             </span>
             {room.viewer.muted && (
               <BellSlashIcon
                 aria-label="Notifications muted"
-                className="h-4 w-4 shrink-0 text-gray-500"
+                className="h-4 w-4 shrink-0 text-gray-400"
               />
             )}
             {unreadCount > 0 && (
               <span
                 aria-hidden="true"
-                className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
+                className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white tabular-nums"
               >
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
           </span>
-          <span className="mt-1 block text-xs font-medium text-gray-500">
+          <span className="mt-1 block text-xs text-gray-400">
             {room.kind === "alumni_help" ? "Alumni Help" : "Program"}
             {` · ${room.section === "current" ? "Current" : "Past"}`}
             {` · ${

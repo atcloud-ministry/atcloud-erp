@@ -228,7 +228,7 @@ describe("Welcome page", () => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
 
-    it("shows error icon", () => {
+    it("shows an error icon instead of an emoji", () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { role: "Administrator" },
       } as any);
@@ -240,7 +240,9 @@ describe("Welcome page", () => {
 
       renderWithRouter();
 
-      expect(screen.getByText("⚠️")).toBeInTheDocument();
+      const message = screen.getByText(/Failed to load events/i);
+      expect(message.parentElement?.querySelector("svg")).toBeInTheDocument();
+      expect(screen.queryByText("⚠️")).not.toBeInTheDocument();
     });
   });
 
@@ -263,7 +265,7 @@ describe("Welcome page", () => {
       ).toBeInTheDocument();
     });
 
-    it("shows calendar icon in empty state", () => {
+    it("shows a calendar icon in empty state", () => {
       mockedUseAuth.mockReturnValue({
         currentUser: { role: "Administrator" },
       } as any);
@@ -275,7 +277,9 @@ describe("Welcome page", () => {
 
       renderWithRouter();
 
-      expect(screen.getByText("📅")).toBeInTheDocument();
+      const message = screen.getByText("No upcoming events");
+      expect(message.parentElement?.querySelector("svg")).toBeInTheDocument();
+      expect(screen.queryByText("📅")).not.toBeInTheDocument();
     });
   });
 
@@ -556,7 +560,7 @@ describe("Welcome page", () => {
   });
 
   describe("Event Color Schemes", () => {
-    it("applies different colors to multiple events", () => {
+    it("shows a month/day badge for each event", () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const dateStr = tomorrow.toISOString().split("T")[0];
@@ -595,12 +599,17 @@ describe("Welcome page", () => {
         error: null,
       } as any);
 
-      const { container } = renderWithRouter();
+      renderWithRouter();
 
-      // Check that color scheme classes are present
-      expect(container.querySelector(".bg-blue-50")).toBeInTheDocument();
-      expect(container.querySelector(".bg-green-50")).toBeInTheDocument();
-      expect(container.querySelector(".bg-purple-50")).toBeInTheDocument();
+      const month = tomorrow.toLocaleString("en-US", {
+        month: "short",
+        timeZone: "UTC",
+      });
+      const day = String(Number(dateStr.slice(8, 10)));
+      for (const title of ["Event 1", "Event 2", "Event 3"]) {
+        const link = screen.getByText(title).closest("a");
+        expect(link).toHaveTextContent(new RegExp(`^${month}${day}`));
+      }
     });
   });
 

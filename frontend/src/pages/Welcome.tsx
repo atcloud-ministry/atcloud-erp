@@ -1,3 +1,10 @@
+import type { ReactNode } from "react";
+import { motion } from "motion/react";
+import {
+  ArrowTopRightOnSquareIcon,
+  CalendarDaysIcon,
+  ExclamationTriangleIcon,
+} from "@heroicons/react/24/outline";
 import {
   DashboardCard,
   QuickActionsCard,
@@ -13,101 +20,132 @@ import { useAuth } from "../hooks/useAuth";
 import { formatEventDateTimeRangeInViewerTZ } from "../utils/eventStatsUtils";
 import { getLoadingSkeletonClass } from "../utils/uiUtils";
 
+const SECTION_EASE = [0.16, 1, 0.3, 1] as const;
+
+/** Fades each section in shortly after the one above it. */
+function Reveal({
+  children,
+  index,
+  className,
+}: {
+  children: ReactNode;
+  index: number;
+  className?: string;
+}) {
+  return (
+    <motion.div
+      animate={{ opacity: 1, y: 0 }}
+      className={className}
+      initial={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.5, delay: 0.06 * index, ease: SECTION_EASE }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export default function Welcome() {
   const { currentUser } = useAuth();
+  const showMinistryStats = Boolean(
+    currentUser && currentUser.role !== "Participant",
+  );
 
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <WelcomeHeader />
-
-      {/* Our Vision & Mission Card */}
-      <DashboardCard
-        title="Our Vision & Mission"
-        icon={<Icon name="tag" className="text-blue-500" />}
-      >
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-4 md:space-y-0">
-          <div className="flex-1">
-            <p className="text-gray-600 mb-2">
-              The vision of @Cloud is to celebrate and expand God’s kingdom &
-              victories in the marketplace. Our mission is to call and equip
-              Christian leaders to make an impact in the marketplace. Our
-              objectives are to plant Marketplace Churches inside companies, and
-              to setup the Marketplace Manger – an incubator facility to enable
-              perspective Kingdom-minded entrepreneurs to receive advice and
-              mentorship from experienced coaches.
-            </p>
-            <p className="text-sm text-gray-500">
-              Discover opportunities for collaboration, spiritual growth, and
-              business development through our comprehensive platform and
-              community initiatives.
-            </p>
-          </div>
-          <div className="flex justify-center md:justify-end">
-            <a
-              href="https://at-cloud.biz/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Button className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors duration-200 flex items-center justify-center">
-                <svg
-                  className="mr-2 w-4 h-4 text-white flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                  />
-                </svg>
-                <span className="whitespace-nowrap">
-                  Return to @Cloud Website
-                </span>
-              </Button>
-            </a>
-          </div>
-        </div>
-      </DashboardCard>
+      <Reveal index={0}>
+        <WelcomeHeader />
+      </Reveal>
 
       {/* Dashboard Cards */}
       <div
         className={`grid grid-cols-1 gap-6 ${
-          !currentUser || currentUser.role === "Participant"
-            ? "md:grid-cols-2" // 2 columns for Participants / guests (no Ministry Stats)
-            : "md:grid-cols-2 lg:grid-cols-3" // 3 columns for other roles
+          showMinistryStats
+            ? "md:grid-cols-2 lg:grid-cols-3" // 3 columns for other roles
+            : "md:grid-cols-2" // 2 columns for Participants / guests (no Ministry Stats)
         }`}
       >
-        <DashboardCard
-          title="Quick Actions"
-          icon={<Icon name="lightning" className="text-yellow-500" />}
-        >
-          <QuickActionsCard />
-        </DashboardCard>
+        <Reveal index={1}>
+          <DashboardCard
+            title="Quick Actions"
+            icon={<Icon name="lightning" />}
+          >
+            <QuickActionsCard />
+          </DashboardCard>
+        </Reveal>
 
-        <DashboardCard
-          title="Upcoming Events"
-          icon={<Icon name="calendar" className="text-blue-500" />}
-        >
-          <UpcomingEventsCard />
-        </DashboardCard>
+        <Reveal index={2}>
+          <DashboardCard
+            title="Upcoming Events"
+            icon={<Icon name="calendar" />}
+          >
+            <UpcomingEventsCard />
+          </DashboardCard>
+        </Reveal>
 
         {/* Only show Ministry Stats for authenticated non-Participant roles */}
-        {currentUser && currentUser.role !== "Participant" && (
-          <DashboardCard
-            title="Ministry Stats"
-            icon={<Icon name="bar-chart" className="text-orange-500" />}
-          >
-            <MinistryStatsCard />
-          </DashboardCard>
+        {showMinistryStats && (
+          <Reveal className="md:col-span-2 lg:col-span-1" index={3}>
+            <DashboardCard
+              title="Ministry Stats"
+              icon={<Icon name="bar-chart" />}
+            >
+              <MinistryStatsCard />
+            </DashboardCard>
+          </Reveal>
         )}
       </div>
 
+      {/* Our Vision & Mission Card */}
+      <Reveal index={4}>
+        <DashboardCard
+          title="Our Vision & Mission"
+          icon={<Icon name="tag" />}
+        >
+          <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
+            <div className="max-w-3xl flex-1">
+              <p className="mb-3 leading-relaxed text-gray-700">
+                The vision of @Cloud is to celebrate and expand God’s kingdom &
+                victories in the marketplace. Our mission is to call and equip
+                Christian leaders to make an impact in the marketplace. Our
+                objectives are to plant Marketplace Churches inside companies,
+                and to setup the Marketplace Manger – an incubator facility to
+                enable perspective Kingdom-minded entrepreneurs to receive
+                advice and mentorship from experienced coaches.
+              </p>
+              <p className="text-sm text-gray-500">
+                Discover opportunities for collaboration, spiritual growth, and
+                business development through our comprehensive platform and
+                community initiatives.
+              </p>
+            </div>
+            <a
+              className="shrink-0"
+              href="https://at-cloud.biz/"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <Button
+                className="flex items-center justify-center rounded-full border border-gray-300 bg-white px-5 py-2 text-sm text-gray-800 shadow-sm transition-colors duration-200 hover:border-gray-400 hover:bg-gray-50"
+                rightIcon={
+                  <ArrowTopRightOnSquareIcon
+                    aria-hidden="true"
+                    className="h-4 w-4 flex-shrink-0 text-gray-500"
+                  />
+                }
+                variant="outline"
+              >
+                <span className="whitespace-nowrap">Return to @Cloud Website</span>
+              </Button>
+            </a>
+          </div>
+        </DashboardCard>
+      </Reveal>
+
       {/* Getting Started Section */}
-      <GettingStartedSection />
+      <Reveal index={5}>
+        <GettingStartedSection />
+      </Reveal>
     </div>
   );
 }
@@ -127,16 +165,18 @@ function UpcomingEventsCard() {
     ? events.filter((e) => e.publish).slice(0, 3)
     : events.slice(0, 3);
 
-  // Function to calculate days until event
-  const getDaysUntilEvent = (eventDate: string): string => {
-    const now = new Date();
-
-    // Parse date string properly to avoid timezone issues
-    // eventDate is in format "YYYY-MM-DD", so we need to parse it as local date
+  // eventDate is "YYYY-MM-DD"; parse as a local date to avoid timezone shifts.
+  const parseLocalDate = (eventDate: string): Date => {
     const [year, month, day] = eventDate
       .split("-")
       .map((num) => parseInt(num, 10));
-    const event = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
+    return new Date(year, month - 1, day);
+  };
+
+  // Function to calculate days until event
+  const getDaysUntilEvent = (eventDate: string): string => {
+    const now = new Date();
+    const event = parseLocalDate(eventDate);
 
     // Set both dates to start of day to ignore time components
     const todayStart = new Date(
@@ -163,28 +203,6 @@ function UpcomingEventsCard() {
     }`;
   };
 
-  // Color schemes for events
-  const colorSchemes = [
-    {
-      bg: "bg-blue-50",
-      border: "border-blue-200",
-      dot: "bg-blue-500",
-      text: "text-blue-600",
-    },
-    {
-      bg: "bg-green-50",
-      border: "border-green-200",
-      dot: "bg-green-500",
-      text: "text-green-600",
-    },
-    {
-      bg: "bg-purple-50",
-      border: "border-purple-200",
-      dot: "bg-purple-500",
-      text: "text-purple-600",
-    },
-  ];
-
   if (loading) {
     // Skeleton loading state (3 placeholder event cards)
     return (
@@ -192,13 +210,13 @@ function UpcomingEventsCard() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="p-3 rounded-lg border border-gray-200 bg-white/60 backdrop-blur-sm animate-pulse"
+            className="flex animate-pulse items-center gap-3 rounded-xl p-2"
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="h-11 w-11 shrink-0 rounded-lg bg-gray-200"></div>
+            <div className="flex-1 space-y-2">
               <div className={`${getLoadingSkeletonClass("text")} w-2/3`}></div>
-              <div className={`${getLoadingSkeletonClass("text")} w-10`}></div>
+              <div className={`${getLoadingSkeletonClass("text")} w-5/6`}></div>
             </div>
-            <div className={`${getLoadingSkeletonClass("text")} w-5/6`}></div>
           </div>
         ))}
       </div>
@@ -207,20 +225,28 @@ function UpcomingEventsCard() {
 
   if (error) {
     return (
-      <div className="text-center py-6">
-        <div className="text-red-400 text-4xl mb-2">⚠️</div>
-        <span className="text-sm text-red-600">Failed to load events</span>
-        <p className="text-xs text-red-400 mt-1">{error}</p>
+      <div className="flex flex-col items-center py-6 text-center">
+        <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-500">
+          <ExclamationTriangleIcon aria-hidden="true" className="h-5 w-5" />
+        </span>
+        <span className="text-sm font-medium text-red-700">
+          Failed to load events
+        </span>
+        <p className="mt-1 text-xs text-red-500">{error}</p>
       </div>
     );
   }
 
   if (upcomingEvents.length === 0) {
     return (
-      <div className="text-center py-6">
-        <div className="text-gray-400 text-4xl mb-2">📅</div>
-        <span className="text-sm text-gray-500">No upcoming events</span>
-        <p className="text-xs text-gray-400 mt-1">
+      <div className="flex flex-col items-center py-6 text-center">
+        <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+          <CalendarDaysIcon aria-hidden="true" className="h-5 w-5" />
+        </span>
+        <span className="text-sm font-medium text-gray-700">
+          No upcoming events
+        </span>
+        <p className="mt-1 text-xs text-gray-500">
           Check back later for new events
         </p>
       </div>
@@ -229,31 +255,39 @@ function UpcomingEventsCard() {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-3">
-        {upcomingEvents.map((event, index) => {
-          const colors = colorSchemes[index % colorSchemes.length];
+      <ul className="-mx-2 space-y-1">
+        {upcomingEvents.map((event) => {
           const daysUntil = getDaysUntilEvent(event.date);
+          const date = parseLocalDate(event.date);
 
           return (
-            <Link
-              key={event.id}
-              to={
-                isGuest
-                  ? event.publicSlug
-                    ? `/p/${event.publicSlug}`
-                    : "/events"
-                  : `/dashboard/event/${event.id}`
-              }
-              className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              <div
-                className={`flex items-center justify-between p-3 ${colors.bg} rounded-lg border ${colors.border} hover:shadow-sm hover:bg-white/40 transition`}
+            <li key={event.id}>
+              <Link
+                to={
+                  isGuest
+                    ? event.publicSlug
+                      ? `/p/${event.publicSlug}`
+                      : "/events"
+                    : `/dashboard/event/${event.id}`
+                }
+                className="group flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-gray-100/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
+                <span
+                  aria-hidden="true"
+                  className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg border border-gray-200 bg-white leading-none shadow-sm transition-colors group-hover:border-brand-200"
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-600">
+                    {date.toLocaleString("en-US", { month: "short" })}
+                  </span>
+                  <span className="mt-0.5 text-base font-semibold text-gray-900">
+                    {date.getDate()}
+                  </span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-gray-900">
                     {event.title}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate whitespace-nowrap">
+                  </span>
+                  <span className="block truncate whitespace-nowrap text-xs text-gray-500">
                     {formatEventDateTimeRangeInViewerTZ(
                       event.date,
                       event.time,
@@ -261,18 +295,18 @@ function UpcomingEventsCard() {
                       event.timeZone,
                       event.endDate,
                     )}
-                  </p>
-                </div>
-                <span className={`text-xs ${colors.text} font-medium`}>
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
                   {daysUntil}
                 </span>
-              </div>
-            </Link>
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      <div className="pt-2 border-t border-gray-100">
+      <div className="border-t border-gray-100 pt-2">
         <Button
           variant="link"
           onClick={() => navigate("/dashboard/upcoming")}

@@ -1,27 +1,20 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import ConfirmLogoutModal from "../../components/common/ConfirmLogoutModal";
 import {
   CalendarDaysIcon,
-  CalendarIcon,
   ArrowRightOnRectangleIcon,
-  PlusIcon,
   UsersIcon,
   HomeIcon,
   SpeakerWaveIcon,
   ChartBarIcon,
-  ClipboardDocumentListIcon,
-  ComputerDesktopIcon,
   ChatBubbleLeftRightIcon,
-  RectangleStackIcon,
   AcademicCapIcon,
-  GlobeAltIcon,
-  ShieldCheckIcon,
-  DocumentDuplicateIcon,
-  TicketIcon,
-  CreditCardIcon,
+  Cog6ToothIcon,
   HeartIcon,
   XMarkIcon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { useAuth } from "../../hooks/useAuth";
 import { useRuntimeConfig } from "../../contexts/RuntimeConfigContext";
@@ -31,15 +24,37 @@ import {
 } from "../../utils/loginRedirect";
 import { isMobileBottomNavigationHref } from "./MobileBottomNavigation";
 
-interface NavigationItem {
+type IconComponent = React.ComponentType<{ className?: string }>;
+
+interface NavLink {
+  kind: "link";
   name: string;
-  href?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick?: () => void;
+  href: string;
+  icon?: IconComponent;
   activePathPrefixes?: readonly string[];
+  /** Overrides prefix matching when a route needs custom rules. */
+  isActive?: (pathname: string) => boolean;
   badgeCount?: number;
   badgeDescription?: string;
 }
+
+interface NavAction {
+  kind: "action";
+  name: string;
+  icon: IconComponent;
+  onClick: () => void;
+}
+
+interface NavGroup {
+  kind: "group";
+  id: string;
+  name: string;
+  icon: IconComponent;
+  badgeDescription?: string;
+  children: NavLink[];
+}
+
+type NavEntry = NavLink | NavAction | NavGroup;
 
 interface SidebarProps {
   userRole: string;
@@ -49,6 +64,8 @@ interface SidebarProps {
   helpNotificationCount?: number;
   systemMessageUnreadCount?: number;
 }
+
+const GROUP_STATE_STORAGE_KEY = "atcloud.sidebar.groups";
 
 const MOBILE_NAVIGATION_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -71,6 +88,51 @@ function mobileNavigationControls(container: HTMLElement): HTMLElement[] {
   );
 }
 
+function readStoredGroupState(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(GROUP_STATE_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, boolean>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredGroupState(state: Record<string, boolean>): void {
+  try {
+    window.localStorage.setItem(GROUP_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Private mode or blocked storage: the menu still works, it just forgets.
+  }
+}
+
+function isLinkActive(link: NavLink, pathname: string): boolean {
+  if (link.isActive) return link.isActive(pathname);
+  return (
+    pathname === link.href ||
+    Boolean(
+      link.activePathPrefixes?.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      ),
+    )
+  );
+}
+
+function groupBadgeCount(group: NavGroup): number {
+  return group.children.reduce(
+    (total, child) => total + (child.badgeCount ?? 0),
+    0,
+  );
+}
+
+function formatBadge(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+const DIRECTORY_BASE = "/dashboard/community/alumni";
+
 export default function Sidebar({
   userRole,
   sidebarOpen,
@@ -79,15 +141,17 @@ export default function Sidebar({
   helpNotificationCount = 0,
   systemMessageUnreadCount = 0,
 }: SidebarProps) {
-  const location = useLocation(); //获取当前路径
+  const location = useLocation();
   const navigate = useNavigate();
   const { canManageUsers, logout } = useAuth();
   const { config: runtimeConfig, status: runtimeConfigStatus } =
     useRuntimeConfig();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [groupState, setGroupState] = useState(readStoredGroupState);
   const navigationRef = useRef<HTMLElement>(null);
   const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const idPrefix = useId();
   const [isDesktopNavigation, setIsDesktopNavigation] = useState(() =>
     typeof window === "undefined" || typeof window.matchMedia !== "function"
       ? true
@@ -98,6 +162,7 @@ export default function Sidebar({
     runtimeConfigStatus === "ready" &&
     runtimeConfig.alumniNetwork.readable;
   const navigationVisible = isDesktopNavigation || sidebarOpen;
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -207,268 +272,471 @@ export default function Sidebar({
     }
   };
 
-  // Navigation items based on user role
-  const getNavigationItems = (): NavigationItem[] => {
-    // Guest visitors: limited nav
-    if (userRole === "guest") {
-      return [
-        { name: "Welcome", href: "/dashboard/welcome", icon: HomeIcon },
-        {
-          name: "EMBA Program",
-          href: "/dashboard/emba-program",
-          icon: AcademicCapIcon,
-        },
-        {
-          name: "Other Programs",
-          href: "/dashboard/programs",
-          icon: RectangleStackIcon,
-        },
-        {
-          name: "Annual Membership",
-          href: "/dashboard/annual-memberships",
-          icon: CreditCardIcon,
-        },
-        {
-          name: "Event Calendar",
-          href: "/dashboard/upcoming",
-          icon: CalendarDaysIcon,
-        },
-        {
-          name: "Past Events",
-          href: "/dashboard/passed",
-          icon: CalendarIcon,
-        },
-        { name: "Donate", href: "/dashboard/donate", icon: HeartIcon },
-        {
-          name: "Log In",
-          href: guestLoginHref,
-          icon: ArrowRightOnRectangleIcon,
-        },
-      ];
-    }
+  const isAdmin = userRole === "Super Admin" || userRole === "Administrator";
+  const isLeader = userRole === "Leader";
+  const isMember =
+    isAdmin || isLeader || userRole === "Participant" || userRole === "Guest Expert";
 
-    const baseItems: NavigationItem[] = [
-      // Welcome as the first item
+  const programsGroup: NavGroup = {
+    kind: "group",
+    id: "programs",
+    name: "Programs",
+    icon: AcademicCapIcon,
+    children: [
       {
-        name: "Welcome",
-        href: "/dashboard/welcome",
-        icon: HomeIcon,
-      },
-      {
+        kind: "link",
         name: "EMBA Program",
         href: "/dashboard/emba-program",
-        icon: AcademicCapIcon,
+        isActive: (path) =>
+          path === "/dashboard/emba-program" || path === "/dashboard",
       },
       {
+        kind: "link",
         name: "Other Programs",
         href: "/dashboard/programs",
-        icon: RectangleStackIcon,
+        activePathPrefixes: ["/dashboard/programs"],
       },
       {
+        kind: "link",
         name: "Annual Membership",
         href: "/dashboard/annual-memberships",
-        icon: CreditCardIcon,
+        activePathPrefixes: ["/dashboard/annual-memberships"],
       },
+    ],
+  };
+
+  const buildNavigation = (): { primary: NavEntry[]; secondary: NavEntry[] } => {
+    const welcome: NavLink = {
+      kind: "link",
+      name: "Welcome",
+      href: "/dashboard/welcome",
+      icon: HomeIcon,
+    };
+
+    if (userRole === "guest") {
+      return {
+        primary: [
+          welcome,
+          programsGroup,
+          {
+            kind: "group",
+            id: "events",
+            name: "Events",
+            icon: CalendarDaysIcon,
+            children: [
+              { kind: "link", name: "Event Calendar", href: "/dashboard/upcoming" },
+              { kind: "link", name: "Past Events", href: "/dashboard/passed" },
+            ],
+          },
+        ],
+        secondary: [
+          { kind: "link", name: "Donate", href: "/dashboard/donate", icon: HeartIcon },
+          {
+            kind: "link",
+            name: "Log In",
+            href: guestLoginHref,
+            icon: ArrowRightOnRectangleIcon,
+          },
+        ],
+      };
+    }
+
+    const eventLinks: NavLink[] = [
+      { kind: "link", name: "Event Calendar", href: "/dashboard/upcoming" },
+      { kind: "link", name: "Past Events", href: "/dashboard/passed" },
+      { kind: "link", name: "My Events", href: "/dashboard/my-events" },
+    ];
+    if (isAdmin || isLeader) {
+      eventLinks.push({
+        kind: "link",
+        name: "Published Events",
+        href: "/dashboard/published-events",
+      });
+    }
+    if (isMember) {
+      eventLinks.push({
+        kind: "link",
+        name: "Create Event",
+        href: "/dashboard/new-event",
+      });
+    }
+    if (isAdmin || isLeader) {
+      eventLinks.push({
+        kind: "link",
+        name: "Role Templates",
+        href: "/dashboard/configure-roles-templates",
+      });
+    }
+
+    const primary: NavEntry[] = [
+      welcome,
+      programsGroup,
       {
-        name: "Event Calendar",
-        href: "/dashboard/upcoming",
+        kind: "group",
+        id: "events",
+        name: "Events",
         icon: CalendarDaysIcon,
-      },
-      { name: "Past Events", href: "/dashboard/passed", icon: CalendarIcon },
-      {
-        name: "My Events",
-        href: "/dashboard/my-events",
-        icon: ClipboardDocumentListIcon,
+        children: eventLinks,
       },
     ];
 
-    // Alumni Community and Chat Rooms are one destination; Chats is a tab
-    // inside it, so a single entry covers both sets of routes.
-    const addAlumniCommunityNavigation = () => {
-      baseItems.push({
+    if (communityNavigationEnabled) {
+      primary.push({
+        kind: "group",
+        id: "community",
         name: "Alumni Community",
-        href: "/dashboard/community",
-        activePathPrefixes: ["/dashboard/community", "/dashboard/chat-rooms"],
         icon: UsersIcon,
-        badgeCount: helpNotificationCount + chatUnreadTotal,
         badgeDescription: "help request updates and unread chat messages",
+        children: [
+          {
+            kind: "link",
+            name: "Alumni Directory",
+            href: DIRECTORY_BASE,
+            isActive: (path) =>
+              path === "/dashboard/community" ||
+              path === DIRECTORY_BASE ||
+              (path.startsWith(`${DIRECTORY_BASE}/`) &&
+                path !== `${DIRECTORY_BASE}/me`),
+          },
+          {
+            kind: "link",
+            name: "My Alumni Profile",
+            href: `${DIRECTORY_BASE}/me`,
+          },
+          {
+            kind: "link",
+            name: "Help Requests",
+            href: "/dashboard/community/help-requests",
+            activePathPrefixes: ["/dashboard/community/help-requests"],
+            badgeCount: helpNotificationCount,
+            badgeDescription: "requests with updates or actions needed",
+          },
+          {
+            kind: "link",
+            name: "Chats",
+            href: "/dashboard/chat-rooms",
+            activePathPrefixes: ["/dashboard/chat-rooms"],
+            badgeCount: chatUnreadTotal,
+            badgeDescription:
+              chatUnreadTotal === 1 ? "unread message" : "unread messages",
+          },
+          {
+            kind: "link",
+            name: "Members",
+            href: "/dashboard/community/members",
+          },
+        ],
       });
-    };
-
-    // Add Published Events for Super Admin, Administrator, and Leader
-    if (
-      userRole === "Super Admin" ||
-      userRole === "Administrator" ||
-      userRole === "Leader"
-    ) {
-      baseItems.push({
-        name: "Published Events",
-        href: "/dashboard/published-events",
-        icon: GlobeAltIcon,
+    } else if (isLeader || (isMember && !isAdmin)) {
+      primary.push({
+        kind: "link",
+        name: "Community",
+        href: "/dashboard/management",
+        icon: UsersIcon,
       });
     }
 
-    // Add role-specific items according to requirements
-    if (userRole === "Super Admin" || userRole === "Administrator") {
-      baseItems.push(
-        {
-          name: "Create Event",
-          href: "/dashboard/new-event",
-          icon: PlusIcon,
-        },
-        {
-          name: "Role Templates",
-          href: "/dashboard/configure-roles-templates",
-          icon: DocumentDuplicateIcon,
-        },
-      );
-      if (communityNavigationEnabled) {
-        addAlumniCommunityNavigation();
-      }
-      baseItems.push(
-        {
-          name: "Promo Codes",
-          href: "/dashboard/admin/promo-codes",
-          icon: TicketIcon,
-        },
-        {
-          name: "Income History",
-          href: "/dashboard/income-history",
-          icon: CreditCardIcon,
-        },
-      );
+    if (isAdmin) {
+      const adminLinks: NavLink[] = [];
       if (communityNavigationEnabled) {
         if (canManageUsers) {
-          baseItems.push({
+          adminLinks.push({
+            kind: "link",
             name: "User Management",
             href: "/dashboard/admin/users",
             activePathPrefixes: ["/dashboard/admin/users"],
-            icon: UsersIcon,
           });
         }
       } else {
-        baseItems.push({
+        adminLinks.push({
+          kind: "link",
           name: "Management",
           href: "/dashboard/management",
-          icon: UsersIcon,
         });
       }
-    } else if (userRole === "Leader") {
-      baseItems.push(
+      adminLinks.push(
         {
-          name: "Create Event",
-          href: "/dashboard/new-event",
-          icon: PlusIcon,
+          kind: "link",
+          name: "Promo Codes",
+          href: "/dashboard/admin/promo-codes",
+          activePathPrefixes: ["/dashboard/admin/promo-codes"],
         },
-        {
-          name: "Role Templates",
-          href: "/dashboard/configure-roles-templates",
-          icon: DocumentDuplicateIcon,
-        },
+        { kind: "link", name: "Income History", href: "/dashboard/income-history" },
+        { kind: "link", name: "Analytics", href: "/dashboard/analytics" },
+        { kind: "link", name: "Audit Logs", href: "/dashboard/audit-logs" },
       );
-      if (communityNavigationEnabled) {
-        addAlumniCommunityNavigation();
-      } else {
-        baseItems.push({
-          name: "Community",
-          href: "/dashboard/management",
-          icon: UsersIcon,
+      if (userRole === "Super Admin") {
+        adminLinks.push({
+          kind: "link",
+          name: "System Monitor",
+          href: "/dashboard/monitor",
         });
       }
-    } else if (userRole === "Participant" || userRole === "Guest Expert") {
-      // Participants can now see Create Event (with on-page access notice) and Community
-      baseItems.push({
-        name: "Create Event",
-        href: "/dashboard/new-event",
-        icon: PlusIcon,
+      primary.push({
+        kind: "group",
+        id: "admin",
+        name: "Administration",
+        icon: Cog6ToothIcon,
+        children: adminLinks,
       });
-      if (communityNavigationEnabled) {
-        addAlumniCommunityNavigation();
-      } else {
-        baseItems.push({
-          name: "Community",
-          href: "/dashboard/management",
-          icon: UsersIcon,
-        });
-      }
-    }
-
-    // Add System Messages for all logged-in users
-    baseItems.push({
-      name: "System Messages",
-      href: "/dashboard/system-messages",
-      icon: SpeakerWaveIcon,
-      badgeCount: systemMessageUnreadCount,
-    });
-
-    // Add Analytics for all roles (page handles access notice for Participants)
-    if (
-      userRole === "Super Admin" ||
-      userRole === "Administrator" ||
-      userRole === "Leader" ||
-      userRole === "Participant" ||
-      userRole === "Guest Expert"
-    ) {
-      baseItems.push({
+    } else if (isMember) {
+      primary.push({
+        kind: "link",
         name: "Analytics",
         href: "/dashboard/analytics",
         icon: ChartBarIcon,
       });
     }
 
-    // Add System Monitoring for Super Admin only
-    if (userRole === "Super Admin") {
-      baseItems.push({
-        name: "System Monitor",
-        href: "/dashboard/monitor",
-        icon: ComputerDesktopIcon,
-      });
-    }
+    const secondary: NavEntry[] = [
+      {
+        kind: "link",
+        name: "System Messages",
+        href: "/dashboard/system-messages",
+        icon: SpeakerWaveIcon,
+        badgeCount: systemMessageUnreadCount,
+      },
+      {
+        kind: "link",
+        name: "Feedback",
+        href: "/dashboard/feedback",
+        icon: ChatBubbleLeftRightIcon,
+      },
+      { kind: "link", name: "Donate", href: "/dashboard/donate", icon: HeartIcon },
+      {
+        kind: "action",
+        name: "Log Out",
+        icon: ArrowRightOnRectangleIcon,
+        onClick: () => setShowLogoutConfirm(true),
+      },
+    ];
 
-    // Add Audit Logs for Super Admin and Administrator
-    if (userRole === "Super Admin" || userRole === "Administrator") {
-      baseItems.push({
-        name: "Audit Logs",
-        href: "/dashboard/audit-logs",
-        icon: ShieldCheckIcon,
-      });
-    }
-
-    // Add Feedback for all users (above Log Out)
-    baseItems.push({
-      name: "Feedback",
-      href: "/dashboard/feedback",
-      icon: ChatBubbleLeftRightIcon,
-    });
-
-    // Add Donate for all users (between Feedback and Log Out)
-    baseItems.push({
-      name: "Donate",
-      href: "/dashboard/donate",
-      icon: HeartIcon,
-    });
-
-    baseItems.push({
-      name: "Log Out",
-      icon: ArrowRightOnRectangleIcon,
-      onClick: () => setShowLogoutConfirm(true),
-    });
-
-    return baseItems;
+    return { primary, secondary };
   };
 
-  const navigationItems = getNavigationItems();
+  const { primary, secondary } = buildNavigation();
+  const allGroups = primary.filter(
+    (entry): entry is NavGroup => entry.kind === "group",
+  );
+  const activeGroupId = allGroups.find((group) =>
+    group.children.some((child) => isLinkActive(child, pathname)),
+  )?.id;
+
+  // Opening a page inside a collapsed section reveals where you are.
+  useEffect(() => {
+    if (!activeGroupId) return;
+    setGroupState((current) => {
+      if (current[activeGroupId]) return current;
+      const next = { ...current, [activeGroupId]: true };
+      writeStoredGroupState(next);
+      return next;
+    });
+  }, [activeGroupId]);
+
+  const toggleGroup = (id: string) => {
+    setGroupState((current) => {
+      const next = { ...current, [id]: !current[id] };
+      writeStoredGroupState(next);
+      return next;
+    });
+  };
+
+  const closeOnNavigate = () => setSidebarOpen(false);
+
+  const renderBadge = (count: number | undefined) =>
+    count !== undefined && count > 0 ? (
+      <span
+        aria-hidden="true"
+        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-px text-[11px] font-semibold leading-4 text-white tabular-nums"
+      >
+        {formatBadge(count)}
+      </span>
+    ) : null;
+
+  const linkLabel = (link: NavLink) =>
+    link.badgeCount && link.badgeCount > 0
+      ? `${link.name}, ${link.badgeCount} ${link.badgeDescription ?? "unread messages"}`
+      : undefined;
+
+  const activePill = (
+    <motion.span
+      aria-hidden="true"
+      className="absolute inset-0 -z-10 rounded-lg bg-white shadow-sm ring-1 ring-gray-200/80"
+      layoutId="sidebar-active-pill"
+      transition={{ type: "spring", stiffness: 520, damping: 40, mass: 0.8 }}
+    />
+  );
+
+  const renderTopLink = (link: NavLink) => {
+    const Icon = link.icon;
+    const active = isLinkActive(link, pathname);
+    return (
+      <li
+        className={
+          isMobileBottomNavigationHref(link.href) ? "hidden md:list-item" : undefined
+        }
+        key={link.name}
+      >
+        <Link
+          aria-current={active ? "page" : undefined}
+          aria-label={linkLabel(link)}
+          className={`group relative isolate flex items-center gap-3 rounded-lg px-3 py-2 text-[0.9375rem] font-medium transition-colors duration-150 ${
+            active
+              ? "text-brand-800"
+              : "text-gray-600 hover:bg-gray-200/50 hover:text-gray-900"
+          }`}
+          onClick={closeOnNavigate}
+          to={link.href}
+        >
+          {active && activePill}
+          {Icon && (
+            <Icon
+              className={`h-[1.125rem] w-[1.125rem] shrink-0 transition-colors ${
+                active ? "text-brand-600" : "text-gray-400 group-hover:text-gray-600"
+              }`}
+            />
+          )}
+          <span className="truncate">{link.name}</span>
+          {renderBadge(link.badgeCount)}
+        </Link>
+      </li>
+    );
+  };
+
+  const renderAction = (action: NavAction) => {
+    const Icon = action.icon;
+    return (
+      <li key={action.name}>
+        <button
+          className="group flex w-full items-center gap-3 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-[0.9375rem] font-medium text-gray-600 transition-colors hover:bg-gray-200/50 hover:text-gray-900"
+          onClick={() => {
+            setSidebarOpen(false);
+            action.onClick();
+          }}
+          type="button"
+        >
+          <Icon className="h-[1.125rem] w-[1.125rem] shrink-0 text-gray-400 transition-colors group-hover:text-gray-600" />
+          <span>{action.name}</span>
+        </button>
+      </li>
+    );
+  };
+
+  const renderGroup = (group: NavGroup) => {
+    const Icon = group.icon;
+    const open = Boolean(groupState[group.id]);
+    const containsActive = group.id === activeGroupId;
+    const badge = groupBadgeCount(group);
+    const panelId = `${idPrefix}-${group.id}`;
+    const collapsedBadge = !open && badge > 0;
+
+    return (
+      <li key={group.id}>
+        <button
+          aria-controls={panelId}
+          aria-expanded={open}
+          aria-label={
+            collapsedBadge
+              ? `${group.name}, ${badge} ${group.badgeDescription ?? "updates"}`
+              : undefined
+          }
+          className={`group flex w-full items-center gap-3 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-[0.9375rem] font-medium transition-colors hover:bg-gray-200/50 ${
+            containsActive ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+          }`}
+          onClick={() => toggleGroup(group.id)}
+          type="button"
+        >
+          <Icon
+            className={`h-[1.125rem] w-[1.125rem] shrink-0 transition-colors ${
+              containsActive ? "text-brand-600" : "text-gray-400 group-hover:text-gray-600"
+            }`}
+          />
+          <span className="truncate">{group.name}</span>
+          {collapsedBadge ? renderBadge(badge) : <span className="ml-auto" />}
+          <ChevronRightIcon
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-200 ease-out-expo ${
+              open ? "rotate-90" : ""
+            }`}
+          />
+        </button>
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              animate={{ height: "auto", opacity: 1 }}
+              className="overflow-hidden"
+              exit={{ height: 0, opacity: 0 }}
+              id={panelId}
+              initial={{ height: 0, opacity: 0 }}
+              key="panel"
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <ul className="relative ml-[1.3rem] mt-0.5 space-y-px border-l border-gray-200 pb-1 pl-3">
+                {group.children.map((child) => {
+                  const active = isLinkActive(child, pathname);
+                  return (
+                    <li
+                      className={
+                        isMobileBottomNavigationHref(child.href)
+                          ? "hidden md:list-item"
+                          : undefined
+                      }
+                      key={child.name}
+                    >
+                      <Link
+                        aria-current={active ? "page" : undefined}
+                        aria-label={linkLabel(child)}
+                        className={`relative isolate flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                          active
+                            ? "font-semibold text-brand-800"
+                            : "font-medium text-gray-500 hover:bg-gray-200/50 hover:text-gray-900"
+                        }`}
+                        onClick={closeOnNavigate}
+                        to={child.href}
+                      >
+                        {active && activePill}
+                        {active && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute -left-[0.8125rem] top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-brand-500"
+                          />
+                        )}
+                        <span className="truncate">{child.name}</span>
+                        {renderBadge(child.badgeCount)}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </li>
+    );
+  };
+
+  const renderEntry = (entry: NavEntry) => {
+    if (entry.kind === "group") return renderGroup(entry);
+    if (entry.kind === "action") return renderAction(entry);
+    return renderTopLink(entry);
+  };
 
   return (
     <>
       {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div
-          aria-hidden="true"
-          className="fixed inset-0 z-50 bg-black bg-opacity-50 md:z-30 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            animate={{ opacity: 1 }}
+            aria-hidden="true"
+            className="fixed inset-0 z-50 bg-gray-950/40 backdrop-blur-[2px] md:z-30 lg:hidden"
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            transition={{ duration: 0.2 }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar */}
       <nav
@@ -476,10 +744,10 @@ export default function Sidebar({
         aria-label="Primary navigation"
         className={`
           fixed inset-x-0 bottom-0 z-[60] max-h-[85dvh]
-          rounded-t-2xl border-t bg-white shadow-xl
-          transform transition-transform duration-300 ease-in-out
+          rounded-t-2xl border-t border-gray-200 bg-gray-50 shadow-xl
+          transform transition-transform duration-300 ease-out-expo
           md:inset-y-0 md:left-0 md:right-auto md:bottom-auto md:h-full md:max-h-none md:w-64
-          md:rounded-none md:border-r md:border-t-0 md:shadow-sm lg:z-40 lg:translate-x-0
+          md:rounded-none md:border-r md:border-t-0 md:shadow-none lg:z-40 lg:translate-x-0
           ${
             sidebarOpen
               ? "translate-y-0 md:translate-x-0"
@@ -491,89 +759,28 @@ export default function Sidebar({
         ref={navigationRef}
         tabIndex={-1}
       >
-        <div className="max-h-[inherit] overflow-y-auto p-4 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] pt-12 md:h-full md:max-h-none md:pb-4 md:pt-20">
-          <p className="absolute left-4 top-4 text-base font-semibold text-gray-900 md:hidden">
+        <div className="flex max-h-[inherit] flex-col overflow-y-auto px-3 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] pt-12 md:h-full md:max-h-none md:pb-4 md:pt-20">
+          <span
+            aria-hidden="true"
+            className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-gray-300 md:hidden"
+          />
+          <p className="absolute left-5 top-4 font-display text-lg font-semibold text-gray-900 md:hidden">
             Menu
           </p>
-          <ul className="space-y-2">
-            {navigationItems.map((item) => {
-              const Icon = item.icon;
-              // More robust active state detection
-              const isActive = !!(
-                item.href &&
-                (location.pathname === item.href ||
-                  item.activePathPrefixes?.some(
-                    (prefix) =>
-                      location.pathname === prefix ||
-                      location.pathname.startsWith(`${prefix}/`),
-                  ) ||
-                  (item.href === "/dashboard/emba-program" &&
-                    location.pathname === "/dashboard"))
-              );
-
-              return (
-                <li
-                  className={
-                    isMobileBottomNavigationHref(item.href)
-                      ? "hidden md:list-item"
-                      : undefined
-                  }
-                  key={item.name}
-                >
-                    {item.href ? (
-                      <Link
-                        aria-current={isActive ? "page" : undefined}
-                        to={item.href}
-                        aria-label={
-                          item.badgeCount && item.badgeCount > 0
-                            ? `${item.name}, ${item.badgeCount} ${item.badgeDescription ?? "unread messages"}`
-                            : undefined
-                        }
-                        className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                          isActive
-                            ? "bg-blue-50 text-blue-700 border-r-2 border-blue-700"
-                            : "text-gray-700 hover:bg-gray-50"
-                        }`}
-                        onClick={() => setSidebarOpen(false)} // Close mobile menu on click
-                      >
-                        <Icon className="w-5 h-5 flex-shrink-0" />
-                        <span className="font-medium">{item.name}</span>
-                        {item.badgeCount !== undefined &&
-                          item.badgeCount > 0 && (
-                            <span
-                              aria-hidden="true"
-                              className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white"
-                            >
-                              {item.badgeCount > 99
-                                ? "99+"
-                                : item.badgeCount}
-                            </span>
-                          )}
-                      </Link>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setSidebarOpen(false);
-                          item.onClick?.();
-                        }}
-                        className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
-                        type="button"
-                      >
-                        <Icon className="w-5 h-5 flex-shrink-0" />
-                        <span className="font-medium">{item.name}</span>
-                      </button>
-                    )}
-                </li>
-              );
-            })}
-          </ul>
+          <LayoutGroup id="sidebar">
+            <ul className="space-y-0.5">{primary.map(renderEntry)}</ul>
+            <div className="mt-auto pt-6">
+              <div className="mx-3 mb-3 border-t border-gray-200" />
+              <ul className="space-y-0.5">{secondary.map(renderEntry)}</ul>
+            </div>
+          </LayoutGroup>
           <button
             aria-label="Close navigation menu"
-            className="absolute right-4 top-4 rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden"
+            className="absolute right-3 top-3 rounded-full border-0 bg-transparent p-2 text-gray-500 hover:bg-gray-200/60 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 lg:hidden"
             onClick={() => setSidebarOpen(false)}
             type="button"
           >
-            <XMarkIcon aria-hidden="true" className="h-6 w-6" />
+            <XMarkIcon aria-hidden="true" className="h-5 w-5" />
           </button>
           <span aria-atomic="true" aria-live="polite" className="sr-only">
             {helpNotificationCount > 0
